@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Taxonomy editor</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F3F4F6}
+a{color:#2F4FD8}a:hover{color:#1F37A3}
+button{font:inherit;color:inherit}
+input,textarea{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="min-height: 940px; background: #F3F4F6; color: #15191F; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; line-height: 1.45; display: flex; flex-direction: column">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 10px 20px; background: #15191F; color: #F3F4F6">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 14px; letter-spacing: 0.02em">terminology</div>
+    <nav aria-label="Editor pages" style="display: flex; gap: 4px">
+      <a href="Main.dc.html" style="padding: 8px 12px; border-radius: 6px; background: #2B313A; color: #FFFFFF; text-decoration: none; font-weight: 500">Taxonomy</a>
+      <a href="Sets.dc.html" style="padding: 8px 12px; border-radius: 6px; color: #C9CED6; text-decoration: none">Concept sets</a>
+      <a href="#changes" style="padding: 8px 12px; border-radius: 6px; color: #C9CED6; text-decoration: none">Changelog</a>
+      <a href="#changes" style="padding: 8px 12px; border-radius: 6px; color: #C9CED6; text-decoration: none">Subscribers</a>
+    </nav>
+    <div style="flex: 1 1 auto"></div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #C9CED6">
+      <span>scheme <strong style="color: #FFFFFF; font-weight: 500">subjects</strong></span>
+      <span>at <strong style="color: #FFFFFF; font-weight: 500">#142</strong></span>
+      <span>CC @142</span>
+      <span style="color: #F5B97F">corpus-mcp @138 held</span>
+      <span>quote-mcp @142</span>
+    </div>
+  </header>
+
+  <main style="flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: stretch; gap: 1px; background: #E2E5EA">
+
+    <!-- Outline -->
+    <section aria-label="Outline" style="flex: 1 1 340px; max-width: 100%; background: #FFFFFF; display: flex; flex-direction: column; min-width: 0">
+      <div style="padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid #E2E5EA">
+        <div style="display: flex; align-items: baseline; justify-content: space-between">
+          <h2 style="margin: 0; font-size: 15px; font-weight: 600">Subjects</h2>
+          <span style="font-size: 12px; color: #59616D">22 terms · 3 top</span>
+        </div>
+        <label style="display: flex; align-items: center; gap: 8px; border: 1px solid #CDD2D9; border-radius: 6px; padding: 0 10px; height: 36px">
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#59616D" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+          <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Filter terms</span>
+          <input type="text" placeholder="Filter terms  ( / )" value="{{query}}" onInput="{{onFilter}}" style="border: 0; outline: none; flex: 1 1 auto; min-width: 0; background: transparent; font-size: 13px">
+        </label>
+      </div>
+      <div style="display: flex; align-items: center; padding: 6px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #59616D; border-bottom: 1px solid #EEF0F3">
+        <span style="flex: 1 1 auto">term</span>
+        <span title="CC puzzles" style="width: 34px; text-align: right">puz</span>
+        <span title="corpus-mcp books" style="width: 34px; text-align: right">bks</span>
+        <span title="quotes" style="width: 34px; text-align: right">qts</span>
+      </div>
+      <div style="flex: 1 1 auto; overflow-y: auto; padding: 4px 0 12px">
+        <sc-for list="{{rows}}" as="row" hint-placeholder-count="12">
+          <button type="button" onClick="{{row.pick}}" aria-current="{{row.current}}" style="{{row.rowStyle}}">
+            <span style="width: 14px; flex: 0 0 14px; display: inline-flex; justify-content: center">
+              <sc-if value="{{row.hasKids}}" hint-placeholder-val="{{true}}">
+                <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#59616D" stroke-width="1.6"><path d="M2 3.5l3 3 3-3"></path></svg>
+              </sc-if>
+            </span>
+            <span style="flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden">
+              <span style="{{row.labelStyle}}">{{row.label}}</span>
+              <sc-if value="{{row.badge}}" hint-placeholder-val="{{false}}">
+                <span style="{{row.badgeStyle}}">{{row.badge}}</span>
+              </sc-if>
+            </span>
+            <span style="width: 34px; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #3D444E">{{row.u0}}</span>
+            <span style="width: 34px; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #3D444E">{{row.u1}}</span>
+            <span style="width: 34px; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #3D444E">{{row.u2}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="padding: 10px 16px; border-top: 1px solid #E2E5EA; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: #59616D">
+        <span><kbd style="font-family: 'IBM Plex Mono', monospace; border: 1px solid #CDD2D9; border-radius: 4px; padding: 0 4px">Tab</kbd> move under</span>
+        <span><kbd style="font-family: 'IBM Plex Mono', monospace; border: 1px solid #CDD2D9; border-radius: 4px; padding: 0 4px">⇧Tab</kbd> move out</span>
+        <span><kbd style="font-family: 'IBM Plex Mono', monospace; border: 1px solid #CDD2D9; border-radius: 4px; padding: 0 4px">Enter</kbd> new sibling</span>
+        <span>grey = no usage</span>
+      </div>
+    </section>
+
+    <!-- Term -->
+    <section aria-label="Term" style="flex: 999 1 520px; min-width: 0; background: #FFFFFF; display: flex; flex-direction: column">
+      <div style="padding: 20px 28px 16px; border-bottom: 1px solid #E2E5EA; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #59616D">
+          <span>{{sel.crumbs}}</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px">
+          <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">{{sel.label}}</h1>
+          <span style="{{sel.statusStyle}}">{{sel.status}}</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px 18px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #3D444E">
+          <span>id <strong style="font-weight: 500">{{sel.id}}</strong></span>
+          <span>path {{sel.path}}</span>
+          <span>since #{{sel.created}}</span>
+        </div>
+        <sc-if value="{{sel.banner}}" hint-placeholder-val="{{false}}">
+          <div style="{{sel.bannerStyle}}">{{sel.banner}}</div>
+        </sc-if>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px">
+          <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #CDD2D9; background: #FFFFFF; cursor: pointer">+ Narrower term</button>
+          <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #CDD2D9; background: #FFFFFF; cursor: pointer">+ Relation</button>
+          <span style="width: 1px; background: #E2E5EA; margin: 0 4px"></span>
+          <span style="align-self: center; font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: #A4460C; text-transform: uppercase; letter-spacing: 0.06em">breaking</span>
+          <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #E8B48C; background: #FFFFFF; color: #8A3A0A; cursor: pointer">Move…</button>
+          <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #E8B48C; background: #FFFFFF; color: #8A3A0A; cursor: pointer">Merge into…</button>
+          <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #E8B48C; background: #FFFFFF; color: #8A3A0A; cursor: pointer">Split…</button>
+          <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #E8B48C; background: #FFFFFF; color: #8A3A0A; cursor: pointer">Retire…</button>
+        </div>
+      </div>
+
+      <div style="padding: 20px 28px 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px 32px; align-content: start">
+
+        <div style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px">
+          <label for="scope" style="font-size: 12px; font-weight: 600; color: #3D444E; text-transform: uppercase; letter-spacing: 0.05em">Scope note</label>
+          <textarea id="scope" rows="3" placeholder="What belongs here, and what goes elsewhere." style="resize: vertical; border: 1px solid #CDD2D9; border-radius: 6px; padding: 10px 12px; font-size: 14px; line-height: 1.5">{{sel.scope}}</textarea>
+          <span style="font-size: 12px; color: #59616D">Not player copy. Saving a scope note is a free change: it goes out at once.</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <h3 style="margin: 0; font-size: 12px; font-weight: 600; color: #3D444E; text-transform: uppercase; letter-spacing: 0.05em">Alternative labels</h3>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px">
+            <sc-for list="{{sel.alt}}" as="a" hint-placeholder-count="2">
+              <span style="display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 14px; background: #EEF0F3; font-size: 13px">{{a}}</span>
+            </sc-for>
+            <button type="button" style="height: 28px; padding: 0 10px; border-radius: 14px; border: 1px dashed #A9B0BA; background: transparent; font-size: 13px; color: #3D444E; cursor: pointer">+ add</button>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <h3 style="margin: 0; font-size: 12px; font-weight: 600; color: #3D444E; text-transform: uppercase; letter-spacing: 0.05em">Relations</h3>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <sc-for list="{{sel.rel}}" as="r" hint-placeholder-count="2">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #E8EDFC; color: #1F37A3">{{r.type}}</span>
+                <span style="font-size: 13px">{{r.target}}</span>
+                <span style="font-size: 12px; color: #59616D">{{r.scheme}}</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{sel.noRel}}" hint-placeholder-val="{{false}}">
+              <span style="font-size: 13px; color: #59616D">None yet.</span>
+            </sc-if>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <h3 style="margin: 0; font-size: 12px; font-weight: 600; color: #3D444E; text-transform: uppercase; letter-spacing: 0.05em">Links</h3>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <sc-for list="{{sel.links}}" as="l" hint-placeholder-count="2">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 13px">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #59616D; width: 76px">{{l.match}}</span>
+                <span style="font-weight: 500">{{l.kind}}</span>
+                <span>{{l.label}}</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{sel.noLinks}}" hint-placeholder-val="{{false}}">
+              <span style="font-size: 13px; color: #59616D">None. Optional; add one when it helps find the term.</span>
+            </sc-if>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <h3 style="margin: 0; font-size: 12px; font-weight: 600; color: #3D444E; text-transform: uppercase; letter-spacing: 0.05em">Aliases</h3>
+          <div style="display: flex; flex-direction: column; gap: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #3D444E">
+            <sc-for list="{{sel.aliases}}" as="al" hint-placeholder-count="2">
+              <span>{{al}}</span>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <h3 style="margin: 0; font-size: 12px; font-weight: 600; color: #3D444E; text-transform: uppercase; letter-spacing: 0.05em">Used by</h3>
+          <div style="display: flex; flex-direction: column; border: 1px solid #E2E5EA; border-radius: 6px">
+            <div style="display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; font-size: 13px; border-bottom: 1px solid #EEF0F3"><span>CC</span><span style="font-family: 'IBM Plex Mono', monospace">{{sel.useCc}}</span></div>
+            <div style="display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; font-size: 13px; border-bottom: 1px solid #EEF0F3"><span>corpus-mcp</span><span style="font-family: 'IBM Plex Mono', monospace">{{sel.useCorpus}}</span></div>
+            <div style="display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; font-size: 13px"><span>quote-mcp</span><span style="font-family: 'IBM Plex Mono', monospace">{{sel.useQuote}}</span></div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <h3 style="margin: 0; font-size: 12px; font-weight: 600; color: #3D444E; text-transform: uppercase; letter-spacing: 0.05em">History</h3>
+          <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px">
+            <sc-for list="{{sel.history}}" as="h" hint-placeholder-count="3">
+              <li style="display: flex; gap: 10px; font-size: 13px">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #59616D; width: 40px; flex: 0 0 40px">#{{h.n}}</span>
+                <span>{{h.text}}</span>
+              </li>
+            </sc-for>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- Changes tray -->
+    <aside id="changes" aria-label="Changes" style="flex: 1 1 340px; max-width: 100%; min-width: 0; background: #F8F9FA; display: flex; flex-direction: column">
+      <div style="padding: 14px 16px; border-bottom: 1px solid #E2E5EA; display: flex; gap: 4px" role="tablist">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+          <button type="button" role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="{{t.style}}">{{t.label}}</button>
+        </sc-for>
+      </div>
+
+      <sc-if value="{{tabPending}}" hint-placeholder-val="{{true}}">
+        <div style="padding: 16px; display: flex; flex-direction: column; gap: 14px">
+          <article style="background: #FFFFFF; border: 1px solid #E8B48C; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #A4460C; text-transform: uppercase; letter-spacing: 0.06em">merge · breaking</span>
+              <span style="font-size: 12px; color: #59616D">proposed by you</span>
+            </div>
+            <div style="font-weight: 600">Voting Behavior → Political Behavior</div>
+            <div style="font-size: 13px; color: #3D444E">“Voting” becomes an alternative label of Political Behavior; the old id answers with its replacement.</div>
+            <div style="display: flex; flex-direction: column; gap: 0; border-top: 1px solid #EEF0F3">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #EEF0F3; font-size: 13px">
+                <span>CC <span style="color: #59616D">· 2 puzzles</span></span>
+                <span style="font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #E5F3EC; color: #1E6B47">gate: ok</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #EEF0F3; font-size: 13px">
+                <span>corpus-mcp <span style="color: #59616D">· 9 books, 14 quotes</span></span>
+                <span style="font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #FDF1E8; color: #8A3A0A">held · queues</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; font-size: 13px">
+                <span>quote-mcp <span style="color: #59616D">· not affected</span></span>
+                <span style="font-size: 12px; color: #59616D">—</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px">
+              <button type="button" style="height: 36px; padding: 0 16px; border-radius: 6px; border: 0; background: #15191F; color: #FFFFFF; font-weight: 500; cursor: pointer">Apply as #143</button>
+              <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #CDD2D9; background: #FFFFFF; cursor: pointer">Discard</button>
+            </div>
+          </article>
+
+          <div style="border: 1px solid #E2E5EA; border-radius: 8px; padding: 12px 14px; background: #FFFFFF; display: flex; flex-direction: column; gap: 4px">
+            <div style="font-size: 13px; font-weight: 600">corpus-mcp is holding at #138</div>
+            <div style="font-size: 13px; color: #3D444E">Mid-migration. 4 changes queued; they replay in order on release. Lease expires in 47 min.</div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{tabProposals}}" hint-placeholder-val="{{false}}">
+        <div style="padding: 16px; display: flex; flex-direction: column; gap: 14px">
+          <article style="background: #FFFFFF; border: 1px solid #E2E5EA; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #59616D; text-transform: uppercase; letter-spacing: 0.06em">from corpus-mcp · promote</span>
+            <div style="font-weight: 600">Civic Republicanism: provisional → active</div>
+            <div style="font-size: 13px; color: #3D444E">Evidence: 3 books and 11 quotes tagged; 5 vocabulary_report hits.</div>
+            <div style="display: flex; gap: 8px">
+              <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 0; background: #15191F; color: #FFFFFF; cursor: pointer">Accept</button>
+              <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #CDD2D9; background: #FFFFFF; cursor: pointer">Decline…</button>
+            </div>
+          </article>
+          <article style="background: #FFFFFF; border: 1px solid #E2E5EA; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #59616D; text-transform: uppercase; letter-spacing: 0.06em">from CC · new term</span>
+            <div style="font-weight: 600">Behavioral Economics, under Economics</div>
+            <div style="font-size: 13px; color: #3D444E">Evidence: 3 tag proposals found no term.</div>
+            <div style="display: flex; gap: 8px">
+              <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 0; background: #15191F; color: #FFFFFF; cursor: pointer">Add</button>
+              <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #CDD2D9; background: #FFFFFF; cursor: pointer">Edit first</button>
+              <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #CDD2D9; background: #FFFFFF; cursor: pointer">Decline…</button>
+            </div>
+          </article>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{tabApplied}}" hint-placeholder-val="{{false}}">
+        <ol style="margin: 0; padding: 8px 16px 16px; list-style: none; display: flex; flex-direction: column">
+          <sc-for list="{{applied}}" as="c" hint-placeholder-count="5">
+            <li style="display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid #E2E5EA; font-size: 13px">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #59616D; width: 40px; flex: 0 0 40px">#{{c.n}}</span>
+              <span style="flex: 1 1 auto">{{c.text}}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #59616D">{{c.kind}}</span>
+            </li>
+          </sc-for>
+        </ol>
+      </sc-if>
+    </aside>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":940}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 9, tab: 'pending', query: '' };
+  }
+  renderVals() {
+    var T = [
+      { id: 't_4m1x', label: 'Sciences & Mathematics', d: 0, slug: 'sciences-mathematics', u: [6, 22, 0], kids: true },
+      { id: 't_9q2c', label: 'Chemistry', d: 1, slug: 'chemistry', u: [5, 4, 0], kids: true },
+      { id: 't_k7aw', label: 'Organic Chemistry', d: 2, slug: 'organic-chemistry', u: [3, 1, 0] },
+      { id: 't_2vbn', label: 'Physics', d: 1, slug: 'physics', u: [9, 7, 0], kids: true },
+      { id: 't_h3ze', label: 'Mechanics', d: 2, slug: 'mechanics', u: [4, 2, 0] },
+      { id: 't_p8rd', label: 'Electromagnetism', d: 2, slug: 'electromagnetism', u: [3, 1, 0] },
+      { id: 't_x5mf', label: 'Mathematics', d: 1, slug: 'mathematics', u: [0, 0, 0] },
+      { id: 't_6tgy', label: 'Social Sciences', d: 0, slug: 'social-sciences', u: [2, 31, 12], kids: true },
+      { id: 't_c1ks', label: 'Political Science', d: 1, slug: 'political-science', u: [6, 18, 9], kids: true },
+      { id: 't_w4pe', label: 'Political Behavior', d: 2, slug: 'political-behavior', u: [4, 12, 30], created: 97,
+        scope: 'How people act politically: participation, voting, partisanship, public opinion, protest. The institutions they act within go under Political Institutions.',
+        alt: ['political participation', 'mass politics'],
+        rel: [{ type: 'related', target: 'Social Psychology', scheme: 'subjects' }, { type: 'related', target: 'civic courage', scheme: 'human-work' }],
+        links: [{ match: 'closeMatch', kind: 'LCSH', label: 'Political participation' }, { match: 'exactMatch', kind: 'Wikidata', label: '[Q-id]' }],
+        aliases: ['social-sciences/political-science/political-behavior', 'cc:political-behavior'],
+        history: [{ n: 142, text: 'Alt label “mass politics” added' }, { n: 140, text: 'Related to Social Psychology' }, { n: 121, text: 'Scope note edited' }, { n: 97, text: 'Added (seeded from CC)' }] },
+      { id: 't_m0jv', label: 'Voting Behavior', d: 2, slug: 'voting-behavior', u: [2, 9, 14], status: 'pending', created: 112,
+        banner: 'Pending merge into Political Behavior. Applies once you confirm; CC has answered its gate.', tone: 'warn',
+        aliases: ['social-sciences/political-science/voting-behavior', 'overlay:voting-behavior'],
+        history: [{ n: 112, text: 'Added (corpus-mcp overlay)' }] },
+      { id: 't_f2li', label: 'Political Theory', d: 2, slug: 'political-theory', u: [3, 6, 8], kids: true },
+      { id: 't_r9ub', label: 'Civic Republicanism', d: 3, slug: 'civic-republicanism', u: [0, 3, 11], status: 'provisional', created: 136,
+        banner: 'Provisional: coined during research in corpus-mcp. Usable for tagging now; not shown to players.', tone: 'info',
+        scope: 'Freedom as non-domination, and the civic virtue it asks of citizens.',
+        aliases: ['social-sciences/political-science/political-theory/civic-republicanism', 'overlay:civic-republicanism'],
+        history: [{ n: 136, text: 'Added (proposed by corpus-mcp)' }] },
+      { id: 't_8sdn', label: 'Psychology', d: 1, slug: 'psychology', u: [7, 15, 22], kids: true },
+      { id: 't_e6wa', label: 'Social Psychology', d: 2, slug: 'social-psychology', u: [5, 8, 17] },
+      { id: 't_3yoq', label: 'Economics', d: 1, slug: 'economics', u: [2, 4, 0] },
+      { id: 't_b7cx', label: 'Humanities', d: 0, slug: 'humanities', u: [1, 40, 25], kids: true },
+      { id: 't_j5hn', label: 'Philosophy', d: 1, slug: 'philosophy', u: [4, 21, 19], kids: true },
+      { id: 't_u1fz', label: 'Ethics', d: 2, slug: 'ethics', u: [3, 10, 12] },
+      { id: 't_n4rv', label: 'History', d: 1, slug: 'history', u: [5, 16, 3], kids: true },
+      { id: 't_y2gk', label: 'Ancient History', d: 2, slug: 'ancient-history', u: [3, 5, 0] },
+      { id: 't_q7mt', label: 'Ancient Near East', d: 2, slug: 'ancient-near-east', u: [0, 0, 0], status: 'retired', created: 88,
+        banner: 'Retired in #131, replaced by Ancient History. The id still resolves, to its replacement.', tone: 'muted',
+        aliases: ['humanities/history/ancient-near-east'],
+        history: [{ n: 131, text: 'Retired → Ancient History' }, { n: 88, text: 'Added (seeded from CC)' }] }
+    ];
+    var self = this;
+    var paths = [];
+    var stack = [];
+    T.forEach(function (t, i) {
+      stack[t.d] = t;
+      stack.length = t.d + 1;
+      paths[i] = stack.map(function (s) { return s.slug; }).join('/');
+      t.crumbs = stack.slice(0, -1).map(function (s) { return s.label; }).join('  ›  ') || 'top term';
+    });
+    var q = (this.state.query || '').toLowerCase();
+    var num = function (n) { return n ? String(n) : '·'; };
+    var rows = [];
+    T.forEach(function (t, i) {
+      if (q && t.label.toLowerCase().indexOf(q) < 0) return;
+      var on = i === self.state.sel;
+      var unused = t.u[0] + t.u[1] + t.u[2] === 0;
+      var label = 'white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: ' + (unused || t.status === 'retired' ? '#6B7280' : '#15191F') + ';';
+      if (t.status === 'provisional') label += ' border-bottom: 1px dashed #59616D;';
+      if (t.status === 'retired') label += ' text-decoration: line-through;';
+      if (t.d === 0) label += ' font-weight: 600;';
+      var badgeStyle = 'flex: 0 0 auto; font-size: 11px; padding: 1px 6px; border-radius: 8px; ' +
+        (t.status === 'pending' ? 'background: #FDF1E8; color: #8A3A0A;' : 'background: #EEF0F3; color: #3D444E;');
+      rows.push({
+        label: t.label, hasKids: !!t.kids, current: on ? 'true' : 'false',
+        badge: t.status === 'pending' ? 'merge pending' : t.status === 'provisional' ? 'provisional' : t.status === 'retired' ? 'retired' : '',
+        badgeStyle: badgeStyle, labelStyle: label,
+        u0: num(t.u[0]), u1: num(t.u[1]), u2: num(t.u[2]),
+        rowStyle: 'display: flex; align-items: center; gap: 6px; width: 100%; min-height: 34px; border: 0; text-align: left; cursor: pointer; font-size: 14px; padding: 0 16px 0 ' + (10 + t.d * 18) + 'px; background: ' + (on ? '#E8EDFC' : 'transparent') + '; box-shadow: ' + (on ? 'inset 3px 0 0 #2F4FD8' : 'none') + ';',
+        pick: function () { self.setState({ sel: i }); }
+      });
+    });
+    var t = T[this.state.sel];
+    var statusName = t.status === 'pending' ? 'active · merge pending' : (t.status || 'active');
+    var statusStyle = 'font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 12px; ' +
+      (t.status === 'provisional' ? 'border: 1px dashed #59616D; color: #3D444E;' :
+       t.status === 'retired' ? 'background: #EEF0F3; color: #3D444E;' :
+       t.status === 'pending' ? 'background: #FDF1E8; color: #8A3A0A;' : 'background: #E5F3EC; color: #1E6B47;');
+    var bannerStyle = 'font-size: 13px; padding: 10px 12px; border-radius: 6px; ' +
+      (t.tone === 'warn' ? 'background: #FDF1E8; color: #6E2E08;' : t.tone === 'info' ? 'background: #E8EDFC; color: #1F2F7A;' : 'background: #EEF0F3; color: #3D444E;');
+    var tabDefs = [['pending', 'Pending · 1'], ['proposals', 'Proposals · 2'], ['applied', 'Applied']];
+    var tabs = tabDefs.map(function (d) {
+      var on = self.state.tab === d[0];
+      return { label: d[1], on: on ? 'true' : 'false', pick: function () { self.setState({ tab: d[0] }); },
+        style: 'height: 34px; padding: 0 12px; border-radius: 6px; border: 0; cursor: pointer; font-size: 13px; font-weight: 500; background: ' + (on ? '#15191F' : 'transparent') + '; color: ' + (on ? '#FFFFFF' : '#3D444E') + ';' };
+    });
+    return {
+      rows: rows,
+      query: this.state.query,
+      onFilter: function (e) { self.setState({ query: e.target.value }); },
+      sel: {
+        label: t.label, id: t.id, path: paths[this.state.sel], crumbs: t.crumbs, created: t.created || 97,
+        status: statusName, statusStyle: statusStyle,
+        banner: t.banner || '', bannerStyle: bannerStyle,
+        scope: t.scope || '',
+        alt: t.alt || [],
+        rel: t.rel || [], noRel: !(t.rel && t.rel.length),
+        links: t.links || [], noLinks: !(t.links && t.links.length),
+        aliases: t.aliases || [paths[this.state.sel], 'cc:' + t.slug],
+        useCc: t.u[0] ? t.u[0] + ' puzzles' : 'none',
+        useCorpus: t.u[1] || t.u[2] ? t.u[1] + ' books, ' + t.u[2] + ' quotes' : 'none',
+        useQuote: 'not subscribed to subjects',
+        history: t.history || [{ n: t.created || 97, text: 'Added (seeded from CC)' }]
+      },
+      tabs: tabs,
+      tabPending: this.state.tab === 'pending',
+      tabProposals: this.state.tab === 'proposals',
+      tabApplied: this.state.tab === 'applied',
+      applied: [
+        { n: 142, text: 'Political Behavior: alt label “mass politics”', kind: 'labelled' },
+        { n: 141, text: 'Mathematics: scope note edited', kind: 'noted' },
+        { n: 140, text: 'Political Behavior related to Social Psychology', kind: 'related' },
+        { n: 139, text: 'Set “CC navigation” recipe changed', kind: 'set-changed' },
+        { n: 138, text: 'Mathematics added under Sciences & Mathematics', kind: 'added' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

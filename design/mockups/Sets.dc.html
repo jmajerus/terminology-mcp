@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Concept set editor</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F3F4F6}
+a{color:#2F4FD8}a:hover{color:#1F37A3}
+button{font:inherit;color:inherit}
+input,textarea{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="min-height: 940px; background: #F3F4F6; color: #15191F; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; line-height: 1.45; display: flex; flex-direction: column">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 10px 20px; background: #15191F; color: #F3F4F6">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 14px; letter-spacing: 0.02em">terminology</div>
+    <nav aria-label="Editor pages" style="display: flex; gap: 4px">
+      <a href="Main.dc.html" style="padding: 8px 12px; border-radius: 6px; color: #C9CED6; text-decoration: none">Taxonomy</a>
+      <a href="Sets.dc.html" style="padding: 8px 12px; border-radius: 6px; background: #2B313A; color: #FFFFFF; text-decoration: none; font-weight: 500">Concept sets</a>
+      <a href="Main.dc.html" style="padding: 8px 12px; border-radius: 6px; color: #C9CED6; text-decoration: none">Changelog</a>
+      <a href="Main.dc.html" style="padding: 8px 12px; border-radius: 6px; color: #C9CED6; text-decoration: none">Subscribers</a>
+    </nav>
+    <div style="flex: 1 1 auto"></div>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #C9CED6">at <strong style="color: #FFFFFF; font-weight: 500">#142</strong></div>
+  </header>
+
+  <main style="flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: stretch; gap: 1px; background: #E2E5EA">
+
+    <!-- Set list -->
+    <section aria-label="Concept sets" style="flex: 1 1 280px; max-width: 100%; min-width: 0; background: #FFFFFF; display: flex; flex-direction: column">
+      <div style="padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #E2E5EA">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600">Concept sets</h2>
+        <button type="button" style="height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #CDD2D9; background: #FFFFFF; font-size: 13px; cursor: pointer">+ New set</button>
+      </div>
+      <div style="padding: 8px 0 16px; display: flex; flex-direction: column">
+        <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+          <div style="display: flex; flex-direction: column">
+            <h3 style="margin: 0; padding: 12px 16px 6px; font-size: 11px; font-weight: 600; color: #59616D; text-transform: uppercase; letter-spacing: 0.06em">{{g.label}}</h3>
+            <sc-for list="{{g.items}}" as="s" hint-placeholder-count="2">
+              <button type="button" onClick="{{s.pick}}" aria-current="{{s.current}}" style="{{s.style}}">
+                <span style="display: flex; justify-content: space-between; gap: 8px; width: 100%">
+                  <span style="font-weight: 500; font-size: 14px">{{s.label}}</span>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #3D444E">{{s.count}}</span>
+                </span>
+                <span style="font-size: 12px; color: #59616D">{{s.scheme}} · {{s.owner}}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <!-- Definition -->
+    <section aria-label="Definition" style="flex: 999 1 520px; min-width: 0; background: #FFFFFF; display: flex; flex-direction: column">
+      <div style="padding: 20px 28px 16px; border-bottom: 1px solid #E2E5EA; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px">
+          <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">{{set.label}}</h1>
+          <span style="font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 12px; background: #EEF0F3; color: #3D444E">{{set.kind}}</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px 18px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #3D444E">
+          <span>slug {{set.slug}}</span>
+          <span>scheme {{set.scheme}}</span>
+          <span>owner {{set.owner}}</span>
+        </div>
+        <p style="margin: 0; font-size: 14px; color: #3D444E; max-width: 70ch">{{set.description}}</p>
+      </div>
+
+      <div style="padding: 20px 28px 28px; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+          <h2 style="margin: 0; font-size: 12px; font-weight: 600; color: #3D444E; text-transform: uppercase; letter-spacing: 0.05em">Definition</h2>
+          <div role="group" aria-label="Set type" style="display: inline-flex; border: 1px solid #CDD2D9; border-radius: 6px; overflow: hidden">
+            <button type="button" aria-pressed="{{set.isRecipe}}" style="{{set.recipeTab}}">Recipe</button>
+            <button type="button" aria-pressed="{{set.isList}}" style="{{set.listTab}}">List</button>
+          </div>
+        </div>
+
+        <sc-if value="{{set.recipe}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <sc-for list="{{set.rules}}" as="r" hint-placeholder-count="2">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid #E2E5EA; border-radius: 8px; background: #FBFBFC">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #59616D; width: 18px">{{r.n}}</span>
+                <button type="button" style="{{r.opStyle}}">{{r.op}}</button>
+                <button type="button" style="height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #CDD2D9; background: #FFFFFF; font-size: 13px; cursor: pointer">{{r.how}} ▾</button>
+                <sc-if value="{{r.term}}" hint-placeholder-val="{{true}}">
+                  <button type="button" style="height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #B9C6F3; background: #E8EDFC; color: #1F37A3; font-size: 13px; font-weight: 500; cursor: pointer">{{r.term}}</button>
+                </sc-if>
+                <sc-if value="{{r.extra}}" hint-placeholder-val="{{false}}">
+                  <span style="font-size: 13px; color: #3D444E">{{r.extra}}</span>
+                </sc-if>
+                <span style="flex: 1 1 auto"></span>
+                <span style="font-size: 12px; color: #59616D">{{r.effect}}</span>
+                <button type="button" aria-label="Remove rule" style="width: 32px; height: 32px; border-radius: 6px; border: 0; background: transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center">
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#59616D" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                </button>
+              </div>
+            </sc-for>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px">
+              <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px dashed #A9B0BA; background: transparent; font-size: 13px; cursor: pointer">+ Include…</button>
+              <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px dashed #A9B0BA; background: transparent; font-size: 13px; cursor: pointer">+ Exclude…</button>
+            </div>
+            <p style="margin: 4px 0 0; font-size: 12px; color: #59616D; max-width: 70ch">A recipe is worked out on every read, so a term added later joins the sets that reach it. Rules apply top to bottom; excludes win.</p>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{set.list}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; flex-wrap: wrap; gap: 6px">
+              <sc-for list="{{set.members}}" as="m" hint-placeholder-count="4">
+                <span style="display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px 0 12px; border-radius: 16px; background: #E8EDFC; color: #1F37A3; font-size: 13px; font-weight: 500">{{m}}
+                  <button type="button" aria-label="Remove" style="width: 22px; height: 22px; border-radius: 11px; border: 0; background: transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center">
+                    <svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#1F37A3" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                  </button>
+                </span>
+              </sc-for>
+            </div>
+            <label style="display: flex; align-items: center; gap: 8px; border: 1px solid #CDD2D9; border-radius: 6px; padding: 0 10px; height: 38px; max-width: 420px">
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#59616D" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+              <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Add a term</span>
+              <input type="text" placeholder="Add a term by label, alt label, or id" style="border: 0; outline: none; flex: 1 1 auto; min-width: 0; background: transparent; font-size: 13px">
+            </label>
+            <p style="margin: 4px 0 0; font-size: 12px; color: #59616D; max-width: 70ch">A list is exactly these terms. Adding one is a free change; a member that is retired shows its replacement until you swap it.</p>
+          </div>
+        </sc-if>
+
+        <div style="margin-top: 8px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px">
+          <div style="border: 1px solid #E2E5EA; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+            <span style="font-size: 12px; font-weight: 600; color: #3D444E; text-transform: uppercase; letter-spacing: 0.05em">Used by</span>
+            <span style="font-size: 13px">{{set.usedBy}}</span>
+          </div>
+          <div style="border: 1px solid #E2E5EA; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+            <span style="font-size: 12px; font-weight: 600; color: #3D444E; text-transform: uppercase; letter-spacing: 0.05em">Deeper terms</span>
+            <span style="font-size: 13px">{{set.rollup}}</span>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px">
+          <button type="button" style="height: 36px; padding: 0 16px; border-radius: 6px; border: 0; background: #15191F; color: #FFFFFF; font-weight: 500; cursor: pointer">Save as #143</button>
+          <button type="button" style="height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #CDD2D9; background: #FFFFFF; cursor: pointer">Revert</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Expansion -->
+    <aside aria-label="Expansion" style="flex: 1 1 380px; max-width: 100%; min-width: 0; background: #F8F9FA; display: flex; flex-direction: column">
+      <div style="padding: 16px; border-bottom: 1px solid #E2E5EA; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+          <h2 style="margin: 0; font-size: 15px; font-weight: 600">Expansion</h2>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #59616D">at #142</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px">
+          <span style="font-size: 28px; font-weight: 600; letter-spacing: -0.01em">{{set.count}}</span>
+          <span style="font-size: 13px; color: #3D444E">terms</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #FFFFFF; border: 1px solid #E2E5EA">{{set.diff}}</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: #3D444E">
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #2F4FD8"></span>in the set</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; border: 1.5px solid #6B7280"></span>context only</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; border: 1.5px solid #A4460C"></span>left out</span>
+        </div>
+      </div>
+      <ul style="margin: 0; padding: 8px 0 16px; list-style: none; display: flex; flex-direction: column">
+        <sc-for list="{{set.rows}}" as="x" hint-placeholder-count="8">
+          <li style="{{x.rowStyle}}">
+            <span style="{{x.markStyle}}"></span>
+            <span style="{{x.labelStyle}}">{{x.label}}</span>
+            <sc-if value="{{x.tag}}" hint-placeholder-val="{{false}}">
+              <span style="{{x.tagStyle}}">{{x.tag}}</span>
+            </sc-if>
+            <span style="flex: 1 1 auto"></span>
+            <span style="font-size: 12px; color: #59616D; text-align: right">{{x.why}}</span>
+          </li>
+        </sc-for>
+      </ul>
+    </aside>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":940}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 'despair' };
+  }
+  renderVals() {
+    var self = this;
+    var S = {
+      'despair': {
+        group: 'Themes', label: 'Despair and its neighbours', slug: 'despair', scheme: 'human-work', owner: 'quote-mcp', kind: 'theme',
+        description: 'A starting point on the public site: despair, and what it is set against.',
+        rules: [
+          { op: 'include', how: 'around', term: 'despair', extra: 'depth 1 · related, opposite', effect: '6 terms' },
+          { op: 'exclude', how: 'term', term: 'pain', effect: '−1' }
+        ],
+        count: 5, diff: '+1 since #139',
+        usedBy: 'quote-mcp: search, the public site’s starting points, the maps.',
+        rollup: 'Not used: human-work is a poly scheme, and themes don’t roll up.',
+        rows: [
+          { label: 'despair', d: 0, m: 'in', why: 'seed' },
+          { label: 'hopelessness', d: 1, m: 'in', why: 'related' },
+          { label: 'resignation', d: 1, m: 'in', why: 'related' },
+          { label: 'meaninglessness', d: 1, m: 'in', tag: 'new', why: 'related since #139' },
+          { label: 'hope', d: 1, m: 'in', why: 'opposite' },
+          { label: 'pain', d: 1, m: 'out', why: 'excluded by rule 2' }
+        ]
+      },
+      'cc-nav': {
+        group: 'Profiles', label: 'CC navigation', slug: 'cc-navigation', scheme: 'subjects', owner: 'CC', kind: 'profile',
+        description: 'The level CC shows players: top terms and two levels below. CC hides terms with no puzzles itself.',
+        rules: [
+          { op: 'include', how: 'all terms', term: '', extra: 'depth ≤ 2', effect: '20 terms' },
+          { op: 'exclude', how: 'status', term: '', extra: 'provisional', effect: '−0' }
+        ],
+        count: 20, diff: '+1 −1 since #131',
+        usedBy: 'CC, at each cursor advance; navigation and catalogue pages.',
+        rollup: 'Roll up to the nearest ancestor in the set. Civic Republicanism → Political Theory.',
+        rows: [
+          { label: 'Social Sciences', d: 0, m: 'in', why: '' },
+          { label: 'Political Science', d: 1, m: 'in', why: '' },
+          { label: 'Political Behavior', d: 2, m: 'in', why: '' },
+          { label: 'Voting Behavior', d: 2, m: 'in', tag: 'merge pending', why: '' },
+          { label: 'Political Theory', d: 2, m: 'in', why: '' },
+          { label: 'Civic Republicanism', d: 3, m: 'out', why: 'depth 3 → Political Theory' },
+          { label: 'Psychology', d: 1, m: 'in', why: '' },
+          { label: 'Social Psychology', d: 2, m: 'in', why: '' },
+          { label: 'Economics', d: 1, m: 'in', why: '' },
+          { label: 'Humanities', d: 0, m: 'in', why: '' },
+          { label: 'History', d: 1, m: 'in', why: '' },
+          { label: 'Ancient History', d: 2, m: 'in', tag: 'new', why: 'since #131' },
+          { label: 'Ancient Near East', d: 2, m: 'out', tag: 'gone', why: 'retired #131' }
+        ]
+      },
+      'polsci': {
+        group: 'Profiles', label: 'Political science shelf', slug: 'political-science-shelf', scheme: 'subjects', owner: 'corpus-mcp', kind: 'profile',
+        description: 'The terms corpus-mcp offers when tagging books on the political science shelf.',
+        rules: [
+          { op: 'include', how: 'narrower of', term: 'Political Science', extra: 'any depth, with itself', effect: '5 terms' },
+          { op: 'include', how: 'term', term: 'Ethics', effect: '+1' }
+        ],
+        count: 6, diff: 'no change since #136',
+        usedBy: 'corpus-mcp: tag suggestions and the tagging worklist.',
+        rollup: 'Keep the leaf: this profile uses the full depth.',
+        rows: [
+          { label: 'Social Sciences', d: 0, m: 'ctx', why: '' },
+          { label: 'Political Science', d: 1, m: 'in', why: 'rule 1' },
+          { label: 'Political Behavior', d: 2, m: 'in', why: 'rule 1' },
+          { label: 'Voting Behavior', d: 2, m: 'in', tag: 'merge pending', why: 'rule 1' },
+          { label: 'Political Theory', d: 2, m: 'in', why: 'rule 1' },
+          { label: 'Civic Republicanism', d: 3, m: 'in', tag: 'provisional', why: 'rule 1' },
+          { label: 'Humanities', d: 0, m: 'ctx', why: '' },
+          { label: 'Philosophy', d: 1, m: 'ctx', why: '' },
+          { label: 'Ethics', d: 2, m: 'in', why: 'rule 2' }
+        ]
+      },
+      'wc-start': {
+        group: 'Map views', label: 'WorkCreatively starting points', slug: 'workcreatively-start', scheme: 'human-work', owner: 'editor', kind: 'map view', list: true,
+        description: 'The nodes a graph view opens on. Hand-picked, so it is a list rather than a recipe.',
+        members: ['mobbing', 'false self', 'psychic prison', 'despair'],
+        count: 4, diff: 'no change since #128',
+        usedBy: 'WorkCreatively’s graph view (planned).',
+        rollup: 'Not used: a map view shows the terms themselves.',
+        rows: [
+          { label: 'mobbing', d: 0, m: 'in', why: 'listed' },
+          { label: 'false self', d: 0, m: 'in', why: 'listed' },
+          { label: 'psychic prison', d: 0, m: 'in', why: 'listed' },
+          { label: 'despair', d: 0, m: 'in', why: 'listed' }
+        ]
+      }
+    };
+    var order = ['despair', 'cc-nav', 'polsci', 'wc-start'];
+    var groupNames = ['Themes', 'Profiles', 'Map views'];
+    var groups = groupNames.map(function (gn) {
+      return {
+        label: gn,
+        items: order.filter(function (k) { return S[k].group === gn; }).map(function (k) {
+          var on = self.state.sel === k;
+          return {
+            label: S[k].label, count: S[k].count, scheme: S[k].scheme, owner: S[k].owner,
+            current: on ? 'true' : 'false',
+            pick: function () { self.setState({ sel: k }); },
+            style: 'display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 44px; padding: 8px 16px; border: 0; text-align: left; cursor: pointer; background: ' + (on ? '#E8EDFC' : 'transparent') + '; box-shadow: ' + (on ? 'inset 3px 0 0 #2F4FD8' : 'none') + ';'
+          };
+        })
+      };
+    });
+    var s = S[this.state.sel];
+    var tabOn = 'height: 32px; padding: 0 14px; border: 0; background: #15191F; color: #FFFFFF; font-size: 13px; font-weight: 500; cursor: pointer;';
+    var tabOff = 'height: 32px; padding: 0 14px; border: 0; background: #FFFFFF; color: #3D444E; font-size: 13px; cursor: pointer;';
+    var rules = (s.rules || []).map(function (r, i) {
+      return {
+        n: i + 1, op: r.op === 'include' ? 'Include' : 'Exclude', how: r.how, term: r.term || '', extra: r.extra || '', effect: r.effect,
+        opStyle: 'height: 32px; padding: 0 10px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; ' +
+          (r.op === 'include' ? 'border: 1px solid #A8D5BD; background: #E5F3EC; color: #1E6B47;' : 'border: 1px solid #E8B48C; background: #FDF1E8; color: #8A3A0A;')
+      };
+    });
+    var rows = s.rows.map(function (x) {
+      var mark = x.m === 'in' ? 'background: #2F4FD8;' : x.m === 'out' ? 'border: 1.5px solid #A4460C;' : 'border: 1.5px solid #6B7280;';
+      var tagStyle = 'flex: 0 0 auto; font-size: 11px; padding: 1px 6px; border-radius: 8px; ' +
+        (x.tag === 'new' ? 'background: #E5F3EC; color: #1E6B47;' : x.tag === 'gone' || x.tag === 'merge pending' ? 'background: #FDF1E8; color: #8A3A0A;' : 'background: #EEF0F3; color: #3D444E;');
+      return {
+        label: x.label, tag: x.tag || '', tagStyle: tagStyle, why: x.why,
+        rowStyle: 'display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 16px 0 ' + (16 + x.d * 18) + 'px;',
+        markStyle: 'flex: 0 0 10px; width: 10px; height: 10px; border-radius: 2px; box-sizing: border-box; ' + mark,
+        labelStyle: 'font-size: 14px; ' + (x.m === 'in' ? 'color: #15191F; font-weight: 500;' : x.m === 'out' ? 'color: #6B7280; text-decoration: line-through;' : 'color: #6B7280;')
+      };
+    });
+    return {
+      groups: groups,
+      set: {
+        label: s.label, slug: s.slug, scheme: s.scheme, owner: s.owner, kind: s.kind, description: s.description,
+        recipe: !s.list, list: !!s.list,
+        isRecipe: s.list ? 'false' : 'true', isList: s.list ? 'true' : 'false',
+        recipeTab: s.list ? tabOff : tabOn, listTab: s.list ? tabOn : tabOff,
+        rules: rules, members: s.members || [],
+        count: s.count, diff: s.diff, usedBy: s.usedBy, rollup: s.rollup,
+        rows: rows
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>
