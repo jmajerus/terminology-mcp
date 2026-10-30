@@ -8,6 +8,7 @@ import { exportSkos, importRequestSchema, planSkos, rdfSchemes } from './skos.js
 import { discoverSchemes, fetchScheme } from './sparql.js';
 import { z } from 'zod';
 import { allowedOrigins, requestOrigin } from './http-config.js';
+import { deploymentRecord } from './deployment.js';
 
 async function body(req: IncomingMessage, limit = 128 * 1024): Promise<unknown> {
   if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json')
@@ -34,7 +35,7 @@ function json(res: ServerResponse, status: number, value: unknown) {
   res.end(JSON.stringify(value));
 }
 
-export function createApp(store: Store, options: { demo?: boolean; origins?: string[] } = {}) {
+export function createApp(store: Store, options: { demo?: boolean; origins?: string[]; deploymentFile?: string } = {}) {
   const origins = allowedOrigins(options.origins);
   return createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -49,6 +50,12 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           throw new DomainError(403, 'Cross-origin writes are not allowed.');
         if (req.headers['sec-fetch-site'] === 'cross-site')
           throw new DomainError(403, 'Cross-site writes are not allowed.');
+      }
+      if (req.method === 'GET' && url.pathname === '/health') {
+        const count = (table: 'schemes' | 'terms') => (store.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+        json(res, 200, { ok: true, version: store.version, schemes: count('schemes'), terms: count('terms'),
+          deployed: await deploymentRecord(options.deploymentFile) });
+        return;
       }
       if (url.pathname.startsWith('/api/')) {
         const at = numberParam(url, 'at');
