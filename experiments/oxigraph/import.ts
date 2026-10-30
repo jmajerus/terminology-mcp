@@ -67,6 +67,7 @@ ex:empty a skos:OrderedCollection; skos:prefLabel \"Empty\"; skos:memberList rdf
   assert.equal(child.notations.length, 3);
   assert.equal(store.schemes()[0].notations[0].value, 'RES');
   results.push({ check: 'apply creates the scheme with stable local IDs, original IRIs, and all five mappings', passed: true });
+  store.saveSet({ scheme: 'research', slug: 'recipe', label: 'Recipe selection', recipe: { concepts: [root.id], narrower: [root.id], exclude: [child.id] } }, store.version);
   const exported = await fetch(`${base}/api/schemes/research/skos`);
   assert.equal(exported.status, 200);
   const output = await exported.text(); writeFileSync(join(directory, 'export.ttl'), output);
@@ -76,9 +77,13 @@ ex:empty a skos:OrderedCollection; skos:prefLabel \"Empty\"; skos:memberList rdf
   try {
     const planned = planSkos(copy, fetched, { format: 'sparql', endpoint, sourceScheme: 'https://example.org/scheme',
       schemeId: 'roundtrip', hierarchy: 'tree', language: 'en' });
-  assert.equal(planned.plan.sets.length, 3);
+  assert.equal(planned.plan.sets.length, 4);
   assert.deepEqual(planned.plan.sets.find(set => set.key === 'https://example.org/reading')?.members, ['https://example.org/child', 'https://example.org/root']);
     copy.importScheme(planned.plan, 0);
+    const recipe = copy.sets().find(set => set.slug === 'recipe')!;
+    assert.ok(recipe.recipe);
+    assert.deepEqual(new Set(copy.expandSet(recipe.id).terms.map(term => term.sourceUri)), new Set(['https://example.org/root', 'https://example.org/peer']));
+    results.push({ check: 'recipe definitions and expanded SKOS membership round-trip through Oxigraph', passed: true });
     const again = copy.lookup(child.sourceUri!);
     assert.equal(copy.terms().length, 3);
     assert.equal(again.label, child.label); assert.equal(again.scopeNote, child.scopeNote);
