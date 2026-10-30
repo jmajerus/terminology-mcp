@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { once } from 'node:events';
+import type { AddressInfo } from 'node:net';
+import { Store } from '../src/store.js';
+import { createApp } from '../src/server.js';
+
+test('health reports the release record and counts without vocabulary contents; invalid records expose nothing', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'terminology-health-'));
+  const filename = join(directory, 'deployed.json');
+  const store = new Store(':memory:');
+  const server = createApp(store, { deploymentFile: filename });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); store.close(); rmSync(directory, { recursive: true }); });
+  const health = async () => (await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/health`)).json();
+  assert.equal((await health()).deployed, null);
+  store.addScheme({ id: 'test', label: 'Private vocabulary', hierarchy: 'tree' });
+  store.addTerm({ scheme: 'test', label: 'Private concept' });
+  const record = { branch: 'feature', pr: 4, commit: 'a'.repeat(40), at: '2026-10-30T00:00:00Z', local: false, release: 'sample' };
+  writeFileSync(filename, JSON.stringify(record));
+  const result = await health();
+  assert.deepEqual(result.deployed, record);
+  assert.equal(result.ok, true); assert.equal(result.schemes, 1); assert.equal(result.terms, 1);
+  assert.ok(!JSON.stringify(result).includes('Private concept'));
+  writeFileSync(filename, JSON.stringify({ ...record, password: 'must-not-leak' }));
+  assert.equal((await health()).deployed, null);
+  writeFileSync(filename, '{');
+  assert.equal((await health()).deployed, null);
+});

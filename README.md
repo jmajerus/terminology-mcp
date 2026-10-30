@@ -59,6 +59,10 @@ Set `TERMINOLOGY_DB` to choose a database path or `PORT` to change the port.
 The server binds to `127.0.0.1`. No external services or credentials are needed.
 
 For a Debian LXC host accessed through SSH, see [deployment](docs/deployment.md).
+VS Code recommends the same Task Buttons and Status Probe extensions used by
+corpus-mcp and quote-mcp: **Deploy Terminology** selects main, a PR number, or
+the server's current source; the adjacent status shows the deployed revision
+and whether it needs updating.
 
 ```sh
 npm run typecheck
