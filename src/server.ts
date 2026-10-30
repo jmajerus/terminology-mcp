@@ -11,6 +11,8 @@ import { allowedOrigins, requestOrigin } from './http-config.js';
 import { deploymentRecord } from './deployment.js';
 import { graphSchemes, planGraph } from './graph-import.js';
 import { conceptGraph, graphEdges, graphTypes } from './graph.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createMcpServer } from './mcp.js';
 
 async function body(req: IncomingMessage, limit = 128 * 1024): Promise<unknown> {
   if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json')
@@ -52,6 +54,20 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           throw new DomainError(403, 'Cross-origin writes are not allowed.');
         if (req.headers['sec-fetch-site'] === 'cross-site')
           throw new DomainError(403, 'Cross-site writes are not allowed.');
+      }
+      if (url.pathname === '/mcp') {
+        res.setHeader('Cache-Control', 'no-store');
+        if (req.method !== 'POST') {
+          res.setHeader('Allow', 'POST');
+          json(res, 405, { error: 'MCP uses stateless Streamable HTTP POST requests.' }); return;
+        }
+        const input = await body(req);
+        const mcp = createMcpServer(store);
+        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+        res.on('close', () => { void mcp.close().catch(error => console.error('MCP cleanup failed:', error)); });
+        try { await mcp.connect(transport); await transport.handleRequest(req, res, input); }
+        catch (error) { await mcp.close(); throw error; }
+        return;
       }
       if (req.method === 'GET' && url.pathname === '/health') {
         const count = (table: 'schemes' | 'terms') => (store.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
@@ -184,6 +200,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       res.writeHead(200, { 'Content-Type': asset[1], 'Cache-Control': 'no-cache' });
       res.end(req.method === 'HEAD' ? undefined : data);
     } catch (error) {
+      if (res.headersSent) { res.end(); return; }
       if (error instanceof ZodError) {
         json(res, 422, { error: error.issues.map(issue => `${issue.path.join('.') || 'Input'}: ${issue.message}`).join('; ') });
       } else if (error instanceof DomainError) {

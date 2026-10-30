@@ -23,6 +23,7 @@
     "test:oxigraph-import": "node --import tsx experiments/oxigraph/import.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "better-sqlite3": "^13.0.3",
     "n3": "^2.13.12",
     "zod": "^4.6.7"

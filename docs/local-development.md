@@ -4,6 +4,10 @@ The local taxonomy workspace implements schemes, terms, structural editing,
 SKOS interchange, and history. The main plan in [PLAN.md](../PLAN.md) describes
 the larger server and remains the roadmap.
 
+The same HTTP service provides twelve read-only MCP tools at `/mcp` using
+stateless Streamable HTTP. See [MCP access](mcp.md) for client configuration,
+version-pinned paging and the available operations.
+
 ## Structure
 
 - `src/model.ts`: validated inputs and shared domain types.
