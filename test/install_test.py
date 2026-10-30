@@ -1,6 +1,7 @@
 """Exercise the real installer in a temporary filesystem with stub host services."""
 import json
 import os
+import stat
 from pathlib import Path
 import subprocess
 import tarfile
@@ -77,6 +78,11 @@ esac''',
                 self.assertEqual(json.loads((data / 'deployed.json').read_text()), {'release': 'new'})
                 self.assertEqual((units / 'terminology-mcp.service').read_text(), 'new unit')
                 self.assertEqual((etc / 'environment').read_text(), 'EXISTING=value\nTERMINOLOGY_ORIGINS=http://new\n')
+                self.assertEqual(stat.S_IMODE(release.stat().st_mode), 0o755)
+                self.assertEqual(stat.S_IMODE((release / 'package.json').stat().st_mode), 0o644)
+                self.assertEqual(stat.S_IMODE((release / 'rollback').stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE(data.stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE((etc / 'environment').stat().st_mode), 0o640)
             elif first:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(active.exists(), result.stderr)

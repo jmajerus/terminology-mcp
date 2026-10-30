@@ -20,7 +20,10 @@ npm run build
 npm prune --omit=dev --no-audit --no-fund
 install -m 0644 "$RECORD" "$RELEASE/deployed.json"
 chown -R root:terminology-mcp "$RELEASE"
-chmod -R g+rX,go-w,o-rwx "$RELEASE"
+# Match corpus-mcp/quote-mcp: application releases are browsable by the
+# authoring login. Runtime state, environment and rollback material have
+# their own restricted permissions below.
+chmod -R a+rX,go-w "$RELEASE"
 install -d -m 0700 -o terminology-mcp -g terminology-mcp /var/lib/terminology-mcp
 install -d -m 0700 "$RELEASE/rollback"
 previous=$(readlink /opt/terminology-mcp/current || true)

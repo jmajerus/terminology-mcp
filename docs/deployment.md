@@ -103,7 +103,13 @@ archive. SSH host keys are remembered under ignored `data/deploy/known_hosts`.
 
 Release directories live under `/opt/terminology-mcp/releases/`, with
 `/opt/terminology-mcp/current` pointing to the running release. The service runs
-as the dedicated `terminology-mcp` account. Persistent SQLite data lives at
+as the dedicated `terminology-mcp` account. Application code is readable and
+directories are traversable by the `authoring` login, matching corpus-mcp and
+quote-mcp; use `cd /opt/terminology-mcp/current` to inspect the running version
+without finding its timestamped release directory or becoming root.
+The release's `rollback` directory remains root-only, and runtime data and
+environment settings retain their separate restricted permissions.
+Persistent SQLite data lives at
 `/var/lib/terminology-mcp/terminology.sqlite`; the first deployment starts empty.
 Subsequent deployments stop the service before making a database-directory
 backup. Earlier release directories and backups are retained.
