@@ -75,9 +75,11 @@ function renderTree() {
     childMap.get(parent).push(term);
   }
   $('#scheme-kind').textContent = scheme()?.hierarchy === 'poly' ? 'POLYHIERARCHY' : schemeId ? 'TREE SCHEME' : 'NO SCHEMES';
+  $('#scheme-notations').innerHTML = (scheme()?.notations ?? []).map(notation => `<span class="alias" title="${escape(notation.datatype)}">${escape(notation.value)}</span>`).join('');
   $('#term-count').textContent = `${terms.length} ${terms.length === 1 ? 'term' : 'terms'}`;
   const query = $('#search').value.trim().toLocaleLowerCase();
-  const matches = terms.filter(term => [term.id, term.label, term.scopeNote, ...term.altLabels, ...term.aliases]
+  const matches = terms.filter(term => [term.id, term.label, term.scopeNote, ...term.altLabels, ...term.aliases,
+    ...(term.notations ?? []).map(notation => notation.value)]
     .some(value => value.toLocaleLowerCase().includes(query)));
   const visible = new Set(matches.map(term => term.id));
   if (query) {
@@ -130,6 +132,7 @@ function renderDetail() {
     <form id="term-form" class="term-body">
       <label class="field"><span class="field-label">Preferred label</span><input id="label" name="label" value="${escape(term.label)}" required maxlength="200"><span class="help">Renames keep the stable ID and all previous path aliases.</span></label>
       <label class="field"><span class="field-label">Scope note</span><textarea id="scope-note" name="scopeNote" rows="4" maxlength="20000" placeholder="What belongs here, and what goes elsewhere.">${escape(term.scopeNote)}</textarea><span class="help">Describe the concept’s boundaries. Scope note edits apply immediately.</span></label>
+      <div class="field"><span class="field-label">Notations <button type="button" class="text-button" id="add-notation">+ Notation</button></span><div id="notations" class="relations-list"></div><p class="help">Codes in a classification system. Exact text and datatype are preserved, including leading zeros.</p></div>
       <div class="two-columns"><label class="field"><span class="field-label">Alternative labels</span><textarea id="alt-labels" name="altLabels" rows="3" placeholder="One alternative label per line">${escape(term.altLabels.join('\n'))}</textarea><span class="help">Other names that help you find this term.</span></label>
       <label class="field"><span class="field-label">Status</span><select id="term-status" name="status"><option value="provisional" ${term.status === 'provisional' ? 'selected' : ''}>Provisional</option><option value="active" ${term.status === 'active' ? 'selected' : ''}>Active</option></select><span class="help">Provisional terms leave space for ideas still taking shape.</span></label></div>
       ${term.broader.length ? `<div class="field"><span class="field-label">Broader terms</span><div class="alias-list">${term.broader.map(id => `<button type="button" class="button small" data-pick="${escape(id)}">${escape(byId(id)?.label)}</button>`).join('')}</div></div>` : ''}
@@ -146,6 +149,8 @@ function renderDetail() {
   renderRelations();
   updateRelationTargets();
   term.links.forEach(link => addLink(link, false));
+  (term.notations ?? []).forEach(notation => addNotation(notation, false));
+  $('#add-notation').onclick = () => { if (document.querySelectorAll('.notation-row').length < 100) addNotation({ value: '', datatype: 'http://www.w3.org/2001/XMLSchema#string' }); };
   $('#term-form').addEventListener('input', markDirty);
   $('#term-form').addEventListener('change', markDirty);
   $('#term-form').addEventListener('submit', saveTerm);
@@ -187,6 +192,18 @@ function addLink(link, changed = true) {
   $('#links').append(row);
   if (changed) { markDirty(); row.querySelector('input').focus(); }
 }
+function addNotation(notation, changed = true) {
+  const row = document.createElement('div'); row.className = 'notation-row';
+  row.innerHTML = `<label><span class="help">Code</span><input class="notation-value" aria-label="Notation value" maxlength="2000" value="${escape(notation.value)}"></label><label><span class="help">Datatype IRI</span><input class="notation-datatype" aria-label="Notation datatype" maxlength="2000" value="${escape(notation.datatype)}" placeholder="http://www.w3.org/2001/XMLSchema#string"></label><label><span class="help">Language</span><input class="notation-language" aria-label="Notation language" value="${escape(notation.language ?? '')}" placeholder="optional"></label><button type="button" class="button small" aria-label="Remove notation">×</button>`;
+  row.querySelector('.notation-language').oninput = event => {
+    const datatype = row.querySelector('.notation-datatype');
+    if (event.target.value.trim()) datatype.value = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#langString';
+    else if (datatype.value === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#langString') datatype.value = 'http://www.w3.org/2001/XMLSchema#string';
+  };
+  row.querySelector('button').onclick = () => { row.remove(); markDirty(); };
+  $('#notations').append(row);
+  if (changed) { markDirty(); row.querySelector('input').focus(); }
+}
 async function confirmChange(title, message) {
   $('#confirm-title').textContent = title;
   $('#confirm-message').textContent = message;
@@ -201,6 +218,9 @@ async function saveTerm(event) {
   const data = {
     label: $('#label').value.trim(), scopeNote: $('#scope-note').value,
     altLabels: $('#alt-labels').value.split('\n').map(value => value.trim()).filter(Boolean),
+    notations: [...document.querySelectorAll('.notation-row')].map(row => ({ value: row.querySelector('.notation-value').value,
+      datatype: row.querySelector('.notation-datatype').value.trim() || 'http://www.w3.org/2001/XMLSchema#string',
+      ...(row.querySelector('.notation-language').value.trim() ? { language: row.querySelector('.notation-language').value.trim() } : {}) })),
     status: $('#term-status').value, relations: draftRelations,
     links: [...document.querySelectorAll('.link-row')].map(row => ({ uri: row.querySelector('input').value.trim(), match: row.querySelector('select').value })),
     expectedChanged: term.changed, reason: $('#reason').value,

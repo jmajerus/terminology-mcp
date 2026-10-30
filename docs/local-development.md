@@ -121,7 +121,9 @@ Historical reads return `version` for the requested state and `head` for
 the current changelog. Aliases resolve as they existed at the requested
 version, so future aliases do not leak into old reads. `PATCH` is a full
 save of editable fields; omitted collections and notes take their schema
-defaults. It cannot change scheme, parents, IDs, source IRI, or aliases. The browser
+defaults. The additive `notations` field is an exception: omission preserves
+existing codes, while an explicit empty array clears them. It cannot change
+scheme, parents, IDs, source IRI, or aliases. The browser
 sends all editable fields on each save.
 
 This API has no authentication. Development defaults to loopback. The Debian

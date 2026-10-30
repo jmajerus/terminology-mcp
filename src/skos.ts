@@ -1,6 +1,6 @@
 import { Parser, Writer, Store as RdfStore, DataFactory, type Quad, type Term as RdfTerm } from 'n3';
 import { z } from 'zod';
-import { DomainError, iriSchema, importPlanSchema, type ImportPlan } from './model.js';
+import { DomainError, iriSchema, importPlanSchema, type ImportPlan, type Notation } from './model.js';
 import type { Store } from './store.js';
 
 const { namedNode: nn, literal: lit, quad } = DataFactory;
@@ -43,6 +43,10 @@ export function planSkos(store: Store, data: string, request: ImportRequest): { 
     throw new DomainError(422, 'The selected IRI is not a declared skos:ConceptScheme.');
   const warnings = new Set<string>();
   const objects = (s: RdfTerm, p: string) => rdf.getObjects(s, nn(p), null);
+  const notations = (subject: RdfTerm): Notation[] => objects(subject, SKOS + 'notation').map(value => {
+    if (value.termType !== 'Literal') throw new DomainError(422, 'SKOS notations must be RDF literals.');
+    return { value: value.value, datatype: value.datatype.value, ...(value.language ? { language: value.language } : {}) };
+  });
   const named = (values: RdfTerm[], field: string): string[] => values.map(value => {
     if (value.termType !== 'NamedNode') throw new DomainError(422, `${field} must use named concept IRIs, not blank nodes or literals.`);
     return iriSchema.parse(value.value);
@@ -74,9 +78,9 @@ export function planSkos(store: Store, data: string, request: ImportRequest): { 
   const known = store.terms();
   const resolveRelated = (uri: string) => members.has(uri) || known.some(term => term.sourceUri === uri || term.aliases.includes(uri));
   const supported = new Set([RDF + 'type', SKOS + 'inScheme', SKOS + 'prefLabel', SKOS + 'altLabel', SKOS + 'scopeNote',
-    SKOS + 'definition', SKOS + 'broader', SKOS + 'narrower', SKOS + 'related', SKOS + 'topConceptOf',
+    SKOS + 'definition', SKOS + 'broader', SKOS + 'narrower', SKOS + 'related', SKOS + 'topConceptOf', SKOS + 'notation',
     ...matches.map(match => SKOS + match), DCT + 'isReplacedBy', EX + 'status', EX + 'alias', EX + 'opposite']);
-  const schemeSupported = new Set([RDF + 'type', SKOS + 'prefLabel', SKOS + 'hasTopConcept', DCT + 'description', EX + 'hierarchy', EX + 'admissionTest']);
+  const schemeSupported = new Set([RDF + 'type', SKOS + 'prefLabel', SKOS + 'hasTopConcept', SKOS + 'notation', DCT + 'description', EX + 'hierarchy', EX + 'admissionTest']);
   for (const q of rdf.getQuads(null, null, null, null)) {
     if (q.subject.equals(scheme) ? !schemeSupported.has(q.predicate.value) : members.has(q.subject.value) && !supported.has(q.predicate.value))
       warnings.add(`Unsupported predicate omitted: ${q.predicate.value}`);
@@ -113,7 +117,7 @@ export function planSkos(store: Store, data: string, request: ImportRequest): { 
     if (objects(subject, SKOS + 'scopeNote').length && objects(subject, SKOS + 'definition').length)
       warnings.add('skos:definition is omitted when a scope note is present.');
     return { key: subject.value, label: label.value, language: label.language || undefined,
-      altLabels: [...new Set(altLabels)], scopeNote: scope?.value ?? '',
+      altLabels: [...new Set(altLabels)], notations: notations(subject), scopeNote: scope?.value ?? '',
       status: (statuses[0]?.value ?? 'active') as 'active', broader, relations,
       aliases: objects(subject, EX + 'alias').map(v => {
         if (v.termType !== 'Literal') throw new DomainError(422, 'Aliases must be literals.'); return v.value;
@@ -129,7 +133,7 @@ export function planSkos(store: Store, data: string, request: ImportRequest): { 
   const plan = importPlanSchema.parse({ scheme: { id: request.schemeId,
     label: request.label || schemeLabel!.value, language: schemeLabel?.language || undefined,
     description: preferred(scheme, DCT + 'description')?.value ?? '', hierarchy: request.hierarchy,
-    admissionTest: preferred(scheme, EX + 'admissionTest')?.value ?? '', sourceUri: scheme.value }, terms });
+    admissionTest: preferred(scheme, EX + 'admissionTest')?.value ?? '', notations: notations(scheme), sourceUri: scheme.value }, terms });
   return { plan, warnings: [...warnings] };
 }
 
@@ -146,17 +150,21 @@ export async function exportSkos(store: Store, schemeId: string, at?: number): P
   const subject = nn(scheme.sourceUri ?? `urn:terminology-mcp:scheme:${scheme.id}`);
   const quads: Quad[] = [];
   const add = (s: ReturnType<typeof nn>, p: string, o: ReturnType<typeof nn> | ReturnType<typeof lit>) => quads.push(quad(s, nn(p), o));
+  const addNotations = (s: ReturnType<typeof nn>, values: Notation[]) => values.forEach(value =>
+    add(s, SKOS + 'notation', lit(value.value, value.language || nn(value.datatype))));
   add(subject, RDF + 'type', nn(SKOS + 'ConceptScheme'));
   add(subject, SKOS + 'prefLabel', lit(scheme.label, scheme.language));
   if (scheme.description) add(subject, DCT + 'description', lit(scheme.description, scheme.language));
   if (scheme.admissionTest) add(subject, EX + 'admissionTest', lit(scheme.admissionTest));
   add(subject, EX + 'hierarchy', lit(scheme.hierarchy));
+  addNotations(subject, scheme.notations);
   for (const term of terms) {
     const s = termIri(term.id);
     add(s, RDF + 'type', nn(SKOS + 'Concept'));
     add(s, SKOS + 'inScheme', subject);
     add(s, SKOS + 'prefLabel', lit(term.label, term.language));
     term.altLabels.forEach(value => add(s, SKOS + 'altLabel', lit(value, term.language)));
+    addNotations(s, term.notations);
     if (term.scopeNote) add(s, SKOS + 'scopeNote', lit(term.scopeNote, term.language));
     term.broader.forEach(id => add(s, SKOS + 'broader', termIri(id)));
     if (!term.broader.length && term.status !== 'retired') {

@@ -51,6 +51,8 @@ try {
   const root = store.lookup('https://example.org/root');
   assert.deepEqual(child.broader, [root.id]);
   assert.equal(child.links.length, 5);
+  assert.equal(child.notations.length, 3);
+  assert.equal(store.schemes()[0].notations[0].value, 'RES');
   results.push({ check: 'apply creates the scheme with stable local IDs, original IRIs, and all five mappings', passed: true });
   const exported = await fetch(`${base}/api/schemes/research/skos`);
   assert.equal(exported.status, 200);
@@ -66,6 +68,8 @@ try {
     assert.equal(copy.terms().length, 3);
     assert.equal(again.label, child.label); assert.equal(again.scopeNote, child.scopeNote);
     assert.deepEqual(again.links, child.links);
+    assert.deepEqual(again.notations, child.notations);
+    assert.deepEqual(copy.schemes()[0].notations, store.schemes()[0].notations);
     assert.equal(copy.lookup(again.broader[0]).sourceUri, root.sourceUri);
     results.push({ check: 'SQLite export → Oxigraph → SPARQL reimport preserves labels, hierarchy, source IRIs and mappings', passed: true });
   } finally { copy.close(); }

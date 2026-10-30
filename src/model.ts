@@ -10,9 +10,22 @@ export const linkSchema = z.object({
   uri: iriSchema,
   match: z.enum(['exactMatch', 'closeMatch', 'broadMatch', 'narrowMatch', 'relatedMatch']),
 }).strict();
+export const XSD_STRING = 'http://www.w3.org/2001/XMLSchema#string';
+export const RDF_LANG_STRING = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#langString';
+export const notationSchema = z.object({
+  value: z.string().max(2000), datatype: iriSchema.default(XSD_STRING),
+  language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).toLowerCase().optional(),
+}).strict().superRefine((value, context) => {
+  if (Boolean(value.language) !== (value.datatype === RDF_LANG_STRING))
+    context.addIssue({ code: 'custom', message: 'A language tag requires rdf:langString, and rdf:langString requires a language tag.' });
+});
+export type Notation = z.infer<typeof notationSchema>;
+export const uniqueNotations = (values: Notation[]) => [...new Map(values.map(value =>
+  [JSON.stringify([value.value, value.datatype, value.language ?? '']), value])).values()];
 const fields = {
   label: text,
   altLabels: z.array(text).max(100).default([]),
+  notations: z.array(notationSchema).max(100).default([]),
   scopeNote: z.string().trim().max(20000).default(''),
   status: z.enum(['provisional', 'active']).default('provisional'),
   relations: z.array(relationSchema).max(200).default([]),
@@ -25,7 +38,7 @@ export const createTermSchema = z.object({
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
 }).strict();
 export const editTermSchema = z.object({
-  ...fields, expectedChanged: z.number().int().positive(),
+  ...fields, notations: z.array(notationSchema).max(100).optional(), expectedChanged: z.number().int().positive(),
   reason: z.string().trim().max(2000).default(''),
 }).strict();
 export const schemeSchema = z.object({
@@ -33,6 +46,7 @@ export const schemeSchema = z.object({
   description: z.string().trim().max(10000).default(''),
   hierarchy: z.enum(['tree', 'poly']),
   admissionTest: z.string().trim().max(10000).default(''),
+  notations: z.array(notationSchema).max(100).default([]),
   sourceUri: iriSchema.optional(),
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
 }).strict();
