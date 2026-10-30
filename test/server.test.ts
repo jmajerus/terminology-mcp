@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { get } from 'node:http';
+import { request as httpRequest } from 'node:http';
 import { Store } from '../src/store.js';
 import { createApp } from '../src/server.js';
 
@@ -56,4 +57,24 @@ test('HTTP API supports empty setup, edits, historical reads, validation, and lo
   assert.equal(invalidHost, 403);
   const history = await (await request('/api/changes?since=1')).json();
   assert.deepEqual(history.changes.map((change: { n: number }) => change.n), [2, 3]);
+});
+
+test('configured LAN hosts allow same-origin edits and reject unknown hosts, origins and absolute URLs', async t => {
+  const store = new Store(':memory:');
+  const server = createApp(store, { origins: ['http://terminology-mcp:3210'] });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); store.close(); });
+  const port = (server.address() as AddressInfo).port;
+  const send = (host: string, origin?: string, path = '/api/schemes') => new Promise<number | undefined>((resolve, reject) => {
+    const body = JSON.stringify({ id: 'lan', label: 'LAN', hierarchy: 'tree' });
+    const req = httpRequest({ hostname: '127.0.0.1', port, path, method: 'POST', headers: {
+      Host: host, ...(origin ? { Origin: origin } : {}), 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
+    } }, response => { response.resume(); resolve(response.statusCode); });
+    req.on('error', reject); req.end(body);
+  });
+  assert.equal(await send('unknown.example:3210', 'http://unknown.example:3210'), 403);
+  assert.equal(await send('terminology-mcp:3210', 'http://other.example'), 403);
+  assert.equal(await send('terminology-mcp:3210', 'http://terminology-mcp:3210', 'http://evil.example/api/schemes'), 403);
+  assert.equal(await send('terminology-mcp:3210', 'http://terminology-mcp:3210'), 201);
+  assert.equal(store.schemes().length, 1);
 });

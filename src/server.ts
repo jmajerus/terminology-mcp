@@ -7,6 +7,7 @@ import { DomainError } from './model.js';
 import { exportSkos, importRequestSchema, planSkos, rdfSchemes } from './skos.js';
 import { discoverSchemes, fetchScheme } from './sparql.js';
 import { z } from 'zod';
+import { allowedOrigins, requestOrigin } from './http-config.js';
 
 async function body(req: IncomingMessage, limit = 128 * 1024): Promise<unknown> {
   if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json')
@@ -33,16 +34,18 @@ function json(res: ServerResponse, status: number, value: unknown) {
   res.end(JSON.stringify(value));
 }
 
-export function createApp(store: Store, options: { demo?: boolean } = {}) {
+export function createApp(store: Store, options: { demo?: boolean; origins?: string[] } = {}) {
+  const origins = allowedOrigins(options.origins);
   return createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     try {
-      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-      if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
-        throw new DomainError(403, 'The local editor must be accessed through localhost.');
+      const origin = requestOrigin(req.headers.host, origins);
+      if (!origin) throw new DomainError(403, 'This host is not configured for the editor.');
+      const url = new URL(req.url ?? '/', origin);
+      if (url.origin !== origin) throw new DomainError(403, 'Request URL does not match its Host header.');
       if (req.method !== 'GET' && req.method !== 'HEAD') {
-        if (req.headers.origin && req.headers.origin !== url.origin)
+        if (req.headers.origin && req.headers.origin !== origin)
           throw new DomainError(403, 'Cross-origin writes are not allowed.');
         if (req.headers['sec-fetch-site'] === 'cross-site')
           throw new DomainError(403, 'Cross-site writes are not allowed.');
