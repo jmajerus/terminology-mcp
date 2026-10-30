@@ -124,9 +124,11 @@ save of editable fields; omitted collections and notes take their schema
 defaults. It cannot change scheme, parents, IDs, source IRI, or aliases. The browser
 sends all editable fields on each save.
 
-This is a local API with no authentication. Binding and Host checks restrict
-it to loopback names, and cross-origin writes are rejected. Remote hosting,
-Access authentication, and consumer access require a later deployment design.
+This API has no authentication. Development defaults to loopback. The Debian
+LAN service explicitly sets `HOST` and `TERMINOLOGY_ORIGINS`; Host and origin
+checks still reject unknown hosts and cross-origin writes. See
+[deployment](deployment.md). Access authentication and public consumer access
+remain later deployment work.
 
 ## Verification
 
