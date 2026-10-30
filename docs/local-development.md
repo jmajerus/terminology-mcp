@@ -152,8 +152,9 @@ Screenshots and failure traces are written under ignored `test-results/`.
 
 ## Next slices
 
-Concept sets and expansion are next. Their membership behavior under structural
-changes will need explicit treatment. Subscriber usage and gates, MCP, consumer
+Concept sets, recipes, versioned expansion and SKOS collections are implemented;
+see [concept sets](concept-sets.md) for storage, APIs and structural-change rules.
+Subscriber usage and gates, MCP, consumer
 seed importers, full vocabulary maps/translation, and live consumer connectivity
 remain planned. SKOS mapping references are already available; they are distinct
 from the planned consumer maps. The demo does not read or modify sibling repositories.

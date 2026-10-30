@@ -78,7 +78,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           const data = input.format === 'turtle' ? input.data ?? '' : await fetchScheme(input.endpoint ?? '', input.sourceScheme, input.graph);
           const { plan, warnings } = planSkos(store, data, input);
           const result = store.preview(() => store.importScheme(plan, store.version));
-          json(res, 200, { plan, warnings, expectedVersion: store.version, count: result.count,
+          json(res, 200, { plan, warnings, expectedVersion: store.version, count: result.count, sets: result.sets,
             terms: result.affected.map(change => ({ label: change.after.label, broader: change.after.broader.length })) });
           return;
         }
@@ -94,7 +94,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 200, operation[2] === 'preview' ? store.preview(run) : run()); return;
         }
         if (req.method === 'GET' && url.pathname === '/api/state') {
-          json(res, 200, { version: at ?? store.version, head: store.version, demo: !!options.demo, schemes: store.schemes(at), terms: store.terms(undefined, at) });
+          json(res, 200, { version: at ?? store.version, head: store.version, demo: !!options.demo, schemes: store.schemes(at), terms: store.terms(undefined, at), sets: store.sets(undefined, at) });
           return;
         }
         if (req.method === 'GET' && url.pathname === '/api/changes') {
@@ -105,6 +105,33 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
         if (req.method === 'POST' && url.pathname === '/api/schemes') {
           json(res, 201, { scheme: store.addScheme(await body(req)), version: store.version });
           return;
+        }
+        if (req.method === 'GET' && url.pathname === '/api/sets') {
+          json(res, 200, { sets: store.sets(url.searchParams.get('scheme') ?? undefined, at), version: at ?? store.version }); return;
+        }
+        const setMatch = url.pathname.match(/^\/api\/sets\/([^/]+)(?:\/(expand|preview))?$/);
+        if (setMatch && setMatch[2] !== 'preview' && req.method === 'GET') {
+          const id = decodeURIComponent(setMatch[1]);
+          json(res, 200, setMatch[2] === 'expand' ? store.expandSet(id, at) : { set: store.conceptSet(id, at), version: at ?? store.version }); return;
+        }
+        if ((url.pathname === '/api/sets' || setMatch) && ['POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) {
+          if (setMatch?.[2] === 'expand') throw new DomainError(404, 'API route not found.');
+          const input = z.object({ set: z.unknown().optional(), expectedVersion: z.number().int().nonnegative() }).strict().parse(await body(req, 2 * 1024 * 1024));
+          const newPreview = url.pathname === '/api/sets/preview';
+          const id = setMatch && !newPreview ? decodeURIComponent(setMatch[1]) : undefined;
+          const isPreview = newPreview || setMatch?.[2] === 'preview';
+          if ((isPreview && req.method !== 'POST') || (!id && !isPreview && req.method !== 'POST') ||
+              (id && !isPreview && !['PATCH', 'DELETE'].includes(req.method ?? '')))
+            throw new DomainError(404, 'API route not found.');
+          const run = () => {
+            if (req.method === 'DELETE') {
+              if (!id) throw new DomainError(404, 'Set ID required.');
+              return store.deleteSet(id, input.expectedVersion);
+            }
+            const set = store.saveSet(input.set, input.expectedVersion, id);
+            return { ...store.expandSet(set.id), version: store.version };
+          };
+          json(res, 200, isPreview ? store.preview(run) : run()); return;
         }
         if (req.method === 'POST' && url.pathname === '/api/terms') {
           json(res, 201, { term: store.addTerm(await body(req)), version: store.version });
@@ -124,6 +151,8 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       const assets: Record<string, [string, string]> = {
         '/': ['index.html', 'text/html; charset=utf-8'],
         '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
+        '/sets': ['sets.html', 'text/html; charset=utf-8'],
+        '/sets.js': ['sets.js', 'text/javascript; charset=utf-8'],
         '/style.css': ['style.css', 'text/css; charset=utf-8'],
       };
       const asset = assets[url.pathname];

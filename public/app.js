@@ -252,7 +252,7 @@ function renderChanges() {
   $('#change-count').textContent = entries.length;
   $('#changes').innerHTML = entries.toReversed().map(change => {
     const date = new Date(change.at);
-    const summary = change.kind === 'added' ? 'A new term in the vocabulary.' : change.kind === 'scheme-added' ? 'A new home for terms.' : change.kind === 'labelled' ? `Previously “${change.before?.label}”. Stable ID preserved.` : change.kind === 'noted' ? 'Scope note updated.' : 'Term details updated.';
+    const summary = change.kind === 'added' ? 'A new term in the vocabulary.' : change.kind === 'scheme-added' ? 'A new home for terms.' : change.kind === 'labelled' ? `Previously “${change.before?.label}”. Stable ID preserved.` : change.kind === 'noted' ? 'Scope note updated.' : change.kind.startsWith('set-') ? 'Concept set membership or definition changed.' : 'Term details updated.';
     return `<article class="change-card"><div class="change-top"><span>#${change.n}</span><time datetime="${escape(change.at)}" title="${escape(date.toLocaleString())}">${escape(date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))} · ${escape(date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))}</time></div><span class="change-kind ${change.breaking ? 'breaking' : ''}">${escape(change.kind.replaceAll('-', ' '))}${change.breaking ? ' · breaking' : ''}</span><div class="change-label">${escape(change.after.label)}</div><div class="change-summary">${escape(change.reason || summary)}</div><button class="change-view" data-revision="${change.n}">Inspect change ↗</button></article>`;
   }).join('') || '<p class="tree-empty">No changes recorded yet.</p>';
 }
@@ -417,7 +417,7 @@ $('#operation-form').addEventListener('submit', async event => {
       const removed = (row.before?.relations ?? []).filter(old => !row.after.relations.some(r => r.type === old.type && r.target === old.target));
       const added = row.after.relations.filter(r => !(row.before?.relations ?? []).some(old => r.type === old.type && r.target === old.target));
       return `<li><strong>${escape(row.after.label)}</strong>${!row.before ? ' · new' : row.after.status === 'retired' ? ' · retired' : ''}<br><span class="help">${row.before ? escape(parents(row.before)) + ' → ' : ''}${escape(parents(row.after))}${row.after.path ? '<br>' + escape(row.after.path) : ''}</span>${[...removed.map(r => `Remove ${r.type}: ${names.get(r.target) ?? r.target}`), ...added.map(r => `Add ${r.type}: ${names.get(r.target) ?? r.target}`)].map(text => `<br><span class="help">${escape(text)}</span>`).join('')}${row.after.replacedBy.length ? `<br><span class="help">Replaced by ${escape(row.after.replacedBy.map(id => names.get(id) ?? id).join(', '))}</span>` : ''}</li>`;
-    }).join('')}</ul>`;
+    }).join('')}</ul>${preview.affectedSets?.length ? `<h3>Concept sets affected</h3><ul>${preview.affectedSets.map(set => `<li><strong>${escape(set.label)}</strong>: ${escape(set.note)}</li>`).join('')}</ul>` : ''}`;
     $('#operation-preview').hidden = false; $('#apply-operation').hidden = false;
   } catch (error) { if (operationCurrent(generation)) $('#operation-error').textContent = error.message; }
   finally { if (operationCurrent(generation)) $('#preview-operation').disabled = false; }
@@ -510,7 +510,8 @@ $('#import-form').addEventListener('submit', async event => {
     const preview = await api('imports/preview', { method: 'POST', body: JSON.stringify(input) });
     if (!importCurrent(generation)) return;
     importPreview = { ...preview, generation };
-    $('#import-preview').innerHTML = `<strong>${escape(importPreview.plan.scheme.label)} · ${importPreview.count} terms</strong><p class="help">A new scheme will be added. Source IRIs and SKOS mappings are preserved.</p>${importPreview.warnings.length ? `<div class="import-warnings"><strong>Review omitted data</strong><ul>${importPreview.warnings.map(warning => `<li>${escape(warning)}</li>`).join('')}</ul></div>` : '<p class="help">No import warnings.</p>'}<details><summary>Terms to import</summary><ul>${importPreview.terms.map(term => `<li>${escape(term.label)} · ${term.broader} broader</li>`).join('')}</ul></details>`;
+    $('#import-preview').innerHTML = `<strong>${escape(importPreview.plan.scheme.label)} · ${importPreview.count} terms · ${importPreview.sets?.length ?? 0} collections</strong><p class="help">A new scheme will be added. Source IRIs and SKOS mappings are preserved.</p>${importPreview.warnings.length ? `<div class="import-warnings"><strong>Review omitted data</strong><ul>${importPreview.warnings.map(warning => `<li>${escape(warning)}</li>`).join('')}</ul></div>` : '<p class="help">No import warnings.</p>'}<details><summary>Terms to import</summary><ul>${importPreview.terms.map(term => `<li>${escape(term.label)} · ${term.broader} broader</li>`).join('')}</ul></details>`;
+    if (importPreview.sets?.length) $('#import-preview').insertAdjacentHTML('beforeend', `<details><summary>Collections to import</summary><ul>${importPreview.sets.map(set => `<li>${escape(set.label)} · ${set.recipe ? 'recipe' : set.ordered ? 'ordered' : 'unordered'} · ${set.members.length} explicit members</li>`).join('')}</ul></details>`);
     $('#import-preview').hidden = false; $('#apply-import').hidden = false;
   } catch (error) { if (importCurrent(generation)) $('#import-error').textContent = error.message; }
   finally { if (importCurrent(generation)) $('#preview-import').disabled = false; }

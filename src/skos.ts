@@ -2,6 +2,7 @@ import { Parser, Writer, Store as RdfStore, DataFactory, type Quad, type Term as
 import { z } from 'zod';
 import { DomainError, iriSchema, importPlanSchema, type ImportPlan, type Notation } from './model.js';
 import type { Store } from './store.js';
+import { readCollections } from './collections.js';
 
 const { namedNode: nn, literal: lit, quad } = DataFactory;
 export const SKOS = 'http://www.w3.org/2004/02/skos/core#';
@@ -133,7 +134,8 @@ export function planSkos(store: Store, data: string, request: ImportRequest): { 
   const plan = importPlanSchema.parse({ scheme: { id: request.schemeId,
     label: request.label || schemeLabel!.value, language: schemeLabel?.language || undefined,
     description: preferred(scheme, DCT + 'description')?.value ?? '', hierarchy: request.hierarchy,
-    admissionTest: preferred(scheme, EX + 'admissionTest')?.value ?? '', notations: notations(scheme), sourceUri: scheme.value }, terms });
+    admissionTest: preferred(scheme, EX + 'admissionTest')?.value ?? '', notations: notations(scheme), sourceUri: scheme.value }, terms,
+    sets: readCollections(rdf, scheme, new Set(members.keys()), request.language, warnings) });
   return { plan, warnings: [...warnings] };
 }
 
@@ -149,7 +151,7 @@ export async function exportSkos(store: Store, schemeId: string, at?: number): P
   };
   const subject = nn(scheme.sourceUri ?? `urn:terminology-mcp:scheme:${scheme.id}`);
   const quads: Quad[] = [];
-  const add = (s: ReturnType<typeof nn>, p: string, o: ReturnType<typeof nn> | ReturnType<typeof lit>) => quads.push(quad(s, nn(p), o));
+  const add = (s: ReturnType<typeof nn>, p: string, o: ReturnType<typeof nn> | ReturnType<typeof lit> | ReturnType<typeof DataFactory.blankNode>) => quads.push(quad(s, nn(p), o));
   const addNotations = (s: ReturnType<typeof nn>, values: Notation[]) => values.forEach(value =>
     add(s, SKOS + 'notation', lit(value.value, value.language || nn(value.datatype))));
   add(subject, RDF + 'type', nn(SKOS + 'ConceptScheme'));
@@ -179,6 +181,32 @@ export async function exportSkos(store: Store, schemeId: string, at?: number): P
     term.aliases.forEach(alias => add(s, EX + 'alias', lit(alias)));
     add(s, EX + 'status', lit(term.status));
     term.replacedBy.forEach(id => add(s, DCT + 'isReplacedBy', termIri(id)));
+  }
+  const sets = store.sets(schemeId, at);
+  const setIri = (id: string) => nn(sets.find(set => set.id === id)?.sourceUri ?? `urn:terminology-mcp:set:${id}`);
+  const memberIri = (id: string) => sets.some(set => set.id === id) ? setIri(id) : termIri(id);
+  for (const set of sets) {
+    const s = setIri(set.id);
+    add(s, RDF + 'type', nn(SKOS + (set.ordered ? 'OrderedCollection' : 'Collection')));
+    add(s, SKOS + 'prefLabel', lit(set.label, set.language));
+    add(s, EX + 'scheme', subject);
+    add(s, EX + 'slug', lit(set.slug)); add(s, EX + 'owner', lit(set.owner)); add(s, EX + 'kind', lit(set.kind));
+    if (set.description) add(s, DCT + 'description', lit(set.description, set.language));
+    const members = set.recipe ? store.expandSet(set.id, at).terms.map(term => term.id) : set.members;
+    members.forEach(id => add(s, SKOS + 'member', memberIri(id)));
+    if (set.recipe) {
+      const iris = (ids: string[]) => ids.map(id => termIri(id).value);
+      add(s, EX + 'recipe', lit(JSON.stringify({ concepts: iris(set.recipe.concepts), narrower: iris(set.recipe.narrower),
+        exclude: iris(set.recipe.exclude), around: set.recipe.around.map(rule => ({ ...rule, term: termIri(rule.term).value })) })));
+    }
+    if (set.ordered) {
+      const cells = set.members.map(() => DataFactory.blankNode());
+      add(s, SKOS + 'memberList', cells[0] ?? nn(RDF + 'nil'));
+      cells.forEach((cell, i) => {
+        quads.push(quad(cell, nn(RDF + 'first'), memberIri(set.members[i])));
+        quads.push(quad(cell, nn(RDF + 'rest'), cells[i + 1] ?? nn(RDF + 'nil')));
+      });
+    }
   }
   const writer = new Writer({ prefixes: { skos: SKOS, dct: DCT, term: EX } });
   writer.addQuads(quads);

@@ -33,7 +33,16 @@ try {
     if (!response.ok) throw new Error(`${response.status}: ${JSON.stringify(result)}`);
     return result;
   };
-  const source = readFileSync(new URL('../../test/fixtures/research.ttl', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../../test/fixtures/research.ttl', import.meta.url), 'utf8') + `
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix ex: <https://example.org/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+ex:reading a skos:OrderedCollection; skos:prefLabel \"Reading order\"; skos:memberList ex:list1 .
+ex:list1 rdf:first ex:child; rdf:rest ex:list2 .
+ex:list2 rdf:first ex:root; rdf:rest rdf:nil .
+ex:group skos:prefLabel \"Nested group\"; skos:member ex:reading .
+ex:empty a skos:OrderedCollection; skos:prefLabel \"Empty\"; skos:memberList rdf:nil; <urn:terminology-mcp:vocab:scheme> ex:scheme .
+`;
   await client.loadTurtle('fixture-source', namespace, graphs[0], source);
   const fingerprint = (data: string) => parseRdf(data).getQuads(null, null, null, null).map(q =>
     [q.subject.id, q.predicate.id, q.object.id].join(' ')).sort();
@@ -47,6 +56,10 @@ try {
   results.push({ check: 'preview reads source without writing SQLite', passed: true, detail: { terms: 3, warnings: preview.warnings } });
   const imported = await post('imports/apply', { plan: preview.plan, expectedVersion: preview.expectedVersion });
   assert.equal(imported.count, 3);
+  assert.equal(store.sets().length, 3);
+  const reading = store.sets().find(set => set.sourceUri === 'https://example.org/reading')!;
+  assert.deepEqual(store.expandSet(reading.id).terms.map(term => term.sourceUri), ['https://example.org/child', 'https://example.org/root']);
+  results.push({ check: 'SPARQL imports nested, ordered and empty collections including RDF list cells', passed: true });
   const child = store.lookup('https://example.org/child');
   const root = store.lookup('https://example.org/root');
   assert.deepEqual(child.broader, [root.id]);
@@ -63,12 +76,14 @@ try {
   try {
     const planned = planSkos(copy, fetched, { format: 'sparql', endpoint, sourceScheme: 'https://example.org/scheme',
       schemeId: 'roundtrip', hierarchy: 'tree', language: 'en' });
+  assert.equal(planned.plan.sets.length, 3);
+  assert.deepEqual(planned.plan.sets.find(set => set.key === 'https://example.org/reading')?.members, ['https://example.org/child', 'https://example.org/root']);
     copy.importScheme(planned.plan, 0);
     const again = copy.lookup(child.sourceUri!);
     assert.equal(copy.terms().length, 3);
     assert.equal(again.label, child.label); assert.equal(again.scopeNote, child.scopeNote);
     assert.deepEqual(again.links, child.links);
-    assert.deepEqual(again.notations, child.notations);
+    assert.deepEqual(again.notations.map(value => JSON.stringify(value)).sort(), child.notations.map(value => JSON.stringify(value)).sort());
     assert.deepEqual(copy.schemes()[0].notations, store.schemes()[0].notations);
     assert.equal(copy.lookup(again.broader[0]).sourceUri, root.sourceUri);
     results.push({ check: 'SQLite export → Oxigraph → SPARQL reimport preserves labels, hierarchy, source IRIs and mappings', passed: true });

@@ -13,7 +13,7 @@
     "start": "node --import tsx src/main.ts",
     "demo": "node --import tsx src/main.ts --demo",
     "build": "tsc",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.experiments.json && node --check public/app.js",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.experiments.json && node --check public/app.js && node --check public/sets.js",
     "test": "node --import tsx --test test/*.test.ts test/*.test.mjs",
     "test:deploy": "python3 -m unittest discover -s test -p '*_test.py'",
     "deploy": "python3 tools/deploy.py",

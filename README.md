@@ -24,6 +24,7 @@ stores the vocabulary; consumer integrations are still planned. What exists:
 | [docs/local-development.md](docs/local-development.md) | Storage design, API, verification, and current limits |
 | [docs/oxigraph-feasibility.md](docs/oxigraph-feasibility.md) | Runnable Oxigraph experiment, measured results, and storage recommendation |
 | [docs/skos.md](docs/skos.md) | File/SPARQL scheme import, SKOS field mappings, export, and local Oxigraph integration test |
+| [docs/concept-sets.md](docs/concept-sets.md) | Explicit, ordered, nested and recipe sets; versioned expansion and SKOS collection interchange |
 
 ## Run locally
 
@@ -54,6 +55,12 @@ Move, Merge, Split, and Retire have explicit impact previews and atomic commits.
 Use **Import SKOS…** to add a scheme from a Turtle file or SPARQL endpoint,
 and **Export SKOS ↓** to download the current scheme. Imports preserve source
 IRIs and all five SKOS mapping types; preview reports omitted data before saving.
+
+Open **Concept sets** to group terms into named collections or define recipes
+using descendants, related neighbourhoods, and exclusions. Preview membership
+before saving; ordered and nested collections round-trip through SKOS with
+their scheme. See [concept sets](docs/concept-sets.md) for structural-change
+behavior and versioned expansion.
 
 Set `TERMINOLOGY_DB` to choose a database path or `PORT` to change the port.
 The server binds to `127.0.0.1`. No external services or credentials are needed.

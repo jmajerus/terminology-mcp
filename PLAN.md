@@ -116,6 +116,13 @@ Concept sets and their expansion remain the next editor milestone. See
 
 ## What we borrow from FHIR
 
+**Concept-set update (2026-10-30):** the second editor page now supports explicit,
+ordered, nested and recipe sets with immutable revisions and version-pinned
+expansion. Structural previews include set effects; merges update membership
+and recipe references atomically. Scheme import/export carries SKOS collections
+and RDF lists through files and local Oxigraph. See [concept sets](docs/concept-sets.md).
+Consumer subscribers and usage intake are the next milestone.
+
 FHIR's terminology module (CodeSystem, ValueSet, ConceptMap, and a handful
 of operations) solved the problems we have: stable codes, sets defined by
 rule rather than by list, versioned expansions, and maps between

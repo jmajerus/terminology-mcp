@@ -24,6 +24,9 @@ rather than querying a potentially changed source again. The entire scheme,
 its terms, aliases, and changelog records commit together or roll back together.
 A successful import records `scheme-added` and one `imported` batch change.
 All imported terms share the batch's creation/revision number.
+Collections import in the same transaction with a `set-added` batch revision.
+Ordered lists, nested collections, and application recipe definitions are
+preserved. See [concept sets](concept-sets.md) for mappings and restrictions.
 
 Use **Export SKOS ↓** for the selected scheme. The HTTP endpoint also supports
 historical exports via `?at=N`. The export includes retired terms and replacement

@@ -58,11 +58,27 @@ export type Term = Omit<CreateTerm, 'status'> & {
   id: string; created: number; changed: number;
 };
 export type TermView = Term & { path: string | null; depth: number; narrower: string[] };
+export const setRecipeSchema = z.object({
+  concepts: z.array(z.string().min(1).max(2000)).max(10000).default([]), narrower: z.array(z.string().min(1).max(2000)).max(1000).default([]),
+  around: z.array(z.object({ term: z.string().min(1).max(2000), depth: z.number().int().min(0).max(10),
+    types: z.array(z.enum(['related', 'opposite'])).min(1).max(2),
+  }).strict()).max(100).default([]), exclude: z.array(z.string().min(1).max(2000)).max(10000).default([]),
+}).strict();
+export const conceptSetSchema = z.object({
+  scheme: id, slug: z.string().regex(/^[a-z][a-z0-9-]{0,79}$/), label: text,
+  description: z.string().trim().max(10000).default(''), owner: text.default('local-editor'),
+  kind: z.enum(['theme', 'profile', 'map-view']).default('theme'),
+  ordered: z.boolean().default(false), members: z.array(id).max(10000).default([]),
+  recipe: setRecipeSchema.optional(),
+  sourceUri: iriSchema.optional(), language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
+}).strict();
+export type ConceptSet = z.infer<typeof conceptSetSchema> & { id: string; created: number; changed: number; deleted?: boolean };
 export type Change = {
-  n: number; kind: 'scheme-added' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'imported';
-  terms: string[]; before: Term | null; after: Term | Scheme;
+  n: number; kind: 'scheme-added' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'imported' | 'set-added' | 'set-changed' | 'set-deleted';
+  terms: string[]; before: Term | ConceptSet | null; after: Term | Scheme | ConceptSet;
   breaking: boolean; author: string; reason: string; at: string;
   beforeTerms?: Term[]; afterTerms?: Term[];
+  beforeSets?: ConceptSet[]; afterSets?: ConceptSet[];
 };
 const operationBase = { expectedVersion: z.number().int().nonnegative(), reason: z.string().trim().max(2000).default('') };
 export const operationSchema = z.discriminatedUnion('kind', [
@@ -77,6 +93,9 @@ export const operationSchema = z.discriminatedUnion('kind', [
 export type Operation = z.infer<typeof operationSchema>;
 export const importPlanSchema = z.object({
   scheme: schemeSchema,
+  sets: z.array(conceptSetSchema.omit({ scheme: true }).extend({ key: iriSchema,
+    members: z.array(iriSchema).max(10000).default([]),
+  }).strict()).max(1000).default([]),
   terms: z.array(createTermSchema.omit({ scheme: true }).extend({
     key: iriSchema, broader: z.array(iriSchema).default([]),
     relations: z.array(z.object({ type: z.enum(['related', 'opposite']), target: iriSchema }).strict()).default([]),
