@@ -9,3 +9,6 @@ x:child a skos:Concept ; skos:inScheme x:scheme ; skos:prefLabel "Child"@en ; sk
   skos:scopeNote "A \"quoted\" note"@en ; skos:related x:peer ;
   skos:exactMatch x:exact ; skos:closeMatch x:close ; skos:broadMatch x:broad ;
   skos:narrowMatch x:narrow ; skos:relatedMatch x:related .
+
+x:scheme skos:notation "RES"^^x:SchemeCode .
+x:child skos:notation "001.20"^^x:DecimalCode, "001.20"^^x:OtherCode, "007" .

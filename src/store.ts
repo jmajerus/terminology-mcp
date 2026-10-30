@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, DomainError,
+import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, uniqueNotations, DomainError,
   type Scheme, type Term, type TermView, type Change } from './model.js';
 
 const slug = (label: string) => label.normalize('NFKC').toLowerCase()
@@ -58,12 +58,12 @@ export class Store {
   }
   schemes(at?: number): Scheme[] {
     return (this.db.prepare('SELECT body FROM schemes WHERE created <= ? ORDER BY id')
-      .all(this.atVersion(at)) as { body: string }[]).map(row => JSON.parse(row.body));
+      .all(this.atVersion(at)) as { body: string }[]).map(row => ({ notations: [], ...JSON.parse(row.body) }));
   }
   private scheme(id: string): Scheme {
     const row = this.db.prepare('SELECT body FROM schemes WHERE id = ?').get(id) as { body: string } | undefined;
     if (!row) throw new DomainError(404, 'Scheme not found.');
-    return JSON.parse(row.body);
+    return { notations: [], ...JSON.parse(row.body) };
   }
   addScheme(input: unknown): Scheme {
     const data = schemeSchema.parse(input);
@@ -73,7 +73,7 @@ export class Store {
       if (data.sourceUri && this.schemes().some(scheme => scheme.sourceUri === data.sourceUri))
         throw new DomainError(409, 'That source scheme is already imported.');
       const n = this.version + 1;
-      const scheme = { ...data, created: n };
+      const scheme = { ...data, notations: uniqueNotations(data.notations), created: n };
       this.db.prepare('INSERT INTO schemes VALUES (?, ?, ?)').run(scheme.id, n, JSON.stringify(scheme));
       this.log({ kind: 'scheme-added', terms: [], before: null, after: scheme, breaking: false, reason: '' });
       return scheme;
@@ -84,7 +84,7 @@ export class Store {
     return (this.db.prepare(`SELECT r.body FROM term_revisions r
       JOIN (SELECT term_id, MAX(n) AS n FROM term_revisions WHERE n <= ? GROUP BY term_id) latest
       ON r.term_id = latest.term_id AND r.n = latest.n`).all(version) as { body: string }[])
-      .map(row => ({ replacedBy: [], ...JSON.parse(row.body) }));
+      .map(row => ({ replacedBy: [], notations: [], ...JSON.parse(row.body) }));
   }
   private views(terms: Term[]): TermView[] {
     const byId = new Map(terms.map(term => [term.id, term]));
@@ -138,7 +138,7 @@ export class Store {
     for (const term of terms) {
       editTermSchema.parse({ label: term.label, altLabels: term.altLabels, scopeNote: term.scopeNote,
         status: term.status === 'retired' ? 'active' : term.status, relations: term.relations,
-        links: term.links, expectedChanged: Math.max(1, term.changed) });
+        links: term.links, notations: term.notations, expectedChanged: Math.max(1, term.changed) });
       const scheme = schemes.get(term.scheme);
       if (!scheme) throw new DomainError(404, 'Scheme not found.');
       if (scheme.hierarchy === 'tree' && term.broader.length > 1)
@@ -210,7 +210,7 @@ export class Store {
     const data = createTermSchema.parse(input);
     return this.db.transaction(() => {
       const n = this.version + 1;
-      const term: Term = { ...data, replacedBy: [], altLabels: [...new Set(data.altLabels)], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n };
+      const term: Term = { ...data, notations: uniqueNotations(data.notations), replacedBy: [], altLabels: [...new Set(data.altLabels)], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n };
       this.validateTerm(term);
       const alias = this.pathAlias(term);
       term.aliases = [...new Set([...term.aliases, ...(term.sourceUri ? [term.sourceUri] : []), ...(alias ? [alias] : [])])];
@@ -228,12 +228,12 @@ export class Store {
       if (before.changed !== data.expectedChanged)
         throw new DomainError(409, 'This term changed since you opened it. Reload it before saving.');
       const { expectedChanged: _expected, reason, ...fields } = data;
-      const term: Term = { ...before, ...fields, altLabels: [...new Set(fields.altLabels)], changed: this.version + 1 };
+      const term: Term = { ...before, ...fields, notations: uniqueNotations(fields.notations ?? before.notations), altLabels: [...new Set(fields.altLabels)], changed: this.version + 1 };
       this.validateTerm(term);
       const renamed = before.label !== term.label;
       const removedRelation = before.relations.some(old => !term.relations.some(r => r.type === old.type && r.target === old.target));
       const comparable = (value: Term) => JSON.stringify({ label: value.label, altLabels: value.altLabels,
-        scopeNote: value.scopeNote, status: value.status, relations: value.relations, links: value.links });
+        scopeNote: value.scopeNote, status: value.status, relations: value.relations, links: value.links, notations: value.notations });
       if (comparable(before) === comparable(term)) return this.lookup(id);
       const onlyNote = comparable({ ...term, scopeNote: before.scopeNote }) === comparable(before);
       return this.commitTerms([...this.rawTerms().filter(other => other.id !== id), term],
@@ -288,7 +288,7 @@ export class Store {
         throw new DomainError(422, `Unresolved concept reference: ${key}`);
       };
       const n = this.version + 1;
-      const terms: Term[] = plan.terms.map(({ key, ...term }) => ({ ...term, id: ids.get(key)!, scheme: scheme.id,
+      const terms: Term[] = plan.terms.map(({ key, ...term }) => ({ ...term, notations: uniqueNotations(term.notations), id: ids.get(key)!, scheme: scheme.id,
         sourceUri: key, broader: term.broader.map(key => resolve(key)),
         relations: term.relations.map(relation => ({ ...relation, target: resolve(relation.target, true) })),
         replacedBy: term.replacedBy.map(key => resolve(key)), created: n, changed: n }));
@@ -313,7 +313,7 @@ export class Store {
         if (operation.kind === 'split') {
           replacements = operation.newTerms.map(term => ({ ...source, ...term,
             id: `t_${randomUUID().replaceAll('-', '')}`, aliases: [], sourceUri: undefined,
-            altLabels: [], links: [], replacedBy: [], created: this.version + 1, changed: this.version + 1 }));
+            altLabels: [], links: [], notations: [], replacedBy: [], created: this.version + 1, changed: this.version + 1 }));
           if (new Set(operation.children.map(child => child.id)).size !== operation.children.length ||
               operation.children.length !== children.length || children.some(child => !operation.children.some(row => row.id === child.id)))
             throw new DomainError(422, 'Assign every direct narrower term exactly once when splitting.');
@@ -353,6 +353,7 @@ export class Store {
         for (const target of replacements) {
           target.relations.push(...inherited.filter(relation => relation.target !== target.id));
           if (operation.kind === 'merge') {
+            target.notations = uniqueNotations([...target.notations, ...source.notations]);
             target.altLabels = [...new Set([...target.altLabels, source.label, ...source.altLabels])].filter(label => label !== target.label);
             target.links = [...new Map([...target.links, ...source.links].map(link => [`${link.match}:${link.uri}`, link])).values()];
           }

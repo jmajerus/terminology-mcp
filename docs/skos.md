@@ -38,6 +38,7 @@ derived from imported labels or paths.
 | Term | `skos:Concept` | Import membership is explicit `inScheme`, `topConceptOf`, or scheme `hasTopConcept` |
 | Scheme/term label | `skos:prefLabel` | One label in the selected language; untagged fallback |
 | Alternative labels | `skos:altLabel` | Selected-language or untagged values |
+| Term/scheme notations | `skos:notation` | Literal text, datatype IRI, and optional language tag are preserved |
 | Scope note | `skos:scopeNote` | `skos:definition` is a fallback on import |
 | Scheme description | `dct:description` | Selected-language or untagged value |
 | Scheme membership | `skos:inScheme` | Every local term belongs to one scheme |
@@ -71,6 +72,29 @@ an `exactMatch` target does not automatically become an alias or replacement.
 These references can also be edited in the term form.
 Incoming mapping assertions are normalized using symmetry for exact/close/related
 matches and the broad/narrow inverse pair.
+
+## Notations
+
+Notations are classification codes, separate from preferred/alternative labels,
+source IRIs, and lookup aliases. Terms and schemes can have multiple notations.
+Each is stored as `{value, datatype, language?}`. Plain RDF strings use
+`http://www.w3.org/2001/XMLSchema#string`; custom datatype IRIs identify notation
+systems. Values are never trimmed or converted to numbers, so `"001.20"` keeps
+its leading zeros. Equal text with different datatypes remains distinct.
+Identical literals are deduplicated within a resource; codes are not forced
+unique across the scheme.
+
+Turtle and SPARQL imports both preserve notations, independently of the selected
+label language. Language-tagged notation literals retain their tags and
+`rdf:langString` datatype. Nonliteral notation values are rejected. The editor
+can add, edit, remove, and search term notations; scheme codes appear beneath
+the scheme selector. Notation edits are versioned and historical SKOS exports
+include the values at that version. Merges retain source and target codes;
+splits retain codes on the retired source and leave new concepts without codes.
+
+Existing databases need no schema migration. An omitted `notations` field on
+term edits preserves existing codes for compatibility with older clients; an
+explicit empty array clears them. See the [SKOS notation definition](https://www.w3.org/TR/skos-reference/#notations).
 
 ## Validation and limits
 
@@ -112,7 +136,7 @@ Override the server base URL with `OXIGRAPH_URL` if needed. The test creates two
 unique sample graphs, runs source discovery/preview/apply through the real app
 API and a separate SQLite database, exports back to Oxigraph, and imports that
 export again. It checks stable source identities, hierarchy, notes, all five
-mapping types, duplicate rejection, source immutability, and rejection of mixed
+mapping types, typed term/scheme notation round trips, duplicate rejection, source immutability, and rejection of mixed
 memberships asserted through inbound `hasTopConcept`. Both remote graphs
 are dropped and their removal verified. It does not open your workspace database.
 

@@ -108,6 +108,8 @@ test('SKOS file import, export, and the four structural actions work through pre
   await page.locator('#tree').getByRole('button', { name: 'Child', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Child', exact: true })).toBeVisible();
   await expect(page.getByLabel('Reference match')).toHaveCount(5);
+  await expect(page.getByLabel('Notation value')).toHaveCount(3);
+  await expect(page.locator('#scheme-notations')).toContainText('RES');
   const data = await (await request.get('/api/state')).json();
   const peer = data.terms.find((term: { scheme: string; label: string }) => term.scheme === 'ui-research' && term.label === 'Peer');
   await page.getByRole('button', { name: 'Move…', exact: true }).click();
@@ -154,4 +156,31 @@ test('SKOS file import, export, and the four structural actions work through pre
   expect(download.suggestedFilename()).toBe('taxonomy.ttl');
   await expect(page.locator('#tree')).toContainText('Branch two');
   expect(errors).toEqual([]);
+});
+
+test('notations can be edited, saved, reloaded and searched without losing datatype or leading zeros', async ({ page, request }) => {
+  expect((await request.post('/api/schemes', { data: { id: 'ui-codes', label: 'Codes', hierarchy: 'tree' } })).ok()).toBe(true);
+  const response = await request.post('/api/terms', { data: { scheme: 'ui-codes', label: 'Coded concept',
+    notations: [{ value: '001', datatype: 'urn:code:first' }, { value: '001', datatype: 'urn:code:second' }] } });
+  const { term } = await response.json();
+  await page.goto(`/#${term.id}`);
+  await expect(page.getByLabel('Notation value')).toHaveCount(2);
+  await page.getByLabel('Notation value').first().fill('0002');
+  await page.getByRole('button', { name: '+ Notation', exact: true }).click();
+  await page.getByLabel('Notation value').last().fill('007');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.locator('#save-state')).toHaveText(/Saved at/);
+  await page.reload();
+  await expect(page.getByLabel('Notation value').first()).toHaveValue('0002');
+  await expect(page.getByLabel('Notation datatype').first()).toHaveValue('urn:code:first');
+  await expect(page.getByLabel('Notation value').last()).toHaveValue('007');
+  await page.locator('#search').fill('0002');
+  await expect(page.locator('#tree .tree-pick')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Remove notation', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.locator('#save-state')).toHaveText(/Saved at/);
+  const saved = await (await request.get(`/api/terms/${term.id}`)).json();
+  expect(saved.term.notations.map((value: { value: string }) => value.value)).toEqual(['001', '007']);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
