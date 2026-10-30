@@ -81,9 +81,16 @@ export class Store {
     if (!set) throw new DomainError(404, 'Concept set not found at this version.');
     return set;
   }
+  private collectionSourceUris(): Map<string, string> {
+    // Tombstones retain their source identity even though normal set reads hide them.
+    const sets = (this.db.prepare('SELECT body FROM concept_sets').all() as { body: string }[])
+      .map(row => JSON.parse(row.body) as ConceptSet);
+    return new Map(sets.flatMap(set => set.sourceUri ? [[set.sourceUri, set.id] as const] : []));
+  }
   private validateSets(sets: ConceptSet[], terms = this.rawTerms()) {
     const byId = new Map([...terms, ...sets].map(item => [item.id, item]));
     const slugs = new Set<string>(), sources = new Set<string>();
+    const reserved = this.collectionSourceUris();
     for (const set of sets) {
       this.scheme(set.scheme);
       if (set.recipe && (set.members.length || set.ordered)) throw new DomainError(422, 'Recipe sets cannot have explicit members or ordering.');
@@ -91,7 +98,8 @@ export class Store {
       if (slugs.has(key)) throw new DomainError(409, 'Set slugs must be unique within a scheme.');
       slugs.add(key);
       if (set.sourceUri) {
-        if (sources.has(set.sourceUri) || terms.some(term => term.sourceUri === set.sourceUri || term.aliases.includes(set.sourceUri!)) || this.schemes().some(s => s.sourceUri === set.sourceUri))
+        if ((reserved.has(set.sourceUri) && reserved.get(set.sourceUri) !== set.id) || sources.has(set.sourceUri) ||
+            terms.some(term => term.sourceUri === set.sourceUri || term.aliases.includes(set.sourceUri!)) || this.schemes().some(s => s.sourceUri === set.sourceUri))
           throw new DomainError(409, 'That source IRI is already in use.');
         sources.add(set.sourceUri);
       }
@@ -218,6 +226,8 @@ export class Store {
         throw new DomainError(409, 'That scheme ID already exists.');
       if (data.sourceUri && this.schemes().some(scheme => scheme.sourceUri === data.sourceUri))
         throw new DomainError(409, 'That source scheme is already imported.');
+      if (data.sourceUri && this.collectionSourceUris().has(data.sourceUri))
+        throw new DomainError(409, 'A collection IRI cannot also identify a scheme.');
       const n = this.version + 1;
       const scheme = { ...data, notations: uniqueNotations(data.notations), created: n };
       this.db.prepare('INSERT INTO schemes VALUES (?, ?, ?)').run(scheme.id, n, JSON.stringify(scheme));
@@ -279,7 +289,7 @@ export class Store {
   }
   private validateAll(terms: Term[]) {
     const byId = new Map(terms.map(term => [term.id, term]));
-    const collectionUris = new Set(this.sets().flatMap(set => set.sourceUri ? [set.sourceUri] : []));
+    const collectionUris = this.collectionSourceUris();
     const schemes = new Map(this.schemes().map(scheme => [scheme.id, scheme]));
     const siblings = new Set<string>();
     for (const term of terms) {

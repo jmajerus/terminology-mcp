@@ -14,7 +14,7 @@ const runId = randomUUID();
 const namespace = `urn:terminology-mcp:feasibility:${runId}:`;
 const client = new Client(process.env.OXIGRAPH_URL ?? 'http://oxigraph.localdomain:7878');
 const endpoint = `${client.endpoint}/query`;
-const graphs = [`${namespace}import:source`, `${namespace}import:roundtrip`];
+const graphs = [`${namespace}import:source`, `${namespace}import:roundtrip`, `${namespace}import:standard-collections`];
 const directory = resolve('data/oxigraph-import', runId);
 mkdirSync(directory, { recursive: true });
 writeFileSync(join(directory, 'manifest.json'), JSON.stringify({ namespace, endpoint: client.endpoint, graphs }, null, 2));
@@ -43,6 +43,25 @@ ex:list2 rdf:first ex:root; rdf:rest rdf:nil .
 ex:group skos:prefLabel \"Nested group\"; skos:member ex:reading .
 ex:empty a skos:OrderedCollection; skos:prefLabel \"Empty\"; skos:memberList rdf:nil; <urn:terminology-mcp:vocab:scheme> ex:scheme .
 `;
+  const standardCollections = `@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix std: <https://example.org/standard/> .
+std:scheme a skos:ConceptScheme; skos:prefLabel "Standard lists" .
+std:a a skos:Concept; skos:inScheme std:scheme; skos:prefLabel "A" .
+std:b a skos:Concept; skos:inScheme std:scheme; skos:prefLabel "B" .
+std:typed a skos:OrderedCollection; skos:prefLabel "Typed list"; skos:memberList (std:b std:a) .
+std:implicit skos:prefLabel "Implicit list"; skos:memberList (std:a std:b) .
+std:parent a skos:Collection; skos:prefLabel "Parent"; skos:member std:typed, std:implicit .`;
+  await client.loadTurtle('standard-collection-fixture', namespace, graphs[2], standardCollections);
+  const standardPreview = await post('imports/preview', { format: 'sparql', endpoint, graph: graphs[2],
+    sourceScheme: 'https://example.org/standard/scheme', schemeId: 'standard', hierarchy: 'tree', language: 'en' });
+  assert.equal(standardPreview.plan.sets.length, 3);
+  for (const [name, members] of [['typed', ['b', 'a']], ['implicit', ['a', 'b']]] as const) {
+    const collection = standardPreview.plan.sets.find((set: { key: string }) => set.key === `https://example.org/standard/${name}`);
+    assert.equal(collection.ordered, true);
+    assert.deepEqual(collection.members, members.map(member => `https://example.org/standard/${member}`));
+  }
+  assert.equal(store.version, 0);
+  results.push({ check: 'standard typed and implicit ordered collections import blank-node RDF lists without application markers', passed: true });
   await client.loadTurtle('fixture-source', namespace, graphs[0], source);
   const fingerprint = (data: string) => parseRdf(data).getQuads(null, null, null, null).map(q =>
     [q.subject.id, q.predicate.id, q.object.id].join(' ')).sort();

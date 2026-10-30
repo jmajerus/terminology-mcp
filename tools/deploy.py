@@ -168,6 +168,7 @@ def deploy(client, values, target, source):
     import uuid
     password = None if values['LAN_DEPLOY_USER'] == 'root' else values['LAN_DEPLOY_PASSWORD']
     sha = source['commit']
+    installer = subprocess.check_output(['git', 'show', sha + ':deploy/install.sh'], cwd=ROOT, text=True)
     release_id = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + sha[:12] + '-' + uuid.uuid4().hex[:8]
     release = '/opt/terminology-mcp/releases/' + release_id
     record = {**source, 'release': release_id, 'at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')}
@@ -192,7 +193,7 @@ def deploy(client, values, target, source):
                  'LAN_URL': 'http://' + authority(peer) + ':3210',
                  'ARCHIVE': remote + '.tar.gz', 'UNIT': remote + '.service', 'RECORD': remote + '.json'}
     exports = ''.join('export ' + key + '=' + shlex.quote(value) + '\n' for key, value in variables.items())
-    run(client, exports + (ROOT / 'deploy/install.sh').read_text(), password=password, timeout=300)
+    run(client, exports + installer, password=password, timeout=300)
     print(f'Deployed {source.get("pr") and "PR #" + str(source["pr"]) or source["branch"]} at {sha}')
 
 

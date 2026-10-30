@@ -71,10 +71,11 @@ def validate_source(source, skip_tests=False, root=ROOT):
     import io
     sha = source['commit']
     # Validate deployment capability before connecting or changing the host.
-    try:
-        command(['git', 'cat-file', '-e', sha + ':deploy/terminology-mcp.service'], root)
-    except RuntimeError as error:
-        raise ValueError('Selected commit lacks Debian deployment support. Merge the deployment PR before deploying main.') from error
+    for path in ['deploy/terminology-mcp.service', 'deploy/install.sh']:
+        try:
+            command(['git', 'cat-file', '-e', sha + ':' + path], root)
+        except RuntimeError as error:
+            raise ValueError(f'Selected commit lacks required deployment file {path}. Select a revision containing the deployment controls.') from error
     if skip_tests:
         return
     with tempfile.TemporaryDirectory(prefix='terminology-check-') as directory:

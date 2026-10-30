@@ -79,8 +79,10 @@ commit against GitHub's PR head. Fetching uses a temporary private ref and
 preserves the working tree and `FETCH_HEAD`. By default, the selected commit
 is tested in an isolated temporary directory (`npm ci`, build, unit/API/status
 tests, and deployment tests when provided). Uncommitted files are excluded.
-The selected source must include the Debian deployment service; merge the
-original deployment PR before using **Switch to main** if main predates it.
+The selected source must include both `deploy/terminology-mcp.service` and
+`deploy/install.sh`; a revision missing either is rejected before deployment,
+even with `--skip-tests`. Merge the deployment controls before using
+**Switch to main** if main predates them.
 
 Status uses `http://<LAN_DEPLOY_SERVER hostname>:3210`. Set
 `TERMINOLOGY_STATUS_URL` in `.env` to override it (HTTP(S), no embedded
@@ -92,7 +94,9 @@ deployment with these tools before **Redeploy current branch** can follow it.
 
 The script packages an allowlist of application files from the selected commit, builds on
 the target, removes development dependencies, and installs the systemd unit
-from that commit's `deploy/terminology-mcp.service`. Local credentials, Cloudflare tokens,
+from that commit's `deploy/terminology-mcp.service`. The installer is also read
+from that exact commit, so another checkout or uncommitted installer edits
+cannot change the cutover or recovery behavior. Local credentials, Cloudflare tokens,
 databases, demos, and test artifacts are not uploaded. Deployment passwords
 are passed to SSH/sudo in process memory, not written into the service or
 archive. SSH host keys are remembered under ignored `data/deploy/known_hosts`.

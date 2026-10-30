@@ -221,3 +221,28 @@ test('a concept cannot reuse a collection source IRI or alias', t => {
   assert.throws(() => store.addTerm({ scheme: 'subjects', label: 'Conflict', aliases: ['https://example.org/collection'] }), /collection IRI/);
   assert.equal(store.version, version);
 });
+
+test('collection source IRIs remain reserved across deletion, scheme creation, concept creation and reimport', t => {
+  const { store, a, save } = fixture(t);
+  const uri = 'https://example.org/reserved-collection';
+  const set = save([a.id], { sourceUri: uri });
+  const rejectsReuse = () => {
+    const version = store.version;
+    assert.throws(() => store.addScheme({ id: 'collision', label: 'Collision', hierarchy: 'tree', sourceUri: uri }), /collection IRI/);
+    assert.throws(() => save([], { slug: 'reused', sourceUri: uri }), /already in use/);
+    assert.throws(() => store.addTerm({ scheme: 'subjects', label: 'Collision', sourceUri: uri }), /collection IRI/);
+    assert.throws(() => store.addTerm({ scheme: 'subjects', label: 'Collision', aliases: [uri] }), /collection IRI/);
+    assert.equal(store.version, version);
+  };
+  rejectsReuse();
+  const updated = store.saveSet({ ...fields(set), description: 'The original owner may still edit its definition.' }, store.version, set.id);
+  store.deleteSet(set.id, store.version);
+  rejectsReuse();
+  const version = store.version;
+  const data = source.replaceAll('https://example.org/', 'https://example.org/reimport/').replace('ex:ordered a', `<${uri}> a`).replace('skos:member ex:ordered,', `skos:member <${uri}>,`);
+  const plan = planSkos(store, data, importRequestSchema.parse({ format: 'turtle', sourceScheme: 'https://example.org/reimport/scheme', schemeId: 'reimport', hierarchy: 'tree' })).plan;
+  assert.throws(() => store.importScheme(plan, version), /already in use/);
+  assert.equal(store.version, version); assert.equal(store.schemes().length, 1);
+  assert.equal(store.sets().length, 0);
+  assert.deepEqual(store.conceptSet(set.id, updated.changed), updated);
+});

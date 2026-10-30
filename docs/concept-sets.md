@@ -37,6 +37,8 @@ the definition and the vocabulary to the same changelog version.
 
 Delete retains history and the stable ID as a tombstone. A set referenced by a
 parent collection must first be removed from that parent's members.
+Its source IRI remains reserved after deletion and cannot be reassigned to a
+new set, term, or scheme.
 
 ## Structural changes
 
