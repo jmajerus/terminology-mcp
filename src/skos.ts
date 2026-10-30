@@ -11,10 +11,10 @@ const DCT = 'http://purl.org/dc/terms/';
 const EX = 'urn:terminology-mcp:vocab:';
 const matches = ['exactMatch', 'closeMatch', 'broadMatch', 'narrowMatch', 'relatedMatch'] as const;
 export const importRequestSchema = z.object({
-  format: z.enum(['turtle', 'sparql']), data: z.string().max(5 * 1024 * 1024).optional(),
+  format: z.enum(['turtle', 'sparql', 'graph-json']), data: z.string().max(5 * 1024 * 1024).optional(),
   endpoint: z.string().optional(), graph: iriSchema.optional(), sourceScheme: iriSchema,
   schemeId: z.string(), label: z.string().trim().max(200).optional(),
-  hierarchy: z.enum(['tree', 'poly']), language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).default('en'),
+  hierarchy: z.enum(['tree', 'poly', 'graph']), language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).default('en'),
 }).strict();
 export type ImportRequest = z.infer<typeof importRequestSchema>;
 

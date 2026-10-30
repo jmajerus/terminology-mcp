@@ -116,6 +116,13 @@ Concept sets and their expansion remain the next editor milestone. See
 
 ## What we borrow from FHIR
 
+**Concept-graph update (2026-10-30):** concept networks are first-class scheme
+structures with flat authoring, an interactive neighbourhood explorer, symmetric
+edge editing, graph-shaped API/set reads, and quote-mcp/native JSON import.
+The quote-mcp compatibility check preserves its 221 concepts and 782 directed
+relationships, rather than reducing the source to a hierarchy. See
+[concept graphs](docs/concept-graphs.md).
+
 **Concept-set update (2026-10-30):** the second editor page now supports explicit,
 ordered, nested and recipe sets with immutable revisions and version-pinned
 expansion. Structural previews include set effects; merges update membership

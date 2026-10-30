@@ -44,7 +44,7 @@ export const editTermSchema = z.object({
 export const schemeSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,59}$/), label: text,
   description: z.string().trim().max(10000).default(''),
-  hierarchy: z.enum(['tree', 'poly']),
+  hierarchy: z.enum(['tree', 'poly', 'graph']),
   admissionTest: z.string().trim().max(10000).default(''),
   notations: z.array(notationSchema).max(100).default([]),
   sourceUri: iriSchema.optional(),
@@ -61,7 +61,7 @@ export type TermView = Term & { path: string | null; depth: number; narrower: st
 export const setRecipeSchema = z.object({
   concepts: z.array(z.string().min(1).max(2000)).max(10000).default([]), narrower: z.array(z.string().min(1).max(2000)).max(1000).default([]),
   around: z.array(z.object({ term: z.string().min(1).max(2000), depth: z.number().int().min(0).max(10),
-    types: z.array(z.enum(['related', 'opposite'])).min(1).max(2),
+    types: z.array(z.enum(['broader', 'narrower', 'related', 'opposite'])).min(1).max(4),
   }).strict()).max(100).default([]), exclude: z.array(z.string().min(1).max(2000)).max(10000).default([]),
 }).strict();
 export const conceptSetSchema = z.object({

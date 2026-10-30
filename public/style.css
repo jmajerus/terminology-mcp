@@ -24,3 +24,34 @@
 .sets-workspace .dialog-actions { flex-wrap: wrap; }
 .topbar a.text-button { color: #caddb4; }
 .sets-workspace #set-scheme { width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 4px; background: white; }
+
+.graph-workspace { grid-template-columns: 250px minmax(400px,1fr) 330px; }
+.graph-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:14px; }
+.graph-toolbar fieldset { border:0; padding:0; display:flex; flex-wrap:wrap; gap:10px; font-size:12px; }
+.graph-toolbar legend { font-size:11px; color:var(--muted); margin-bottom:5px; }
+.graph-canvas { padding:20px; }
+#graph-scheme { width:100%; padding:9px; border:1px solid var(--line); border-radius:4px; }
+#graph-map { width:100%; min-height:440px; background:#fafcf7; border:1px solid var(--line); border-radius:8px; }
+.graph-edge { stroke:#829082; stroke-width:1.5; }
+.graph-edge.related { stroke:#5d8ca9; }
+.graph-edge.opposite { stroke:#b28241; stroke-dasharray:6 4; }
+.graph-node { cursor:pointer; }
+.graph-node circle { fill:#dce8d2; stroke:#43684c; stroke-width:2; }
+.graph-node.focus circle { fill:#245c46; }
+.graph-node text { font-size:13px; fill:#203c2c; paint-order:stroke; stroke:#fafcf7; stroke-width:3px; }
+.graph-node:focus circle { stroke:#ac6d2b; stroke-width:4; }
+.graph-caption { line-height:1.7; }
+.graph-inspector { overflow:auto; }
+.graph-inspector .changes { overflow:visible; flex:none; }
+.graph-inspector h1 { font-size:24px; overflow-wrap:anywhere; }
+.graph-relation-group h2 { font-size:13px; text-transform:capitalize; margin:14px 0 4px; }
+.graph-relation-group div { display:flex; justify-content:space-between; gap:8px; }
+#graph-link-form { padding:20px; border-top:1px solid var(--line); }
+#graph-link-form h2 { font-size:16px; }
+@media(max-width:1150px){.graph-workspace{grid-template-columns:220px minmax(0,1fr)}.graph-inspector .changes{display:block}}
+@media(max-width:650px){.graph-workspace{display:flex}.graph-canvas{padding:16px}#graph-map{min-height:320px}.topbar{gap:10px}.graph-toolbar fieldset{gap:6px}}
+.concept-connections { border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding-top:16px; padding-bottom:16px; }
+.concept-connections h2 { font-size:15px; margin:0 0 10px; }
+.concept-connections div { margin:7px 0; line-height:1.8; }
+.concept-connections strong { display:inline-block; min-width:75px; font-size:12px; text-transform:capitalize; }
+@media(max-width:650px){.topbar{flex-wrap:wrap;height:auto;min-height:60px;padding-top:10px;padding-bottom:10px}.graph-toolbar fieldset{min-width:0}}

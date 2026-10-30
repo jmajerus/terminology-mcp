@@ -170,7 +170,11 @@ export class Store {
       const included = new Set(recipe.concepts);
       const children = new Map<string, string[]>(), neighbours = new Map<string, { type: string; id: string }[]>();
       for (const term of terms.values()) if (term.scheme === set.scheme && term.status !== 'retired') {
-        for (const parent of term.broader) children.set(parent, [...children.get(parent) ?? [], term.id]);
+        for (const parent of term.broader) {
+          children.set(parent, [...children.get(parent) ?? [], term.id]);
+          neighbours.set(term.id, [...neighbours.get(term.id) ?? [], { type: 'broader', id: parent }]);
+          neighbours.set(parent, [...neighbours.get(parent) ?? [], { type: 'narrower', id: term.id }]);
+        }
         for (const relation of term.relations) {
           if (terms.get(relation.target)?.scheme !== set.scheme || terms.get(relation.target)?.status === 'retired') continue;
           neighbours.set(term.id, [...neighbours.get(term.id) ?? [], { type: relation.type, id: relation.target }]);
@@ -326,7 +330,7 @@ export class Store {
           throw new DomainError(422, 'Replacements must be other terms in the same scheme.');
       }
       const key = `${term.scheme}:${[...term.broader].sort().join(',')}:${slug(term.label)}`;
-      if (siblings.has(key)) throw new DomainError(409, `A sibling already uses the path label “${term.label}”.`);
+      if (scheme.hierarchy !== 'graph' && siblings.has(key)) throw new DomainError(409, `A sibling already uses the path label “${term.label}”.`);
       siblings.add(key);
     }
     const checkCycles = (edges: (term: Term) => string[], name: string) => {
@@ -395,7 +399,11 @@ export class Store {
         scopeNote: value.scopeNote, status: value.status, relations: value.relations, links: value.links, notations: value.notations });
       if (comparable(before) === comparable(term)) return this.lookup(id);
       const onlyNote = comparable({ ...term, scopeNote: before.scopeNote }) === comparable(before);
-      return this.commitTerms([...this.rawTerms().filter(other => other.id !== id), term],
+      const removed = before.relations.filter(old => !term.relations.some(r => r.type === old.type && r.target === old.target));
+      const candidates = this.rawTerms().filter(other => other.id !== id).map(other => ({ ...other,
+        relations: other.relations.filter(r => !removed.some(old => old.target === other.id && old.type === r.type && r.target === id)),
+      }));
+      return this.commitTerms([...candidates, term],
         renamed ? 'labelled' : onlyNote ? 'noted' : 'updated', reason, id, renamed || removedRelation).term;
     })();
   }
@@ -425,6 +433,23 @@ export class Store {
     return { version: n, term: views.get(primary)!,
       affected: changed.map(term => ({ before: old.get(term.id) ?? null, after: views.get(term.id)! })),
       usage: 'unknown' as const };
+  }
+  setRelation(source: string, target: string, type: 'related' | 'opposite', enabled: boolean, expectedVersion: number) {
+    return this.db.transaction(() => {
+      this.expectVersion(expectedVersion);
+      const terms = this.rawTerms(), from = terms.find(term => term.id === source), to = terms.find(term => term.id === target);
+      if (!from || !to) throw new DomainError(404, 'Relation endpoint not found.');
+      if (from.status === 'retired' || to.status === 'retired') throw new DomainError(422, 'Retired concepts are read-only.');
+      if (from.id === to.id) throw new DomainError(422, 'A concept cannot relate to itself.');
+      let changed = false;
+      for (const [term, other] of [[from, to], [to, from]]) {
+        const exists = term.relations.some(r => r.target === other.id && r.type === type);
+        if (enabled && !exists) { term.relations.push({ type, target: other.id }); changed = true; }
+        if (!enabled && exists) { term.relations = term.relations.filter(r => r.target !== other.id || r.type !== type); changed = true; }
+      }
+      if (!changed) return { version: this.version, term: this.lookup(source), affected: [], usage: 'unknown' as const };
+      return this.commitTerms(terms, 'updated', `${enabled ? 'Added' : 'Removed'} ${type} relationship`, source, !enabled);
+    })();
   }
   importScheme(input: unknown, expectedVersion: number) {
     const plan = importPlanSchema.parse(input);

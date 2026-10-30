@@ -2,7 +2,7 @@ const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 let state = { schemes: [], terms: [], version: 0, demo: false };
 let changes = [];
-let schemeId = '';
+let schemeId = new URLSearchParams(location.search).get('scheme') ?? '';
 let selectedId = location.hash.slice(1);
 let dirty = false;
 let saving = false;
@@ -74,13 +74,19 @@ function renderTree() {
     if (!childMap.has(parent)) childMap.set(parent, []);
     childMap.get(parent).push(term);
   }
-  $('#scheme-kind').textContent = scheme()?.hierarchy === 'poly' ? 'POLYHIERARCHY' : schemeId ? 'TREE SCHEME' : 'NO SCHEMES';
+  $('#scheme-kind').textContent = scheme()?.hierarchy === 'graph' ? 'CONCEPT GRAPH' : scheme()?.hierarchy === 'poly' ? 'POLYHIERARCHY' : schemeId ? 'TREE SCHEME' : 'NO SCHEMES';
   $('#scheme-notations').innerHTML = (scheme()?.notations ?? []).map(notation => `<span class="alias" title="${escape(notation.datatype)}">${escape(notation.value)}</span>`).join('');
   $('#term-count').textContent = `${terms.length} ${terms.length === 1 ? 'term' : 'terms'}`;
   const query = $('#search').value.trim().toLocaleLowerCase();
   const matches = terms.filter(term => [term.id, term.label, term.scopeNote, ...term.altLabels, ...term.aliases,
     ...(term.notations ?? []).map(notation => notation.value)]
     .some(value => value.toLocaleLowerCase().includes(query)));
+  $('#new-root').textContent = scheme()?.hierarchy === 'graph' ? '+ Concept' : '+ Top-level term';
+  $('#graph-view').href = `/graph?scheme=${encodeURIComponent(schemeId)}#${encodeURIComponent(selectedId)}`;
+  if (scheme()?.hierarchy === 'graph') {
+    $('#tree').innerHTML = matches.slice(0,5000).map(term => `<div class="tree-item ${term.id === selectedId ? 'selected' : ''}"><button type="button" class="tree-pick" data-pick="${escape(term.id)}">${escape(term.label)}</button><span class="status-dot ${escape(term.status)}"></span></div>`).join('') || '<p class="tree-empty">No concepts. Create or import a graph.</p>';
+    return;
+  }
   const visible = new Set(matches.map(term => term.id));
   if (query) {
     const addParents = id => { for (const parent of termMap.get(id)?.broader ?? []) { if (!visible.has(parent)) { visible.add(parent); addParents(parent); } } };
@@ -108,6 +114,7 @@ function renderTree() {
   if (limited) $('#tree').insertAdjacentHTML('beforeend', '<p class="tree-empty">Showing the first 5,000 outline rows. Filter terms to narrow the view.</p>');
 }
 function crumbs(term) {
+  if (scheme()?.hierarchy === 'graph') return escape(scheme()?.label);
   const labels = [];
   let node = term;
   while (node.broader.length) { node = byId(node.broader[0]); if (!node) break; labels.unshift(node.label); }
@@ -116,7 +123,7 @@ function crumbs(term) {
 function renderDetail() {
   const term = current();
   if (!term) {
-    $('#detail').innerHTML = `<div class="empty"><span class="empty-symbol">t.</span><h1>${schemeId ? 'Make room for an idea' : 'Your vocabulary starts here'}</h1><p>${escape(scheme()?.description || 'Create a scheme to give your terms a home.')}</p><button class="button primary" id="empty-create">${schemeId ? '+ Add a top-level term' : '+ Create a scheme'}</button></div>`;
+    $('#detail').innerHTML = `<div class="empty"><span class="empty-symbol">t.</span><h1>${schemeId ? 'Make room for an idea' : 'Your vocabulary starts here'}</h1><p>${escape(scheme()?.description || 'Create a scheme to give your terms a home.')}</p><button class="button primary" id="empty-create">${schemeId ? (scheme()?.hierarchy === 'graph' ? '+ Add a concept' : '+ Add a top-level term') : '+ Create a scheme'}</button></div>`;
     $('#empty-create').onclick = () => openCreate(schemeId ? 'term' : 'scheme');
     return;
   }
@@ -125,11 +132,11 @@ function renderDetail() {
   $('#detail').innerHTML = `
     <div class="term-heading"><div class="breadcrumbs">${crumbs(term)}</div>
       <div class="title-line"><h1>${escape(term.label)}</h1><span class="status-pill ${escape(term.status)}">${escape(term.status)}</span></div>
-      <div class="term-id">${escape(term.id)}<br>${term.path ? escape(term.path) : `${term.broader.length} broader terms · depth ${term.depth}`} · created #${term.created} · changed #${term.changed}</div>
+      <div class="term-id">${escape(term.id)}<br>${term.path ? escape(term.path) : scheme()?.hierarchy === 'graph' ? 'Concept graph' : `${term.broader.length} broader terms · depth ${term.depth}`} · created #${term.created} · changed #${term.changed}</div>
       <div class="term-actions"><button type="button" class="button small" id="new-child">+ Narrower term</button><button type="button" class="button small" id="show-history">View history ↗</button><span class="usage-note">Subscriber usage unknown</span></div>
       ${term.status === 'retired' ? `<div class="retirement-banner">This term is retired. ${term.replacedBy.length ? 'Replaced by: ' + term.replacedBy.map(id => `<button type="button" class="text-button" data-pick="${escape(id)}">${escape(byId(id)?.label)}</button>`).join(', ') : 'No replacement specified.'} Old IDs and aliases still resolve here.</div>` : `<div class="term-actions breaking-actions">${['move', 'merge', 'split', 'retire'].map(kind => `<button type="button" class="button small" data-operation="${kind}">${kind[0].toUpperCase() + kind.slice(1)}…</button>`).join('')}</div>`}
     </div>
-    <form id="term-form" class="term-body">
+    ${connectionPanel(term)}<form id="term-form" class="term-body">
       <label class="field"><span class="field-label">Preferred label</span><input id="label" name="label" value="${escape(term.label)}" required maxlength="200"><span class="help">Renames keep the stable ID and all previous path aliases.</span></label>
       <label class="field"><span class="field-label">Scope note</span><textarea id="scope-note" name="scopeNote" rows="4" maxlength="20000" placeholder="What belongs here, and what goes elsewhere.">${escape(term.scopeNote)}</textarea><span class="help">Describe the concept’s boundaries. Scope note edits apply immediately.</span></label>
       <div class="field"><span class="field-label">Notations <button type="button" class="text-button" id="add-notation">+ Notation</button></span><div id="notations" class="relations-list"></div><p class="help">Codes in a classification system. Exact text and datatype are preserved, including leading zeros.</p></div>
@@ -265,10 +272,10 @@ function showRevision(n) {
 function openCreate(mode, parent = null) {
   if (!allowLeave()) return;
   createMode = mode; parentId = parent;
-  $('#create-title').textContent = mode === 'scheme' ? 'New scheme' : parent ? 'New narrower term' : 'New top-level term';
+  $('#create-title').textContent = mode === 'scheme' ? 'New scheme' : parent ? 'New narrower term' : scheme()?.hierarchy === 'graph' ? 'New concept' : 'New top-level term';
   $('#create-error').textContent = '';
-  const schemeFields = `<label class="field"><span class="field-label">Scheme ID</span><input name="id" required pattern="[a-z]([a-z0-9]|-){0,59}" maxlength="60" placeholder="e.g. subjects"><span class="help">Lowercase letters, numbers, and hyphens. This ID stays fixed.</span></label><label class="field"><span class="field-label">Hierarchy</span><select name="hierarchy"><option value="tree">Tree · one broader term</option><option value="poly">Polyhierarchy · multiple broader terms</option></select></label><label class="field"><span class="field-label">Description</span><textarea name="description" rows="2" maxlength="10000"></textarea></label>`;
-  const termFields = `<label class="field"><span class="field-label">Broader terms</span><select name="broader" ${scheme()?.hierarchy === 'poly' ? 'multiple size="5"' : ''}><option value="" ${!parent ? 'selected' : ''}>Top level</option>${termOptions(state.terms.filter(term => term.scheme === schemeId), parent)}</select>${scheme()?.hierarchy === 'poly' ? '<span class="help">Use Ctrl or Command to select more than one parent.</span>' : ''}</label><label class="field"><span class="field-label">Scope note</span><textarea name="scopeNote" rows="3" maxlength="20000" placeholder="What belongs here?"></textarea></label><label class="field"><span class="field-label">Status</span><select name="status"><option value="provisional">Provisional</option><option value="active">Active</option></select></label>`;
+  const schemeFields = `<label class="field"><span class="field-label">Scheme ID</span><input name="id" required pattern="[a-z]([a-z0-9]|-){0,59}" maxlength="60" placeholder="e.g. subjects"><span class="help">Lowercase letters, numbers, and hyphens. This ID stays fixed.</span></label><label class="field"><span class="field-label">Hierarchy</span><select name="hierarchy"><option value="tree">Tree · one broader term</option><option value="poly">Polyhierarchy · multiple broader terms</option><option value="graph">Concept graph · associative network</option></select></label><label class="field"><span class="field-label">Description</span><textarea name="description" rows="2" maxlength="10000"></textarea></label>`;
+  const termFields = `<label class="field"><span class="field-label">Broader terms</span><select name="broader" ${scheme()?.hierarchy !== 'tree' ? 'multiple size="5"' : ''}><option value="" ${!parent ? 'selected' : ''}>Top level</option>${termOptions(state.terms.filter(term => term.scheme === schemeId), parent)}</select>${scheme()?.hierarchy !== 'tree' ? '<span class="help">Use Ctrl or Command to select more than one parent.</span>' : ''}</label><label class="field"><span class="field-label">Scope note</span><textarea name="scopeNote" rows="3" maxlength="20000" placeholder="What belongs here?"></textarea></label><label class="field"><span class="field-label">Status</span><select name="status"><option value="provisional">Provisional</option><option value="active">Active</option></select></label>`;
   $('#create-fields').innerHTML = `<label class="field"><span class="field-label">${mode === 'scheme' ? 'Scheme name' : 'Preferred label'}</span><input name="label" required maxlength="200" autocomplete="off"></label>${mode === 'scheme' ? schemeFields : termFields}`;
   $('#create-dialog').showModal();
 }
@@ -344,7 +351,11 @@ document.addEventListener('keydown', event => {
   }
 });
 window.addEventListener('beforeunload', event => { if (dirty) event.preventDefault(); });
-refresh().catch(error => notice(`Could not load the workspace: ${error.message}`, true));
+refresh().then(() => {
+  const params = new URLSearchParams(location.search);
+  if (params.get('create') === 'term' && schemeId) openCreate('term');
+  if (params.get('import') === 'graph-json') { $('#import-scheme').click(); $('#import-format').value = 'graph-json'; $('#import-format').dispatchEvent(new Event('change')); }
+}).catch(error => notice(`Could not load the workspace: ${error.message}`, true));
 
 let operationKind;
 let operationPreview;
@@ -380,10 +391,10 @@ function openOperation(kind) {
   $('#operation-title').textContent = `${kind[0].toUpperCase() + kind.slice(1)} “${operationTerm.label}”`;
   $('#operation-reason').value = ''; $('#operation-error').textContent = ''; invalidateOperation();
   let fields = '';
-  if (kind === 'move') fields = `<label class="field"><span class="field-label">New broader terms</span><select id="operation-broader" ${scheme().hierarchy === 'poly' ? 'multiple size="6"' : ''}><option value="">Top level</option>${termOptions(available)}</select></label><p class="help">Old aliases are preserved. Descendant paths and aliases update with this move.</p>`;
+  if (kind === 'move') fields = `<label class="field"><span class="field-label">New broader terms</span><select id="operation-broader" ${scheme().hierarchy !== 'tree' ? 'multiple size="6"' : ''}><option value="">Top level</option>${termOptions(available)}</select></label><p class="help">Old aliases are preserved. Descendant paths and aliases update with this move.</p>`;
   if (kind === 'merge') fields = `<label class="field"><span class="field-label">Merge into</span><select id="operation-target" required><option value="">Choose a term…</option>${termOptions(available)}</select></label><p class="help">The source retires. Its children and incoming relations move to the target. Labels, references, and outgoing relations are carried over.</p>`;
   if (kind === 'retire') fields = `<label class="field"><span class="field-label">Replacement <span class="help">optional</span></span><select id="operation-target"><option value="">No replacement</option>${termOptions(available)}</select></label><p class="help">Children move to this term’s current broader terms. Relations transfer to the replacement; without one, incoming relations are removed. The retired ID and aliases remain available.</p>`;
-  if (kind === 'split') fields = `<div id="split-terms"></div><button type="button" id="add-split-term" class="button small">+ Replacement</button><div class="section-line"><span class="field-label">Assign narrower terms</span>${state.terms.filter(term => term.broader.includes(selectedId)).map(term => `<label class="field"><span class="field-label">${escape(term.label)}</span><select class="split-child" data-child="${escape(term.id)}" required ${scheme().hierarchy === 'poly' ? 'multiple size="3"' : ''}></select></label>`).join('') || '<p class="help">There are no direct narrower terms to assign.</p>'}</div><p class="help">The source retires. Its incoming and outgoing relations are copied to every replacement. Assign each narrower term explicitly.</p>`;
+  if (kind === 'split') fields = `<div id="split-terms"></div><button type="button" id="add-split-term" class="button small">+ Replacement</button><div class="section-line"><span class="field-label">Assign narrower terms</span>${state.terms.filter(term => term.broader.includes(selectedId)).map(term => `<label class="field"><span class="field-label">${escape(term.label)}</span><select class="split-child" data-child="${escape(term.id)}" required ${scheme().hierarchy !== 'tree' ? 'multiple size="3"' : ''}></select></label>`).join('') || '<p class="help">There are no direct narrower terms to assign.</p>'}</div><p class="help">The source retires. Its incoming and outgoing relations are copied to every replacement. Assign each narrower term explicitly.</p>`;
   $('#operation-fields').innerHTML = fields;
   if (kind === 'split') { addSplitTerm(); addSplitTerm(); $('#add-split-term').onclick = () => { if (document.querySelectorAll('.split-term').length < 20) { addSplitTerm(); invalidateOperation(); } }; }
   if (kind === 'move') for (const option of $('#operation-broader').options) option.selected = operationTerm.broader.includes(option.value);
@@ -465,7 +476,10 @@ $('#import-scheme').onclick = () => {
   $('#import-error').textContent = ''; invalidateImportSource(); $('#import-dialog').showModal();
 };
 $('#import-format').onchange = () => {
-  $('#import-file-field').hidden = $('#import-format').value !== 'turtle';
+  $('#import-dialog h2').textContent = $('#import-format').value === 'graph-json' ? 'Import a concept graph' : 'Import a SKOS scheme';
+  $('#import-file-field .field-label').textContent = $('#import-format').value === 'graph-json' ? 'Graph JSON file' : 'Turtle file';
+  $('#import-file-field').hidden = $('#import-format').value === 'sparql';
+  if ($('#import-format').value === 'graph-json') $('#import-hierarchy').value = 'graph';
   $('#import-sparql-fields').hidden = $('#import-format').value !== 'sparql';
   invalidateImportSource();
 };
@@ -481,9 +495,9 @@ $('#read-import-source').onclick = async () => {
   try {
     const format = $('#import-format').value;
     const input = { format };
-    if (format === 'turtle') {
+    if (format !== 'sparql') {
       const file = $('#import-file').files[0];
-      if (!file) throw new Error('Choose a Turtle file first.');
+      if (!file) throw new Error('Choose a Turtle or graph JSON file first.');
       if (file.size > 5 * 1024 * 1024) throw new Error('Files are limited to 5 MiB.');
       input.data = await file.text();
     } else {
@@ -537,3 +551,18 @@ $('#import-dialog').addEventListener('close', () => { if (!$('#import-dialog').o
 $('#import-dialog').addEventListener('cancel', event => {
   if (importApplying) event.preventDefault(); else invalidateImportSource();
 });
+
+function connectionPanel(term) {
+  const edges = [];
+  term.broader.forEach(id => edges.push({type:'broader',id}));
+  state.terms.filter(other => other.broader.includes(term.id)).forEach(other => edges.push({type:'narrower',id:other.id}));
+  const seen = new Set();
+  for (const other of state.terms) {
+    for (const relation of other.relations) {
+      const id = other.id === term.id ? relation.target : relation.target === term.id ? other.id : null;
+      const key = relation.type+':'+id;
+      if (id && !seen.has(key)) { seen.add(key); edges.push({type:relation.type,id}); }
+    }
+  }
+  return `<section class="term-body concept-connections" aria-label="Concept connections"><h2>Connections <a class="text-button" href="/graph?scheme=${encodeURIComponent(term.scheme)}#${encodeURIComponent(term.id)}">Explore graph ↗</a></h2>${['broader','narrower','related','opposite'].map(type => `<div><strong>${type}</strong> ${edges.filter(e=>e.type===type).map(e=>`<button type="button" class="text-button" data-pick="${escape(e.id)}">${escape(byId(e.id)?.label ?? e.id)}</button>`).join(' · ') || '<span class="help">None</span>'}</div>`).join('')}</section>`;
+}

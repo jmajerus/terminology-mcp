@@ -1,0 +1,56 @@
+import { test, expect } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
+
+test('import a quote concept graph, navigate typed connections, create and remove symmetric links, and add concepts',async({page,request})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/?import=graph-json');
+ const dialog=page.locator('#import-dialog');await expect(dialog).toBeVisible();
+ await page.locator('#import-file').setInputFiles(fileURLToPath(new URL('../fixtures/concept-graph.json',import.meta.url)));
+ await page.getByRole('button',{name:'Find schemes',exact:true}).click();
+ await expect(page.locator('#import-source-scheme')).toBeEnabled();
+ await page.locator('#import-id').fill('graph-ui');
+ await expect(page.locator('#import-hierarchy')).toHaveValue('graph');
+ await dialog.getByRole('button',{name:'Preview import',exact:true}).click();await expect(page.locator('#import-preview')).toContainText('5 terms');
+ await dialog.getByRole('button',{name:'Import scheme',exact:true}).click();await expect(dialog).not.toBeVisible();
+ await expect(page.locator('#scheme-kind')).toHaveText('CONCEPT GRAPH');await expect(page.locator('#tree .tree-item')).toHaveCount(5);
+ await page.locator('#tree').getByRole('button',{name:'psychic prison',exact:true}).click();
+ await expect(page.getByRole('region',{name:'Concept connections'})).toContainText('unconscious');
+ await page.locator('#graph-view').click();
+ await expect(page.locator('#graph-detail h1')).toHaveText('psychic prison');
+ await expect(page.locator('#graph-links')).toContainText('organizational psychodynamics');
+ await expect(page.locator('#graph-links')).toContainText('unconscious');
+ await expect(page.locator('#graph-map g')).toHaveCount(4);
+ const state=await(await request.get('/api/state')).json();
+ const self=state.terms.find((t:any)=>t.scheme==='graph-ui'&&t.label==='true self');
+ const prison=state.terms.find((t:any)=>t.scheme==='graph-ui'&&t.label==='psychic prison');
+ await page.locator('#graph-target').selectOption(self.id);await page.getByRole('button',{name:'Add relationship',exact:true}).click();
+ await expect(page.locator('#graph-links')).toContainText('true self');
+ await page.locator('#graph-concepts').getByRole('button',{name:'true self',exact:true}).click();
+ await expect(page.locator('#graph-detail h1')).toHaveText('true self');
+ await expect(page.locator('#graph-links')).toContainText('psychic prison');
+ page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Remove related psychic prison',exact:true}).click();
+ await expect(page.locator('#graph-links')).not.toContainText('psychic prison');
+ const graph=await(await request.get('/api/graph?scheme=graph-ui')).json();
+ expect(graph.relations.some((e:any)=>e.from===self.id&&e.to===prison.id)).toBe(false);
+ await page.locator('#graph-new').click();const create=page.locator('#create-dialog');await expect(create).toBeVisible();
+ await create.getByLabel('Preferred label').fill('Disconnected concept');await create.getByRole('button',{name:'Create',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Disconnected concept',exact:true})).toBeVisible();
+ await page.locator('#graph-view').click();await expect(page.locator('#graph-map g')).toHaveCount(1);
+ await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ expect(errors).toEqual([]);
+});
+
+test('graph edits reject stale versions and graph controls keep navigation usable',async({page,request})=>{
+ await request.post('/api/schemes',{data:{id:'graph-stale',label:'Stale graph',hierarchy:'graph'}});
+ const a=(await(await request.post('/api/terms',{data:{scheme:'graph-stale',label:'First'}})).json()).term;
+ const b=(await(await request.post('/api/terms',{data:{scheme:'graph-stale',label:'Second'}})).json()).term;
+ await page.goto('/graph?scheme=graph-stale#'+a.id);await expect(page.locator('#graph-detail h1')).toHaveText('First');
+ await request.post('/api/terms',{data:{scheme:'graph-stale',label:'Concurrent concept'}});
+ await page.locator('#graph-target').selectOption(b.id);await page.getByRole('button',{name:'Add relationship',exact:true}).click();
+ await expect(page.locator('#graph-notice')).toContainText('workspace changed');
+ await page.getByRole('button',{name:'Refresh',exact:true}).click();await expect(page.locator('#graph-notice')).not.toBeVisible();
+ await page.locator('#graph-target').selectOption(b.id);await page.getByRole('button',{name:'Add relationship',exact:true}).click();
+ await expect(page.locator('#graph-map g')).toHaveCount(2);
+ await page.locator(`#graph-map g[data-focus="${b.id}"]`).press('Enter');await expect(page.locator('#graph-detail h1')).toHaveText('Second');
+ await page.getByRole('checkbox',{name:'Related',exact:true}).uncheck();await expect(page.locator('#graph-map g')).toHaveCount(1);
+});
