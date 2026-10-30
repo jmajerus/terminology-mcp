@@ -9,7 +9,7 @@ test('import a quote concept graph, navigate typed connections, create and remov
  await page.getByRole('button',{name:'Find schemes',exact:true}).click();
  await expect(page.locator('#import-source-scheme')).toBeEnabled();
  await page.locator('#import-id').fill('graph-ui');
- await expect(page.locator('#import-hierarchy')).toHaveValue('graph');
+ await expect(page.locator('#import-hierarchy')).toHaveValue('auto');
  await dialog.getByRole('button',{name:'Preview import',exact:true}).click();await expect(page.locator('#import-preview')).toContainText('5 terms');
  await dialog.getByRole('button',{name:'Import scheme',exact:true}).click();await expect(dialog).not.toBeVisible();
  await expect(page.locator('#scheme-kind')).toHaveText('CONCEPT GRAPH');await expect(page.locator('#tree .tree-item')).toHaveCount(5);

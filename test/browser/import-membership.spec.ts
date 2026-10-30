@@ -1,0 +1,71 @@
+import { test, expect } from '@playwright/test';
+
+test('Auto recommends from content, incompatible override explains the source and blocks Apply, compatible override preserves edges',async({page,request})=>{
+ const ttl='@prefix s:<http://www.w3.org/2004/02/skos/core#>. @prefix x:<urn:browser:auto:>. x:scheme a s:ConceptScheme; s:prefLabel "Auto test". x:a s:inScheme x:scheme; s:prefLabel "A". x:b s:inScheme x:scheme; s:prefLabel "B". x:c s:inScheme x:scheme; s:prefLabel "C"; s:broader x:a,x:b.';
+ await page.goto('/?import=turtle');const dialog=page.locator('#import-dialog');await expect(dialog).toBeVisible();
+ await page.locator('#import-file').setInputFiles({name:'auto.ttl',mimeType:'text/turtle',buffer:Buffer.from(ttl)});
+ await page.getByRole('button',{name:'Find schemes',exact:true}).click();await expect(page.locator('#import-source-scheme')).toBeEnabled();
+ await page.locator('#import-id').fill('auto-browser');await expect(page.locator('#import-hierarchy')).toHaveValue('auto');
+ await page.getByRole('button',{name:'Preview import',exact:true}).click();await expect(page.locator('#import-analysis h3')).toHaveText('Auto selected: Polyhierarchy');
+ await expect(page.locator('#apply-import')).toBeEnabled();
+ await page.locator('#import-hierarchy').selectOption('tree');await expect(page.locator('#apply-import')).not.toBeVisible();
+ await page.getByRole('button',{name:'Preview import',exact:true}).click();await expect(page.locator('#import-analysis')).toContainText('“C” has 2 broader concepts: A, B.');
+ await expect(page.locator('#apply-import')).toBeDisabled();
+ const before=(await(await request.get('/api/state')).json());expect(before.schemes.some((s:any)=>s.id==='auto-browser')).toBe(false);
+ await page.locator('#import-hierarchy').selectOption('graph');await page.getByRole('button',{name:'Preview import',exact:true}).click();
+ await expect(page.locator('#import-analysis h3')).toHaveText('Selected: Graph');await expect(page.locator('#apply-import')).toBeEnabled();
+ await page.getByRole('button',{name:'Import scheme',exact:true}).click();await expect(dialog).not.toBeVisible();
+ const after=(await(await request.get('/api/state')).json());expect(after.terms.find((t:any)=>t.scheme==='auto-browser'&&t.label==='C').broader).toHaveLength(2);
+});
+
+test('term editor saves multiple explicit collections atomically, explains calculated membership, and rejects stale collection edits',async({page,request})=>{
+ const scheme='membership-browser';await request.post('/api/schemes',{data:{id:scheme,label:'Memberships',hierarchy:'tree'}});
+ const a=(await(await request.post('/api/terms',{data:{scheme,label:'Membership term',status:'active'}})).json()).term;
+ const b=(await(await request.post('/api/terms',{data:{scheme,label:'Existing member',status:'active'}})).json()).term;
+ const set=async(data:unknown)=>{const state=await(await request.get('/api/state')).json();return(await(await request.post('/api/sets',{data:{set:data,expectedVersion:state.version}})).json()).set;};
+ const ordered=await set({scheme,slug:'reading',label:'Reading list',ordered:true,members:[b.id]});
+ const plain=await set({scheme,slug:'theme',label:'Research theme'});
+ await set({scheme,slug:'parent',label:'Nested group',members:[ordered.id]});
+ await set({scheme,slug:'computed',label:'Calculated selection',recipe:{concepts:[a.id]}});
+ await page.goto('/#'+a.id);await expect(page.getByRole('heading',{name:'Membership term',exact:true})).toBeVisible();
+ const membership=page.getByRole('region',{name:'Collection membership'});
+ await membership.getByRole('link',{name:'Manage collections',exact:false}).click();
+ await expect(page.locator('#set-scheme')).toHaveValue(scheme);
+ await page.goto('/#'+a.id);
+ await expect(page.locator('#term-calculated-collections')).toContainText('Calculated selection (recipe)');
+ expect(await membership.getByRole('checkbox',{name:/Calculated selection/}).count()).toBe(0);
+ await membership.getByRole('checkbox',{name:/Reading list/}).check();await membership.getByRole('checkbox',{name:'Research theme',exact:true}).check();
+ await page.locator('#scope-note').fill('Saved together with the memberships.');const before=(await(await request.get('/api/state')).json()).version;
+ await page.getByRole('button',{name:'Save changes',exact:true}).click();await expect(page.locator('#save-state')).toHaveText('Saved at #'+(before+1));
+ const after=await(await request.get('/api/state')).json();expect(after.version).toBe(before+1);
+ expect(after.sets.find((s:any)=>s.id===ordered.id).members).toEqual([b.id,a.id]);expect(after.sets.find((s:any)=>s.id===plain.id).members).toEqual([a.id]);
+ await expect(page.locator('#term-calculated-collections')).toContainText('Nested group (nested collection)');
+ await page.locator('#show-history').click();await page.locator('.change-view').first().click();
+ await expect(page.locator('#revision-content')).toContainText('Collections changed');
+ await expect(page.locator('#revision-content')).toContainText('Reading list · 1 → 2 direct members');
+ await page.getByRole('button',{name:'Close',exact:true}).click();
+ await page.reload();await expect(membership.getByRole('checkbox',{name:/Reading list/})).toBeChecked();
+ await membership.getByRole('checkbox',{name:/Reading list/}).uncheck();await page.getByRole('button',{name:'Save changes',exact:true}).click();
+ await expect(page.locator('#confirm-dialog')).toContainText('Reading list');await page.getByRole('button',{name:'Apply change',exact:true}).click();
+ await expect(membership.getByRole('checkbox',{name:/Reading list/})).not.toBeChecked();await expect(page.locator('#save-state')).toContainText('Saved at #');
+ await expect(page.locator('#term-calculated-collections')).toContainText('Calculated selection (recipe)');
+ await membership.getByRole('checkbox',{name:/Reading list/}).check();await page.locator('#scope-note').fill('Keep this unsaved text.');
+ await set({scheme,slug:'concurrent',label:'Concurrent collection'});
+ await page.getByRole('button',{name:'Save changes',exact:true}).click();await expect(page.locator('#save-error')).toContainText('workspace changed');
+ await expect(page.locator('#scope-note')).toHaveValue('Keep this unsaved text.');
+ expect((await(await request.get('/api/terms/'+a.id)).json()).term.scopeNote).toBe('Saved together with the memberships.');
+});
+
+test('a delayed calculated-membership response cannot replace another term’s membership information',async({page,request})=>{
+ const scheme='membership-race';await request.post('/api/schemes',{data:{id:scheme,label:'Membership race',hierarchy:'graph'}});
+ const a=(await(await request.post('/api/terms',{data:{scheme,label:'Race A'}})).json()).term;
+ const b=(await(await request.post('/api/terms',{data:{scheme,label:'Race B'}})).json()).term;
+ const version=(await(await request.get('/api/state')).json()).version;
+ await request.post('/api/sets',{data:{set:{scheme,slug:'only-a',label:'Only A',recipe:{concepts:[a.id]}},expectedVersion:version}});
+ let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
+ await page.route(`**/api/terms/${a.id}/collections?*`,async route=>{const response=await route.fetch();await held;await route.fulfill({response});});
+ const started=page.waitForRequest(`**/api/terms/${a.id}/collections?*`);await page.goto('/#'+a.id);await started;
+ await page.locator('#tree').getByRole('button',{name:'Race B',exact:true}).click();await expect(page.getByRole('heading',{name:'Race B',exact:true})).toBeVisible();
+ const finished=page.waitForResponse(`**/api/terms/${a.id}/collections?*`);release();await finished;
+ await expect(page.locator('#term-calculated-collections')).not.toContainText('Only A');
+});

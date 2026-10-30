@@ -40,6 +40,33 @@ parent collection must first be removed from that parent's members.
 Its source IRI remains reserved after deletion and cannot be reassigned to a
 new set, term, or scheme.
 
+## Assigning a term to collections
+
+The vocabulary term editor has a **Concept sets / collections** section. Select
+one or more explicit collections in the term's scheme and use **Save changes**.
+The term fields and changed collections share one transaction and changelog
+revision. Existing ordering is preserved; newly assigned terms append to ordered
+collections. Removing a direct membership asks for confirmation.
+
+Recipe membership and inclusion through nested collections are shown separately
+at the displayed workspace version. They follow their definitions and cannot be
+removed by unchecking a direct-membership checkbox. Use **Manage collections**
+to edit those definitions. A term can have both direct and nested membership
+in the same collection.
+
+Membership edits check both the term revision and workspace version to prevent
+overwriting another collection editor. A conflict retains the unsaved form.
+Ordinary term edits that leave membership unchanged do not send assignments or
+overwrite concurrent collection changes. Historical membership reads remain
+available through `GET /api/terms/:id/collections?at=N`.
+
+For API clients, term PATCH accepts optional `collections: [setId, …]` and
+`expectedVersion` alongside `expectedChanged` and the editable term fields.
+`collections` is the complete desired list of direct explicit memberships in
+that scheme. Providing it requires `expectedVersion`; omitting it preserves
+memberships. Collection IDs cannot refer to recipes, deleted sets, or another
+scheme. Collections are separate resources and are not stored in the term body.
+
 ## Structural changes
 
 Move, Merge, Split, and Retire previews list affected sets, including indirect

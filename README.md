@@ -62,6 +62,9 @@ using descendants, related neighbourhoods, and exclusions. Preview membership
 before saving; ordered and nested collections round-trip through SKOS with
 their scheme. See [concept sets](docs/concept-sets.md) for structural-change
 behavior and versioned expansion.
+The term editor can assign a concept to multiple collections in the same save.
+Imports default to **Auto**, with content-based structure recommendations,
+validated overrides and a compatibility matrix before Apply.
 
 Use **Concept graph** to explore and edit a network of broader, narrower,
 related and opposite concepts. New schemes can use a flat graph structure;

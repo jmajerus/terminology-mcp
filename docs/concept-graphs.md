@@ -63,8 +63,9 @@ in either format:
   imported; quote records and works are excluded.
 - `terminology-graph/1`: the JSON returned by this server's graph endpoint.
 
-Select a source scheme and a new local scheme ID. **Concept graph** is selected
-for JSON imports by default. Preview validates the entire selected graph and
+Select a source scheme and a new local scheme ID. **Auto** recommends a structure
+from the content and valid source metadata; quote-mcp exports recommend Graph.
+The compatibility matrix allows validated overrides. Preview validates the entire selected graph and
 reports omissions; apply uses that exact normalized plan and commits atomically.
 Missing edge endpoints, ambiguous identities, self-links, unsupported relationship
 types, and invalid broader cycles are rejected. Existing local schemes are not

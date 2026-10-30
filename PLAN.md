@@ -116,6 +116,13 @@ Concept sets and their expansion remain the next editor milestone. See
 
 ## What we borrow from FHIR
 
+**Import and membership update (2026-10-30):** imports default to Auto, honour
+compatible source declarations, explain recommendations, and expose a structural
+compatibility matrix with validated overrides. Term editing can assign multiple
+explicit collections in the same transaction/revision as field changes; recipe
+and nested membership remain calculated. See [SKOS](docs/skos.md) and
+[concept sets](docs/concept-sets.md).
+
 **Concept-graph update (2026-10-30):** concept networks are first-class scheme
 structures with flat authoring, an interactive neighbourhood explorer, symmetric
 edge editing, graph-shaped API/set reads, and quote-mcp/native JSON import.

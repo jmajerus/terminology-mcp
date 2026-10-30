@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { DomainError, iriSchema, importPlanSchema, type ImportPlan, type Notation } from './model.js';
 import type { Store } from './store.js';
 import { readCollections } from './collections.js';
+import { analyseStructure } from './import-structure.js';
 
 const { namedNode: nn, literal: lit, quad } = DataFactory;
 export const SKOS = 'http://www.w3.org/2004/02/skos/core#';
@@ -14,7 +15,7 @@ export const importRequestSchema = z.object({
   format: z.enum(['turtle', 'sparql', 'graph-json']), data: z.string().max(5 * 1024 * 1024).optional(),
   endpoint: z.string().optional(), graph: iriSchema.optional(), sourceScheme: iriSchema,
   schemeId: z.string(), label: z.string().trim().max(200).optional(),
-  hierarchy: z.enum(['tree', 'poly', 'graph']), language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).default('en'),
+  hierarchy: z.enum(['auto', 'tree', 'poly', 'graph']).default('auto'), language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).default('en'),
 }).strict();
 export type ImportRequest = z.infer<typeof importRequestSchema>;
 
@@ -37,7 +38,7 @@ export function rdfSchemes(data: string) {
         .map(v => ({ value: v.value, language: v.termType === 'Literal' ? v.language : '' })) }));
 }
 
-export function planSkos(store: Store, data: string, request: ImportRequest): { plan: ImportPlan; warnings: string[] } {
+export function planSkos(store: Store, data: string, request: ImportRequest) {
   const rdf = parseRdf(data);
   const scheme = nn(request.sourceScheme);
   if (!rdf.countQuads(scheme, nn(RDF + 'type'), nn(SKOS + 'ConceptScheme'), null))
@@ -133,10 +134,14 @@ export function planSkos(store: Store, data: string, request: ImportRequest): { 
   });
   const plan = importPlanSchema.parse({ scheme: { id: request.schemeId,
     label: request.label || schemeLabel!.value, language: schemeLabel?.language || undefined,
-    description: preferred(scheme, DCT + 'description')?.value ?? '', hierarchy: request.hierarchy,
+    description: preferred(scheme, DCT + 'description')?.value ?? '', hierarchy: 'graph',
     admissionTest: preferred(scheme, EX + 'admissionTest')?.value ?? '', notations: notations(scheme), sourceUri: scheme.value }, terms,
     sets: readCollections(rdf, scheme, new Set(members.keys()), request.language, warnings) });
-  return { plan, warnings: [...warnings] };
+  const declarations = objects(scheme, EX + 'hierarchy');
+  const declared = declarations.length === 1 && declarations[0].termType === 'Literal' ? declarations[0].value
+    : declarations.length ? 'ambiguous declaration' : undefined;
+  const analysis = analyseStructure(plan, request.hierarchy, declared);
+  return { plan, analysis, warnings: [...warnings] };
 }
 
 export async function exportSkos(store: Store, schemeId: string, at?: number): Promise<string> {

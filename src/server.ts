@@ -78,9 +78,13 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
         if (req.method === 'POST' && url.pathname === '/api/imports/preview') {
           const input = importRequestSchema.parse(await body(req, 6 * 1024 * 1024));
           const data = input.format !== 'sparql' ? input.data ?? '' : await fetchScheme(input.endpoint ?? '', input.sourceScheme, input.graph);
-          const { plan, warnings } = input.format === 'graph-json' ? planGraph(store, data, input) : planSkos(store, data, input);
+          const { plan, warnings, analysis } = input.format === 'graph-json' ? planGraph(store, data, input) : planSkos(store, data, input);
+          if (!analysis.compatible) {
+            json(res, 200, { plan, warnings, analysis, expectedVersion: store.version, count: plan.terms.length, sets: plan.sets,
+              terms: plan.terms.map(term => ({ label: term.label, broader: term.broader.length })) }); return;
+          }
           const result = store.preview(() => store.importScheme(plan, store.version));
-          json(res, 200, { plan, warnings, expectedVersion: store.version, count: result.count, sets: result.sets,
+          json(res, 200, { plan, warnings, analysis, expectedVersion: store.version, count: result.count, sets: result.sets,
             terms: result.affected.map(change => ({ label: change.after.label, broader: change.after.broader.length })) });
           return;
         }
@@ -150,6 +154,8 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 201, { term: store.addTerm(await body(req)), version: store.version });
           return;
         }
+        const memberships = url.pathname.match(/^\/api\/terms\/([^/]+)\/collections$/);
+        if (memberships && req.method === 'GET') { json(res, 200, store.termCollections(decodeURIComponent(memberships[1]), at)); return; }
         const match = url.pathname.match(/^\/api\/terms\/([^/]+)$/);
         if (match && req.method === 'GET') {
           const term = store.lookup(decodeURIComponent(match[1]), at);

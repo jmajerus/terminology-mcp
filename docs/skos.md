@@ -12,7 +12,7 @@ synchronization or an update/merge of an existing local scheme.
    named graph. For the local server use `http://oxigraph.localdomain:7878/query`.
    An omitted graph uses the endpoint's default graph, not every named graph.
 3. Click **Find schemes** and choose a declared `skos:ConceptScheme`.
-4. Set a new local scheme ID, tree/polyhierarchy mode, and label language.
+4. Set a new local scheme ID, target structure (**Auto** by default), and label language.
    The scheme name can be overridden when the source has no preferred name.
 5. Click **Preview import**. Review the count, terms, and warnings about data
    that cannot be represented in this application.
@@ -32,6 +32,42 @@ Use **Export SKOS ↓** for the selected scheme. The HTTP endpoint also supports
 historical exports via `?at=N`. The export includes retired terms and replacement
 metadata, so historical identities remain available. Local stable IDs are never
 derived from imported labels or paths.
+
+## Structure recommendations and overrides
+
+**Auto** analyses the normalized concepts and relationships. A valid source
+declaration (`term:hierarchy` in SKOS or `hierarchy` in native graph JSON) is
+honoured when compatible. Otherwise the importer recommends Tree for a purely
+hierarchical single-parent structure, Polyhierarchy for multiple parents, or
+Graph for associative networks and colliding path labels. quote-mcp exports
+recommend Graph. A flat source without hierarchy is ambiguous and defaults to
+Graph; the preview explains that choice. Invalid or conflicting declarations
+are reported in the explanation and do not override the content checks.
+
+The preview shows the selected/recommended structure, edge and parent counts,
+and a compatibility matrix with concrete examples. Choosing Tree, Polyhierarchy,
+or Graph manually overrides the recommendation. Preview again after changing
+the selection. An incompatible choice disables Apply, and the server still
+validates the complete plan if Apply is called directly.
+The preview API returns this matrix as `analysis`; structural incompatibility
+returns HTTP 200 with `analysis.compatible: false`. API clients must check that
+flag before applying. Other input/identity/reference errors still return errors.
+
+| Content | Tree | Polyhierarchy | Graph |
+|---|---|---|---|
+| Single-parent acyclic hierarchy | Compatible* | Compatible* | Compatible |
+| Multiple broader parents | Incompatible | Compatible* | Compatible |
+| Related/opposite relationships, including associative cycles | Preserved | Preserved | Preserved |
+| Broader/narrower cycles | Incompatible | Incompatible | Incompatible |
+| Disconnected concepts | Allowed | Allowed | Allowed |
+
+\* Tree and Polyhierarchy also reject colliding normalized labels for concepts
+with the same broader-parent set. Graph permits those homonymous concepts.
+
+These are structural compatibility checks; source identity, references, term
+fields, collections, and workspace conflicts are also validated. No mode drops
+associative links, prunes parents, or flattens the source. A lossy conversion to
+a tree requires a separately reviewed transformation and is not performed here.
 
 ## Field mapping
 

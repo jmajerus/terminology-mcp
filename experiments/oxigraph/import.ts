@@ -9,6 +9,7 @@ import { Store } from '../../src/store.js';
 import { createApp } from '../../src/server.js';
 import { parseRdf, planSkos } from '../../src/skos.js';
 import { fetchScheme } from '../../src/sparql.js';
+import type { ImportPlan } from '../../src/model.js';
 
 const runId = randomUUID();
 const namespace = `urn:terminology-mcp:feasibility:${runId}:`;
@@ -72,6 +73,16 @@ std:parent a skos:Collection; skos:prefLabel "Parent"; skos:member std:typed, st
   const preview = await post('imports/preview', { format: 'sparql', endpoint, graph: graphs[0],
     sourceScheme: 'https://example.org/scheme', schemeId: 'research', hierarchy: 'tree', language: 'en' });
   assert.equal(preview.count, 3); assert.equal(store.version, 0);
+  const automatic = await post('imports/preview', { format: 'sparql', endpoint, graph: graphs[0],
+    sourceScheme: 'https://example.org/scheme', schemeId: 'research', hierarchy: 'auto', language: 'en' });
+  assert.equal(automatic.analysis.selected, 'graph');
+  const edges = (plan: ImportPlan) => plan.terms.flatMap(term => [
+    ...term.broader.map(parent => `${term.key}|broader|${parent}`),
+    ...term.relations.map(relation => `${term.key}|${relation.type}|${relation.target}`),
+  ]).sort();
+  assert.deepEqual(edges(automatic.plan), edges(preview.plan));
+  assert.equal(store.version, 0);
+  results.push({ check: 'SPARQL Auto recommends a graph and preserves every hierarchical and associative edge', passed: true });
   results.push({ check: 'preview reads source without writing SQLite', passed: true, detail: { terms: 3, warnings: preview.warnings } });
   const imported = await post('imports/apply', { plan: preview.plan, expectedVersion: preview.expectedVersion });
   assert.equal(imported.count, 3);

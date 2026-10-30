@@ -13,6 +13,7 @@ let createMode = null;
 let parentId = null;
 let confirmResolve;
 let noticeTimer;
+let collectionInfoGeneration = 0;
 
 async function api(path, options = {}) {
   const response = await fetch(`/api/${path}`, {
@@ -121,6 +122,7 @@ function crumbs(term) {
   return [scheme()?.label ?? '', ...labels].map(escape).join('<span>/</span>');
 }
 function renderDetail() {
+  const collectionToken = ++collectionInfoGeneration;
   const term = current();
   if (!term) {
     $('#detail').innerHTML = `<div class="empty"><span class="empty-symbol">t.</span><h1>${schemeId ? 'Make room for an idea' : 'Your vocabulary starts here'}</h1><p>${escape(scheme()?.description || 'Create a scheme to give your terms a home.')}</p><button class="button primary" id="empty-create">${schemeId ? (scheme()?.hierarchy === 'graph' ? '+ Add a concept' : '+ Add a top-level term') : '+ Create a scheme'}</button></div>`;
@@ -149,11 +151,12 @@ function renderDetail() {
       </div>
       <div class="section-line field"><span class="field-label">External references <button type="button" class="text-button" id="add-link">+ Reference</button></span><div id="links" class="relations-list"></div><p class="help">Link to an equivalent or closely matching concept in another vocabulary.</p></div>
       <div class="section-line field"><span class="field-label">Aliases</span><div class="alias-list">${term.aliases.map(alias => `<span class="alias">${escape(alias)}</span>`).join('') || '<span class="help">No aliases yet.</span>'}</div><p class="help">Historical names continue to resolve to this term.</p></div>
-      <label class="field"><span class="field-label">Change note <span class="help">optional</span></span><input id="reason" name="reason" maxlength="2000" placeholder="Why are you making this change?"></label>
+      ${collectionPanel(term)}<label class="field"><span class="field-label">Change note <span class="help">optional</span></span><input id="reason" name="reason" maxlength="2000" placeholder="Why are you making this change?"></label>
       <p id="save-error" class="form-error" role="alert"></p>
       <div class="save-bar"><span id="save-state" class="save-state">Saved at #${term.changed}</span><div class="save-buttons"><button type="button" class="button" id="discard" disabled>Discard</button><button type="submit" class="button primary" id="save-term" disabled>Save changes</button></div></div>
     </form>`;
   renderRelations();
+  loadCalculatedCollections(term, collectionToken);
   updateRelationTargets();
   term.links.forEach(link => addLink(link, false));
   (term.notations ?? []).forEach(notation => addNotation(notation, false));
@@ -232,6 +235,10 @@ async function saveTerm(event) {
     links: [...document.querySelectorAll('.link-row')].map(row => ({ uri: row.querySelector('input').value.trim(), match: row.querySelector('select').value })),
     expectedChanged: term.changed, reason: $('#reason').value,
   };
+  const selectedCollections = [...$('#term-form').querySelectorAll('[data-term-collection]:checked')].map(input => input.value).sort();
+  const originalCollections = (state.sets ?? []).filter(set => set.scheme === term.scheme && !set.recipe && set.members.includes(term.id)).map(set => set.id).sort();
+  if (JSON.stringify(selectedCollections) !== JSON.stringify(originalCollections)) { data.collections = selectedCollections; data.expectedVersion = state.version; }
+  const removedCollections = originalCollections.filter(id => !selectedCollections.includes(id));
   const rename = data.label !== term.label;
   const removedRelation = term.relations.some(old => !data.relations.some(r => r.type === old.type && r.target === old.target));
   saving = true;
@@ -239,8 +246,8 @@ async function saveTerm(event) {
   $('#save-term').disabled = true;
   $('#discard').disabled = true;
   try {
-    if ((rename || removedRelation) && !await confirmChange(rename ? 'Rename this term?' : 'Remove these relations?',
-      `${rename ? `“${term.label}” will become “${data.label}”. Old aliases will continue to resolve.` : ''}${removedRelation ? ' Existing relations will be removed.' : ''}`)) return;
+    if ((rename || removedRelation || removedCollections.length) && !await confirmChange(rename ? 'Rename this term?' : removedRelation ? 'Remove these relations?' : 'Change collection memberships?',
+      `${rename ? `“${term.label}” will become “${data.label}”. Old aliases will continue to resolve.` : ''}${removedRelation ? ' Existing relations will be removed.' : ''}${removedCollections.length ? ' Remove direct membership from: ' + removedCollections.map(id => state.sets.find(set => set.id === id)?.label ?? id).join(', ') + '. Recipe and nested memberships are calculated separately.' : ''}`)) return;
     const result = await api(`terms/${encodeURIComponent(term.id)}`, { method: 'PATCH', body: JSON.stringify(data) });
     await refresh(result.term.id);
     notice(`Saved “${result.term.label}” at #${result.version}.`);
@@ -267,6 +274,7 @@ function showRevision(n) {
   const change = changes.find(item => item.n === n);
   if (!change) return;
   $('#revision-content').innerHTML = `<div class="dialog-heading"><span class="eyebrow">Changelog #${n}</span><h2>${escape(change.after.label)}</h2></div><p class="history-description">${escape(change.kind)} · ${escape(new Date(change.at).toLocaleString())}${change.breaking ? ' · breaking' : ''}</p><p class="help">${escape(change.reason || 'Saved by the local editor.')}</p><details ${change.before ? '' : 'hidden'}><summary>Before</summary><pre class="revision-json">${escape(JSON.stringify(change.beforeTerms ?? change.before, null, 2))}</pre></details><details open><summary>After</summary><pre class="revision-json">${escape(JSON.stringify(change.afterTerms ?? change.after, null, 2))}</pre></details>${change.terms.length > 1 ? `<p class="help">Affected ${change.terms.length} terms. Historical term reads include those revisions.</p>` : ''}`;
+  if (change.afterSets?.length) $('#revision-content').insertAdjacentHTML('beforeend', `<section><h3>Collections changed</h3><ul>${change.afterSets.map(set => { const before = change.beforeSets?.find(old => old.id === set.id); return `<li>${escape(set.label)} · ${before?.members.length ?? 0} → ${set.deleted ? 0 : set.members.length} direct members${set.deleted ? ' · deleted' : ''}</li>`; }).join('')}</ul></section>`);
   $('#revision-dialog').showModal();
 }
 function openCreate(mode, parent = null) {
@@ -474,13 +482,13 @@ function invalidateImportSource() {
 $('#import-scheme').onclick = () => {
   if (importApplying || !allowLeave()) return;
   $('#import-form').inert = false;
-  $('#import-error').textContent = ''; invalidateImportSource(); $('#import-dialog').showModal();
+  $('#import-error').textContent = ''; $('#import-hierarchy').value = 'auto'; invalidateImportSource(); $('#import-dialog').showModal();
 };
 $('#import-format').onchange = () => {
   $('#import-dialog h2').textContent = $('#import-format').value === 'graph-json' ? 'Import a concept graph' : 'Import a SKOS scheme';
   $('#import-file-field .field-label').textContent = $('#import-format').value === 'graph-json' ? 'Graph JSON file' : 'Turtle file';
   $('#import-file-field').hidden = $('#import-format').value === 'sparql';
-  if ($('#import-format').value === 'graph-json') $('#import-hierarchy').value = 'graph';
+  $('#import-hierarchy').value = 'auto';
   $('#import-sparql-fields').hidden = $('#import-format').value !== 'sparql';
   invalidateImportSource();
 };
@@ -530,13 +538,14 @@ $('#import-form').addEventListener('submit', async event => {
     if (!importCurrent(generation)) return;
     importPreview = { ...preview, generation };
     $('#import-preview').innerHTML = `<strong>${escape(importPreview.plan.scheme.label)} · ${importPreview.count} terms · ${importPreview.sets?.length ?? 0} collections</strong><p class="help">A new scheme will be added. Source IRIs and SKOS mappings are preserved.</p>${importPreview.warnings.length ? `<div class="import-warnings"><strong>Review omitted data</strong><ul>${importPreview.warnings.map(warning => `<li>${escape(warning)}</li>`).join('')}</ul></div>` : '<p class="help">No import warnings.</p>'}<details><summary>Terms to import</summary><ul>${importPreview.terms.map(term => `<li>${escape(term.label)} · ${term.broader} broader</li>`).join('')}</ul></details>`;
+    if (importPreview.analysis) $('#import-preview').insertAdjacentHTML('afterbegin', structureAnalysis(importPreview.analysis));
     if (importPreview.sets?.length) $('#import-preview').insertAdjacentHTML('beforeend', `<details><summary>Collections to import</summary><ul>${importPreview.sets.map(set => `<li>${escape(set.label)} · ${set.recipe ? 'recipe' : set.ordered ? 'ordered' : 'unordered'} · ${set.members.length} explicit members</li>`).join('')}</ul></details>`);
-    $('#import-preview').hidden = false; $('#apply-import').hidden = false;
+    $('#import-preview').hidden = false; $('#apply-import').hidden = false; $('#apply-import').disabled = importPreview.analysis?.compatible === false;
   } catch (error) { if (importCurrent(generation)) $('#import-error').textContent = error.message; }
   finally { if (importCurrent(generation)) $('#preview-import').disabled = false; }
 });
 $('#apply-import').onclick = async () => {
-  if (!importPreview || !importCurrent(importPreview.generation) || importApplying) return;
+  if (!importPreview || !importCurrent(importPreview.generation) || importApplying || importPreview.analysis?.compatible === false) return;
   const { plan, expectedVersion } = importPreview;
   importApplying = true;
   $('#import-form').inert = true;
@@ -566,4 +575,23 @@ function connectionPanel(term) {
     }
   }
   return `<section class="term-body concept-connections" aria-label="Concept connections"><h2>Connections <a class="text-button" href="/graph?scheme=${encodeURIComponent(term.scheme)}#${encodeURIComponent(term.id)}">Explore graph ↗</a></h2>${['broader','narrower','related','opposite'].map(type => `<div><strong>${type}</strong> ${edges.filter(e=>e.type===type).map(e=>`<button type="button" class="text-button" data-pick="${escape(e.id)}">${escape(byId(e.id)?.label ?? e.id)}</button>`).join(' · ') || '<span class="help">None</span>'}</div>`).join('')}</section>`;
+}
+
+function structureAnalysis(analysis) {
+  const names = {tree:'Tree', poly:'Polyhierarchy', graph:'Graph'};
+  return `<section id="import-analysis"><h3>${analysis.requested === 'auto' ? 'Auto selected' : 'Selected'}: ${escape(names[analysis.selected])}</h3><p>Recommended: ${escape(names[analysis.recommended])}. ${escape(analysis.reason)}</p><p class="help">${analysis.stats.broaderLinks} broader links · ${analysis.stats.associativeLinks} associative links · ${analysis.stats.multipleParents} ${analysis.stats.multipleParents === 1 ? 'concept' : 'concepts'} with multiple parents · ${analysis.stats.isolated} isolated concepts</p><table><thead><tr><th>Target structure</th><th>Compatibility</th></tr></thead><tbody>${['tree','poly','graph'].map(type=>`<tr><th>${names[type]}</th><td>${analysis.compatibility[type].compatible ? 'Compatible · relationships preserved' : `Incompatible<ul>${analysis.compatibility[type].reasons.map(reason=>`<li>${escape(reason)}</li>`).join('')}</ul>`}</td></tr>`).join('')}</tbody></table><p class="help">Override the target structure above and preview again. No relationship is removed or flattened automatically.</p>${!analysis.compatible ? '<p class="form-error">This selection cannot preserve the source structure. Choose a compatible target or fix the source before importing.</p>' : ''}</section>`;
+}
+function collectionPanel(term) {
+  const sets = (state.sets ?? []).filter(set => set.scheme === term.scheme && !set.recipe);
+  return `<section class="section-line field" aria-label="Collection membership"><span class="field-label">Concept sets / collections <a href="/sets?scheme=${encodeURIComponent(term.scheme)}" class="text-button">Manage collections ↗</a></span><div id="term-collections">${sets.map(set=>`<label class="collection-choice"><input type="checkbox" data-term-collection value="${escape(set.id)}" ${set.members.includes(term.id) ? 'checked' : ''}> ${escape(set.label)}${set.ordered ? ' (ordered)' : ''}</label>`).join('') || '<p class="help">No explicit collections in this scheme yet.</p>'}</div><p class="help">Select one or more direct memberships. New members are appended to ordered collections.</p><div id="term-calculated-collections" class="help" aria-live="polite"></div></section>`;
+}
+async function loadCalculatedCollections(term, token) {
+  const version = state.version;
+  if (!(state.sets ?? []).some(set => set.scheme === term.scheme)) return;
+  try {
+    const result = await api(`terms/${encodeURIComponent(term.id)}/collections?at=${version}`);
+    if (token !== collectionInfoGeneration || current()?.id !== term.id) return;
+    const calculated = result.collections.filter(set => set.included && (set.recipe || set.inherited));
+    $('#term-calculated-collections').textContent = calculated.length ? `Calculated membership at #${version}: ${calculated.map(set => set.label + (set.recipe ? ' (recipe)' : ' (nested collection)')).join(', ')}. These memberships follow their definitions and are not changed by the checkboxes.` : '';
+  } catch(error) { if (token === collectionInfoGeneration && current()?.id === term.id) $('#term-calculated-collections').textContent = 'Calculated memberships could not be loaded. Direct assignments remain editable.'; }
 }

@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 const text = z.string().trim().min(1).max(200);
 const id = z.string().min(1).max(200);
+export const pathLabel = (label: string) => label.normalize('NFKC').toLowerCase()
+  .replace(/[^\p{L}\p{N}\p{M}]+/gu, '-').replace(/^-|-$/g, '') || 'term';
 export const iriSchema = z.string().max(2000).refine(value => /^[a-z][a-z0-9+.-]*:/i.test(value)
   && !/^(javascript|data|vbscript|file):/i.test(value)
   && !/[\u0000-\u0020<>"{}|^`\\]/u.test(value), 'Use an absolute IRI');
@@ -40,6 +42,7 @@ export const createTermSchema = z.object({
 export const editTermSchema = z.object({
   ...fields, notations: z.array(notationSchema).max(100).optional(), expectedChanged: z.number().int().positive(),
   reason: z.string().trim().max(2000).default(''),
+  collections: z.array(id).max(1000).optional(), expectedVersion: z.number().int().nonnegative().optional(),
 }).strict();
 export const schemeSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,59}$/), label: text,

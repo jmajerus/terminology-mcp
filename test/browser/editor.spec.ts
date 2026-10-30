@@ -100,6 +100,7 @@ test('SKOS file import, export, and the four structural actions work through pre
   await dialog.getByRole('button', { name: 'Find schemes', exact: true }).click();
   await expect(page.locator('#import-source-scheme')).toBeEnabled();
   await page.locator('#import-id').fill('ui-research');
+  await page.locator('#import-hierarchy').selectOption('tree');
   await dialog.getByRole('button', { name: 'Preview import', exact: true }).click();
   await expect(page.locator('#import-preview')).toContainText('3 terms');
   await expect(page.locator('#import-preview')).toContainText('Review omitted data');

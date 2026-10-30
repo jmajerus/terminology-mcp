@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-let state, schemeId = '', selectedId = '', members = [], dirty = false, busy = false, generation = 0, preview = null, baseline = [];
+let state, schemeId = new URLSearchParams(location.search).get('scheme') ?? '', selectedId = '', members = [], dirty = false, busy = false, generation = 0, preview = null, baseline = [];
 const form = $('#set-form');
 const field = name => form.elements.namedItem(name);
 async function api(path, options = {}) {
@@ -58,7 +58,7 @@ async function selectSet(id) {
   $('#set-title').textContent = set?.label ?? 'New set'; $('#set-identity').textContent = set ? `${set.id} · ${set.owner}` : 'A stable ID is assigned when saved.';
   $('#member-search').value = ''; renderList(); renderMembers();
   $('#set-expansion').innerHTML = ''; $('#expansion-version').textContent = 'Preview to see the expansion.';
-  history.replaceState(null, '', id ? '#' + id : location.pathname);
+  history.replaceState(null, '', `?scheme=${encodeURIComponent(schemeId)}${id ? '#' + id : ''}`);
   if (id) {
     try { const result = await api(`sets/${id}/expand`); if (token !== generation) return; baseline = result.terms.map(t => t.id); showExpansion(result); }
     catch (error) { if (token === generation) $('#set-error').textContent = error.message; }

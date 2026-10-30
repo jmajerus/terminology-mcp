@@ -55,3 +55,8 @@
 .concept-connections div { margin:7px 0; line-height:1.8; }
 .concept-connections strong { display:inline-block; min-width:75px; font-size:12px; text-transform:capitalize; }
 @media(max-width:650px){.topbar{flex-wrap:wrap;height:auto;min-height:60px;padding-top:10px;padding-bottom:10px}.graph-toolbar fieldset{min-width:0}}
+.collection-choice { display:flex; gap:8px; align-items:center; padding:6px 0; }
+.field .collection-choice input { width:auto; flex:none; }
+#import-analysis table { width:100%; border-collapse:collapse; background:white; }
+#import-analysis th,#import-analysis td { text-align:left; vertical-align:top; border:1px solid var(--line); padding:8px; }
+#import-analysis td ul { margin:0; }
