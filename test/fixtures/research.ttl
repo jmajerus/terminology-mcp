@@ -1,0 +1,11 @@
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix x: <https://example.org/> .
+
+x:scheme a skos:ConceptScheme ; skos:prefLabel "Research"@en ; dct:description "A vocabulary"@en .
+x:root a skos:Concept ; skos:inScheme x:scheme ; skos:prefLabel "Root"@en, "Racine"@fr ; skos:narrower x:child, x:peer .
+x:peer a skos:Concept ; skos:inScheme x:scheme ; skos:prefLabel "Peer"@en .
+x:child a skos:Concept ; skos:inScheme x:scheme ; skos:prefLabel "Child"@en ; skos:altLabel "Alternative"@en ;
+  skos:scopeNote "A \"quoted\" note"@en ; skos:related x:peer ;
+  skos:exactMatch x:exact ; skos:closeMatch x:close ; skos:broadMatch x:broad ;
+  skos:narrowMatch x:narrow ; skos:relatedMatch x:related .

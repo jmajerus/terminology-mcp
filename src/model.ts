@@ -1,0 +1,76 @@
+import { z } from 'zod';
+
+const text = z.string().trim().min(1).max(200);
+const id = z.string().min(1).max(200);
+export const iriSchema = z.string().max(2000).refine(value => /^[a-z][a-z0-9+.-]*:/i.test(value)
+  && !/^(javascript|data|vbscript|file):/i.test(value)
+  && !/[\u0000-\u0020<>"{}|^`\\]/u.test(value), 'Use an absolute IRI');
+export const relationSchema = z.object({ type: z.enum(['related', 'opposite']), target: id }).strict();
+export const linkSchema = z.object({
+  uri: iriSchema,
+  match: z.enum(['exactMatch', 'closeMatch', 'broadMatch', 'narrowMatch', 'relatedMatch']),
+}).strict();
+const fields = {
+  label: text,
+  altLabels: z.array(text).max(100).default([]),
+  scopeNote: z.string().trim().max(20000).default(''),
+  status: z.enum(['provisional', 'active']).default('provisional'),
+  relations: z.array(relationSchema).max(200).default([]),
+  links: z.array(linkSchema).max(100).default([]),
+};
+export const createTermSchema = z.object({
+  ...fields, scheme: id, broader: z.array(id).max(100).default([]),
+  aliases: z.array(z.string().trim().min(1).max(2000)).max(100).default([]),
+  sourceUri: iriSchema.optional(),
+  language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
+}).strict();
+export const editTermSchema = z.object({
+  ...fields, expectedChanged: z.number().int().positive(),
+  reason: z.string().trim().max(2000).default(''),
+}).strict();
+export const schemeSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,59}$/), label: text,
+  description: z.string().trim().max(10000).default(''),
+  hierarchy: z.enum(['tree', 'poly']),
+  admissionTest: z.string().trim().max(10000).default(''),
+  sourceUri: iriSchema.optional(),
+  language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
+}).strict();
+export type Scheme = z.infer<typeof schemeSchema> & { created: number };
+export type CreateTerm = z.infer<typeof createTermSchema>;
+export type EditTerm = z.infer<typeof editTermSchema>;
+export type Term = Omit<CreateTerm, 'status'> & {
+  status: 'provisional' | 'active' | 'retired'; replacedBy: string[];
+  id: string; created: number; changed: number;
+};
+export type TermView = Term & { path: string | null; depth: number; narrower: string[] };
+export type Change = {
+  n: number; kind: 'scheme-added' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'imported';
+  terms: string[]; before: Term | null; after: Term | Scheme;
+  breaking: boolean; author: string; reason: string; at: string;
+  beforeTerms?: Term[]; afterTerms?: Term[];
+};
+const operationBase = { expectedVersion: z.number().int().nonnegative(), reason: z.string().trim().max(2000).default('') };
+export const operationSchema = z.discriminatedUnion('kind', [
+  z.object({ ...operationBase, kind: z.literal('move'), broader: z.array(id).max(100) }).strict(),
+  z.object({ ...operationBase, kind: z.literal('merge'), target: id }).strict(),
+  z.object({ ...operationBase, kind: z.literal('retire'), replacements: z.array(id).max(20).default([]) }).strict(),
+  z.object({ ...operationBase, kind: z.literal('split'),
+    newTerms: z.array(z.object({ label: text, scopeNote: z.string().trim().max(20000).default('') }).strict()).min(2).max(20),
+    children: z.array(z.object({ id, targets: z.array(z.number().int().nonnegative()).min(1).max(20) }).strict()).max(10000),
+  }).strict(),
+]);
+export type Operation = z.infer<typeof operationSchema>;
+export const importPlanSchema = z.object({
+  scheme: schemeSchema,
+  terms: z.array(createTermSchema.omit({ scheme: true }).extend({
+    key: iriSchema, broader: z.array(iriSchema).default([]),
+    relations: z.array(z.object({ type: z.enum(['related', 'opposite']), target: iriSchema }).strict()).default([]),
+    status: z.enum(['provisional', 'active', 'retired']).default('active'),
+    replacedBy: z.array(iriSchema).default([]),
+  }).strict()).min(1).max(10000),
+}).strict();
+export type ImportPlan = z.infer<typeof importPlanSchema>;
+export class DomainError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}

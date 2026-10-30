@@ -86,7 +86,33 @@ alongside IASP for what it *does*.
 # Outline (2026-10-29)
 
 A first cut at what the server is, borrowing from FHIR terminology where
-the fit is real and leaving the rest. Nothing here is built yet.
+the fit is real and leaving the rest.
+
+**Implementation update (2026-10-29):** the first local milestone now has a
+TypeScript / better-sqlite3 store, a local API, and a working taxonomy editor.
+It supports scheme and term creation, field edits, relations, aliases, rename
+review, and changelog inspection. Historical term reads use immutable revisions
+written atomically with each change; schemes are immutable for now. Stable IDs
+use random UUIDs with a `t_` prefix. The demo includes tree and polyhierarchical
+fixtures in a separate database. Structural verbs beyond rename, concept sets,
+importers, and consumer connectivity remain planned. See
+[local development](docs/local-development.md) for the implemented surface.
+
+**Oxigraph feasibility update (2026-10-30):** a separate executable probe
+demonstrated SKOS graph queries, recipe-like expansion, RDF round-trip, and
+atomic application-managed history on the installed Oxigraph server. A
+conditional update alone did not serialize competing writers; an exclusive
+application writer remains necessary under the tested design. The SQLite
+app is unchanged. See [the experiment and results](docs/oxigraph-feasibility.md).
+
+**Structural editing and interchange update (2026-10-30):** Move, Merge, Split,
+and Retire now have transactional previews, stale-preview checks, batch history,
+relation transfer, and preserved aliases. The SQLite editor can import new
+schemes from Turtle or a read-only SPARQL source and export versioned SKOS
+Turtle, including all five SKOS mapping predicates. A dedicated integration
+test round-trips through local Oxigraph without changing the app backend.
+Concept sets and their expansion remain the next editor milestone. See
+[SKOS import/export](docs/skos.md) and [local development](docs/local-development.md).
 
 ## What we borrow from FHIR
 
@@ -242,4 +268,5 @@ whole tree and the changelog instead.
 
 - Does a profile's depth rule live in the set (a `depth` filter) or in the
   consumer's subscription?
-- Ids: random (`t_` + base32) or sequential? Random avoids implying order.
+- Ids resolved in the first milestone: random `t_` + UUID hexadecimal;
+  no sequential or path-derived identities.
