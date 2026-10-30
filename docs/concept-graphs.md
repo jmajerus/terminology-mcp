@@ -32,12 +32,21 @@ and reports truncation; the API and JSON export retain the complete graph.
 Disconnected concepts remain in the search list. Arrows point toward broader
 concepts; related links are blue and opposite links are dashed amber.
 
-Use **Add relationship** to create related/opposite links. Either endpoint can
-remove a link; both stored directions are changed atomically. Old one-sided
-links are read symmetrically too. Each mutation checks the workspace version;
-**Refresh** reloads after a conflict. Broader/narrower edits use **Move** in the
-vocabulary editor, including its structural preview. Removing a symmetric link
-from the vocabulary form also removes its reciprocal copy.
+The **Relationship** dropdown offers all four types. For **Broader**, the target
+is broader than the selected concept; for **Narrower**, the target is narrower.
+Those choices use **Preview relationship**, followed by **Apply change**. The
+preview shows parent changes, affected concepts and set effects. Graph and
+polyhierarchy schemes preserve other parents; tree schemes explicitly preview
+replacement of their single parent. Cycles and stale previews are rejected.
+Hierarchy links can also be removed from either endpoint through the same
+preview, or edited with **Move** in the vocabulary editor.
+
+Use **Add relationship** for related/opposite links. Either endpoint can remove
+a link; both stored directions are changed atomically. Old one-sided links are
+read symmetrically too. Each mutation checks the workspace version; **Refresh**
+reloads after a conflict and preserves the target selection when it is still
+available. Removing a symmetric link from the vocabulary form also removes its
+reciprocal copy.
 
 Set recipes can walk `broader` and `narrower` as well as `related` and `opposite`.
 The existing **Include descendants of** rule still excludes its anchor; include
