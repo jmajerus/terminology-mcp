@@ -417,7 +417,11 @@ $('#operation-form').addEventListener('submit', async event => {
       const removed = (row.before?.relations ?? []).filter(old => !row.after.relations.some(r => r.type === old.type && r.target === old.target));
       const added = row.after.relations.filter(r => !(row.before?.relations ?? []).some(old => r.type === old.type && r.target === old.target));
       return `<li><strong>${escape(row.after.label)}</strong>${!row.before ? ' · new' : row.after.status === 'retired' ? ' · retired' : ''}<br><span class="help">${row.before ? escape(parents(row.before)) + ' → ' : ''}${escape(parents(row.after))}${row.after.path ? '<br>' + escape(row.after.path) : ''}</span>${[...removed.map(r => `Remove ${r.type}: ${names.get(r.target) ?? r.target}`), ...added.map(r => `Add ${r.type}: ${names.get(r.target) ?? r.target}`)].map(text => `<br><span class="help">${escape(text)}</span>`).join('')}${row.after.replacedBy.length ? `<br><span class="help">Replaced by ${escape(row.after.replacedBy.map(id => names.get(id) ?? id).join(', '))}</span>` : ''}</li>`;
-    }).join('')}</ul>${preview.affectedSets?.length ? `<h3>Concept sets affected</h3><ul>${preview.affectedSets.map(set => `<li><strong>${escape(set.label)}</strong>: ${escape(set.note)}</li>`).join('')}</ul>` : ''}`;
+    }).join('')}</ul>${preview.affectedSets?.length ? `<h3>Concept sets affected</h3><ul>${preview.affectedSets.map(set => {
+      const added = set.after.filter(id => !set.before.includes(id)), removed = set.before.filter(id => !set.after.includes(id));
+      const labels = ids => ids.slice(0, 20).map(id => names.get(id) ?? id).join(', ') + (ids.length > 20 ? ` and ${ids.length - 20} more` : '');
+      return `<li><strong>${escape(set.label)}</strong> · ${set.before.length} → ${set.after.length} terms<br>${escape(set.note)}${added.length ? `<br>Added: ${escape(labels(added))}` : ''}${removed.length ? `<br>Removed: ${escape(labels(removed))}` : ''}</li>`;
+    }).join('')}</ul>` : ''}`;
     $('#operation-preview').hidden = false; $('#apply-operation').hidden = false;
   } catch (error) { if (operationCurrent(generation)) $('#operation-error').textContent = error.message; }
   finally { if (operationCurrent(generation)) $('#preview-operation').disabled = false; }
