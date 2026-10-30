@@ -354,7 +354,8 @@ window.addEventListener('beforeunload', event => { if (dirty) event.preventDefau
 refresh().then(() => {
   const params = new URLSearchParams(location.search);
   if (params.get('create') === 'term' && schemeId) openCreate('term');
-  if (params.get('import') === 'graph-json') { $('#import-scheme').click(); $('#import-format').value = 'graph-json'; $('#import-format').dispatchEvent(new Event('change')); }
+  const importFormat = params.get('import');
+  if (['turtle', 'sparql', 'graph-json'].includes(importFormat)) { $('#import-scheme').click(); $('#import-format').value = importFormat; $('#import-format').dispatchEvent(new Event('change')); }
 }).catch(error => notice(`Could not load the workspace: ${error.message}`, true));
 
 let operationKind;

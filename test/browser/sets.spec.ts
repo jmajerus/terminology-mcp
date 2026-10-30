@@ -93,3 +93,17 @@ test('recipe editor previews descendants and exclusions and persists its definit
   await page.getByRole('button', { name: 'Preview changes' }).click();
   await expect(page.locator('#set-expansion')).toContainText('Alpha');
 });
+
+test('Import SKOS from concept sets opens the importer directly', async ({ page }) => {
+  await page.goto('/sets');
+  await page.getByRole('link', { name: 'Import SKOS', exact: true }).click();
+  const dialog = page.locator('#import-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Import a SKOS scheme', exact: true })).toBeVisible();
+  await expect(page.locator('#import-format')).toHaveValue('turtle');
+  await expect(page.locator('#import-file')).toBeVisible();
+  await page.locator('#import-format').selectOption('sparql');
+  await expect(page.locator('#import-endpoint')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+});
