@@ -135,7 +135,9 @@ sudo systemctl restart terminology-mcp
 
 If activation or its health check fails, the installer restores the previous
 release symlink, systemd unit, and environment, then restarts it. A failed first
-deployment leaves the service stopped. Inspect the journal before retrying.
+deployment stops and disables the service, removes the failed release symlink,
+and restores any pre-existing unit/environment (or removes newly created ones).
+The database and failed release remain available for inspection. Inspect the journal before retrying.
 The live database is never automatically replaced: migrations may require
 manual recovery from the retained backup, including SQLite sidecar files.
 Older releases are not removed automatically.

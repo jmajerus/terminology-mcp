@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallerTests(unittest.TestCase):
-    def exercise(self, mode):
+    def exercise(self, mode, first=False, existing_config=True):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             app = base / 'opt/terminology-mcp'
@@ -20,11 +20,17 @@ class InstallerTests(unittest.TestCase):
             units = base / 'etc/systemd/system'
             for path in [app / 'runtime/bin', app / 'releases/old', data, etc, units, base / 'var/lock', base / 'proc/123']:
                 path.mkdir(parents=True, exist_ok=True)
-            (app / 'current').symlink_to(app / 'releases/old')
-            (data / 'deployed.json').write_text('{"release":"old"}')
+            enabled = base / 'enabled'
+            active = base / 'active'
+            if not first:
+                (app / 'current').symlink_to(app / 'releases/old')
+                (data / 'deployed.json').write_text('{"release":"old"}')
+                enabled.touch()
+                active.touch()
             (data / 'terminology.sqlite').write_text('live database')
-            (etc / 'environment').write_text('EXISTING=value\nTERMINOLOGY_ORIGINS=http://old\n')
-            (units / 'terminology-mcp.service').write_text('old unit')
+            if existing_config:
+                (etc / 'environment').write_text('EXISTING=value\nTERMINOLOGY_ORIGINS=http://old\n')
+                (units / 'terminology-mcp.service').write_text('old unit')
             release = app / 'releases/new'
             (base / 'proc/123/cwd').symlink_to(release)
             archive = base / 'upload.tar.gz'
@@ -41,7 +47,15 @@ class InstallerTests(unittest.TestCase):
                 'npm': 'if test "$FAIL_MODE" = build && test "$1" = run; then exit 1; fi',
                 'getent': 'exit 0', 'id': 'exit 0', 'chown': 'exit 0',
                 'curl': 'exit 0', 'sleep': 'exit 0', 'journalctl': 'exit 0',
-                'systemctl': 'case "$1" in\n is-active) test "$FAIL_MODE" != health;;\n show) echo 123;;\n *) exit 0;;\nesac',
+                'systemctl': '''case "$1" in
+ is-active) test -f "$HOST_STATE/active" && test "$FAIL_MODE" != health;;
+ show) echo 123;;
+ enable) touch "$HOST_STATE/enabled";;
+ disable) rm -f "$HOST_STATE/enabled";;
+ restart) touch "$HOST_STATE/active";;
+ stop) rm -f "$HOST_STATE/active";;
+ *) exit 0;;
+esac''',
             }
             # install uses options interspersed with ownership options; strip only
             # those options in Python, keeping the real directory/file operations.
@@ -54,7 +68,7 @@ class InstallerTests(unittest.TestCase):
             for path in ['/opt/terminology-mcp', '/var/lib/terminology-mcp', '/etc/terminology-mcp', '/etc/systemd/system', '/var/lock', '/proc/']:
                 template = template.replace(path, str(base) + path)
             result = subprocess.run(['sh'], input=template, text=True, capture_output=True,
-                                    env={**os.environ, 'FAIL_MODE': mode, 'RELEASE': str(release),
+                                    env={**os.environ, 'FAIL_MODE': mode, 'HOST_STATE': str(base), 'RELEASE': str(release),
                                          'RELEASE_ID': 'new', 'COMMIT': 'a' * 40, 'ORIGINS': 'http://new',
                                          'LAN_URL': 'http://test', 'ARCHIVE': str(archive), 'UNIT': str(unit), 'RECORD': str(record)})
             if mode == 'success':
@@ -63,12 +77,27 @@ class InstallerTests(unittest.TestCase):
                 self.assertEqual(json.loads((data / 'deployed.json').read_text()), {'release': 'new'})
                 self.assertEqual((units / 'terminology-mcp.service').read_text(), 'new unit')
                 self.assertEqual((etc / 'environment').read_text(), 'EXISTING=value\nTERMINOLOGY_ORIGINS=http://new\n')
+            elif first:
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(active.exists(), result.stderr)
+                self.assertFalse(enabled.exists(), 'Failed first release must not start at boot')
+                self.assertFalse((app / 'current').is_symlink())
+                self.assertFalse((data / 'deployed.json').exists())
+                if existing_config:
+                    self.assertEqual((units / 'terminology-mcp.service').read_text(), 'old unit')
+                    self.assertEqual((etc / 'environment').read_text(), 'EXISTING=value\nTERMINOLOGY_ORIGINS=http://old\n')
+                else:
+                    self.assertFalse((units / 'terminology-mcp.service').exists())
+                    self.assertFalse((etc / 'environment').exists())
             else:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual((app / 'current').resolve(), app / 'releases/old')
                 self.assertEqual(json.loads((data / 'deployed.json').read_text()), {'release': 'old'})
                 self.assertEqual((units / 'terminology-mcp.service').read_text(), 'old unit')
                 self.assertIn('TERMINOLOGY_ORIGINS=http://old', (etc / 'environment').read_text())
+            if not first:
+                self.assertTrue(enabled.exists(), result.stderr)
+                self.assertTrue(active.exists(), result.stderr)
             self.assertEqual((data / 'terminology.sqlite').read_text(), 'live database')
             if mode != 'build':
                 self.assertEqual((base / 'var/lib/terminology-mcp.backup-new/terminology.sqlite').read_text(), 'live database')
@@ -83,3 +112,9 @@ class InstallerTests(unittest.TestCase):
 
     def test_failed_health_restores_release_unit_environment_and_record(self):
         self.assertIn('restored previous release', self.exercise('health'))
+
+    def test_failed_first_activation_disables_service_and_removes_new_configuration(self):
+        self.assertIn('Service stopped and disabled', self.exercise('health', first=True, existing_config=False))
+
+    def test_failed_first_activation_preserves_preexisting_configuration(self):
+        self.exercise('health', first=True)

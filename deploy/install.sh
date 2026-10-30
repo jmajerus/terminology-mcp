@@ -49,7 +49,21 @@ recover() {
       systemctl restart terminology-mcp || true
       echo "Deployment failed; restored previous release $previous. Database backup retained; live database not overwritten." >&2
     else
-      echo 'First deployment failed. Service stopped; database retained for inspection.' >&2
+      systemctl disable terminology-mcp || true
+      rm -f /opt/terminology-mcp/current /opt/terminology-mcp/current.next
+      if test -f "$RELEASE/rollback/service"; then
+        cp -a "$RELEASE/rollback/service" /etc/systemd/system/terminology-mcp.service
+      else
+        rm -f /etc/systemd/system/terminology-mcp.service
+      fi
+      if test -f "$RELEASE/rollback/environment"; then
+        cp -a "$RELEASE/rollback/environment" /etc/terminology-mcp/environment
+      else
+        rm -f /etc/terminology-mcp/environment
+      fi
+      rm -f /etc/terminology-mcp/environment.next
+      systemctl daemon-reload
+      echo 'First deployment failed. Service stopped and disabled; database and release retained for inspection.' >&2
     fi
   fi
   rm -f "$ARCHIVE" "$UNIT" "$RECORD"
