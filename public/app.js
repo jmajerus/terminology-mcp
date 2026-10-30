@@ -68,6 +68,12 @@ async function refresh(preferredId) {
 
 function renderTree() {
   const terms = state.terms.filter(term => term.scheme === schemeId);
+  const termMap = new Map(terms.map(term => [term.id, term]));
+  const childMap = new Map();
+  for (const term of terms) for (const parent of term.broader) {
+    if (!childMap.has(parent)) childMap.set(parent, []);
+    childMap.get(parent).push(term);
+  }
   $('#scheme-kind').textContent = scheme()?.hierarchy === 'poly' ? 'POLYHIERARCHY' : schemeId ? 'TREE SCHEME' : 'NO SCHEMES';
   $('#term-count').textContent = `${terms.length} ${terms.length === 1 ? 'term' : 'terms'}`;
   const query = $('#search').value.trim().toLocaleLowerCase();
@@ -75,22 +81,29 @@ function renderTree() {
     .some(value => value.toLocaleLowerCase().includes(query)));
   const visible = new Set(matches.map(term => term.id));
   if (query) {
-    const addParents = id => { for (const parent of byId(id)?.broader ?? []) { if (!visible.has(parent)) { visible.add(parent); addParents(parent); } } };
+    const addParents = id => { for (const parent of termMap.get(id)?.broader ?? []) { if (!visible.has(parent)) { visible.add(parent); addParents(parent); } } };
     matches.forEach(term => addParents(term.id));
   }
   const rows = [];
+  const seen = new Set();
+  let limited = false;
   const walk = (term, level) => {
     if (query && !visible.has(term.id)) return;
-    const children = terms.filter(child => child.broader.includes(term.id));
+    if (rows.length >= 5000) { limited = true; return; }
+    const shared = seen.has(term.id);
+    seen.add(term.id);
+    const children = childMap.get(term.id) ?? [];
     const open = !!query || allExpanded || expanded.has(term.id);
     rows.push(`<div class="tree-item ${term.id === selectedId ? 'selected' : ''} ${term.status === 'retired' ? 'retired' : ''}" style="padding-left:${7 + level * 16}px">
-      <button type="button" class="tree-toggle" data-toggle="${escape(term.id)}" aria-label="${open ? 'Collapse' : 'Expand'} ${escape(term.label)}" ${children.length ? `aria-expanded="${open}"` : 'disabled'}>${children.length ? open ? '▾' : '▸' : '·'}</button>
+      <button type="button" class="tree-toggle" data-toggle="${escape(term.id)}" aria-label="${open ? 'Collapse' : 'Expand'} ${escape(term.label)}" ${children.length && !shared ? `aria-expanded="${open}"` : 'disabled'}>${shared ? '↗' : children.length ? open ? '▾' : '▸' : '·'}</button>
       <button type="button" class="tree-pick" data-pick="${escape(term.id)}" ${term.id === selectedId ? 'aria-current="true"' : ''}>${escape(term.label)}</button>
+      ${shared ? '<span class="help" data-shared-reference title="Shared concept; its children appear at its first occurrence">shared</span>' : ''}
       <span class="status-dot ${escape(term.status)}" title="${escape(term.status)}"><span class="sr-only">${escape(term.status)}</span></span></div>`);
-    if (open) children.forEach(child => walk(child, level + 1));
+    if (open && !shared) children.forEach(child => walk(child, level + 1));
   };
   terms.filter(term => !term.broader.length).forEach(term => walk(term, 0));
   $('#tree').innerHTML = rows.join('') || `<p class="tree-empty">${query ? 'No terms match your search.' : schemeId ? 'A blank page for your vocabulary. Add your first top-level term below.' : 'Create a scheme to start organizing terms.'}</p>`;
+  if (limited) $('#tree').insertAdjacentHTML('beforeend', '<p class="tree-empty">Showing the first 5,000 outline rows. Filter terms to narrow the view.</p>');
 }
 function crumbs(term) {
   const labels = [];
@@ -315,11 +328,15 @@ refresh().catch(error => notice(`Could not load the workspace: ${error.message}`
 
 let operationKind;
 let operationPreview;
-let operationInput;
 let operationTerm;
 let operationVersion;
+let operationGeneration = 0;
+let operationApplying = false;
+const operationCurrent = generation => generation === operationGeneration && $('#operation-dialog').open;
 function invalidateOperation() {
+  operationGeneration++;
   operationPreview = null; $('#operation-preview').hidden = true; $('#apply-operation').hidden = true;
+  $('#preview-operation').disabled = false;
 }
 function splitChoices() {
   const rows = [...document.querySelectorAll('.split-term')];
@@ -336,7 +353,8 @@ function addSplitTerm() {
   $('#split-terms').append(row); splitChoices();
 }
 function openOperation(kind) {
-  if (!allowLeave()) return;
+  if (operationApplying || !allowLeave()) return;
+  $('#operation-form').inert = false;
   operationKind = kind; operationTerm = current(); operationVersion = state.version;
   const available = state.terms.filter(term => term.scheme === schemeId && term.id !== selectedId && term.status !== 'retired');
   $('#operation-title').textContent = `${kind[0].toUpperCase() + kind.slice(1)} “${operationTerm.label}”`;
@@ -355,6 +373,8 @@ $('#operation-form').addEventListener('input', () => { invalidateOperation(); if
 $('#operation-form').addEventListener('change', invalidateOperation);
 $('#operation-form').addEventListener('submit', async event => {
   event.preventDefault(); invalidateOperation(); $('#operation-error').textContent = '';
+  const generation = operationGeneration;
+  const termId = operationTerm.id;
   const input = { kind: operationKind, expectedVersion: operationVersion, reason: $('#operation-reason').value };
   if (operationKind === 'move') input.broader = [...$('#operation-broader').selectedOptions].map(option => option.value).filter(Boolean);
   if (operationKind === 'merge') input.target = $('#operation-target').value;
@@ -367,8 +387,10 @@ $('#operation-form').addEventListener('submit', async event => {
   $('#preview-operation').disabled = true;
   try {
     input.expectedVersion = (await api('state')).version;
-    const preview = await api(`terms/${operationTerm.id}/operations/preview`, { method: 'POST', body: JSON.stringify(input) });
-    operationInput = input; operationPreview = preview;
+    if (!operationCurrent(generation)) return;
+    const preview = await api(`terms/${termId}/operations/preview`, { method: 'POST', body: JSON.stringify(input) });
+    if (!operationCurrent(generation)) return;
+    operationPreview = { ...preview, termId, input, generation };
     const names = new Map([...state.terms, ...preview.affected.map(row => row.after)].map(term => [term.id, term.label]));
     const parents = term => term.broader.length ? term.broader.map(id => names.get(id) ?? id).join(', ') : 'Top level';
     $('#operation-preview').innerHTML = `<strong>${preview.affected.length} affected terms</strong><p class="help">Subscriber usage unknown. One atomic, breaking change will be recorded.</p><ul>${preview.affected.map(row => {
@@ -377,41 +399,61 @@ $('#operation-form').addEventListener('submit', async event => {
       return `<li><strong>${escape(row.after.label)}</strong>${!row.before ? ' · new' : row.after.status === 'retired' ? ' · retired' : ''}<br><span class="help">${row.before ? escape(parents(row.before)) + ' → ' : ''}${escape(parents(row.after))}${row.after.path ? '<br>' + escape(row.after.path) : ''}</span>${[...removed.map(r => `Remove ${r.type}: ${names.get(r.target) ?? r.target}`), ...added.map(r => `Add ${r.type}: ${names.get(r.target) ?? r.target}`)].map(text => `<br><span class="help">${escape(text)}</span>`).join('')}${row.after.replacedBy.length ? `<br><span class="help">Replaced by ${escape(row.after.replacedBy.map(id => names.get(id) ?? id).join(', '))}</span>` : ''}</li>`;
     }).join('')}</ul>`;
     $('#operation-preview').hidden = false; $('#apply-operation').hidden = false;
-  } catch (error) { $('#operation-error').textContent = error.message; }
-  finally { $('#preview-operation').disabled = false; }
+  } catch (error) { if (operationCurrent(generation)) $('#operation-error').textContent = error.message; }
+  finally { if (operationCurrent(generation)) $('#preview-operation').disabled = false; }
 });
 $('#apply-operation').onclick = async () => {
-  if (!operationPreview) return;
+  if (!operationPreview || !operationCurrent(operationPreview.generation) || operationApplying) return;
+  const { termId, input } = operationPreview;
+  operationApplying = true;
   $('#operation-form').inert = true;
   try {
-    const result = await api(`terms/${operationTerm.id}/operations/apply`, { method: 'POST', body: JSON.stringify(operationInput) });
+    const result = await api(`terms/${termId}/operations/apply`, { method: 'POST', body: JSON.stringify(input) });
     $('#operation-dialog').close(); await refresh(result.term.id);
-    notice(`Applied ${operationKind} at #${result.version}.`);
+    notice(`Applied ${input.kind} at #${result.version}.`);
   } catch (error) { $('#operation-error').textContent = error.message; invalidateOperation(); }
-  finally { $('#operation-form').inert = false; }
+  finally { operationApplying = false; $('#operation-form').inert = false; }
 };
 $('#cancel-operation').onclick = () => $('#operation-dialog').close();
+$('#operation-dialog').addEventListener('close', () => { if (!$('#operation-dialog').open) invalidateOperation(); });
+$('#operation-dialog').addEventListener('cancel', event => {
+  if (operationApplying) event.preventDefault(); else invalidateOperation();
+});
 
-let importData = '';
+let importSource;
 let importPreview;
-function invalidateImport() { importPreview = null; $('#import-preview').hidden = true; $('#apply-import').hidden = true; }
+let importGeneration = 0;
+let sourceGeneration = 0;
+let importApplying = false;
+const importCurrent = generation => generation === importGeneration && $('#import-dialog').open;
+const sourceCurrent = generation => generation === sourceGeneration && $('#import-dialog').open;
+function invalidateImport() {
+  importGeneration++; importPreview = null;
+  $('#import-preview').hidden = true; $('#apply-import').hidden = true; $('#preview-import').disabled = false;
+}
 function invalidateImportSource() {
+  sourceGeneration++; importSource = null; $('#read-import-source').disabled = false;
   invalidateImport(); $('#import-source-scheme').innerHTML = ''; $('#import-source-scheme').disabled = true;
 }
 $('#import-scheme').onclick = () => {
-  if (!allowLeave()) return;
-  $('#import-error').textContent = ''; invalidateImport(); $('#import-dialog').showModal();
+  if (importApplying || !allowLeave()) return;
+  $('#import-form').inert = false;
+  $('#import-error').textContent = ''; invalidateImportSource(); $('#import-dialog').showModal();
 };
 $('#import-format').onchange = () => {
   $('#import-file-field').hidden = $('#import-format').value !== 'turtle';
   $('#import-sparql-fields').hidden = $('#import-format').value !== 'sparql';
   invalidateImportSource();
 };
-for (const selector of ['#import-file', '#import-endpoint', '#import-graph']) $(selector).addEventListener('change', invalidateImportSource);
+for (const selector of ['#import-file', '#import-endpoint', '#import-graph']) {
+  $(selector).addEventListener('input', invalidateImportSource);
+  $(selector).addEventListener('change', invalidateImportSource);
+}
 $('#import-form').addEventListener('input', invalidateImport);
 $('#import-form').addEventListener('change', invalidateImport);
 $('#read-import-source').onclick = async () => {
   $('#import-error').textContent = ''; invalidateImportSource(); $('#read-import-source').disabled = true;
+  const generation = sourceGeneration;
   try {
     const format = $('#import-format').value;
     const input = { format };
@@ -419,44 +461,54 @@ $('#read-import-source').onclick = async () => {
       const file = $('#import-file').files[0];
       if (!file) throw new Error('Choose a Turtle file first.');
       if (file.size > 5 * 1024 * 1024) throw new Error('Files are limited to 5 MiB.');
-      importData = await file.text(); input.data = importData;
+      input.data = await file.text();
     } else {
       input.endpoint = $('#import-endpoint').value;
       if ($('#import-graph').value.trim()) input.graph = $('#import-graph').value.trim();
     }
+    if (!sourceCurrent(generation)) return;
     const result = await api('imports/schemes', { method: 'POST', body: JSON.stringify(input) });
+    if (!sourceCurrent(generation)) return;
     const choices = new Map();
     for (const item of result.schemes) choices.set(item.uri, item.label ?? item.labels?.map(label => label.value).join(' / ') ?? item.uri);
     if (!choices.size) throw new Error('No declared SKOS schemes were found in this source.');
+    importSource = input;
     $('#import-source-scheme').innerHTML = [...choices].map(([uri, label]) => `<option value="${escape(uri)}">${escape(label)} · ${escape(uri)}</option>`).join('');
     $('#import-source-scheme').disabled = false;
-  } catch (error) { $('#import-error').textContent = error.message; }
-  finally { $('#read-import-source').disabled = false; }
+  } catch (error) { if (sourceCurrent(generation)) $('#import-error').textContent = error.message; }
+  finally { if (sourceCurrent(generation)) $('#read-import-source').disabled = false; }
 };
 $('#import-form').addEventListener('submit', async event => {
   event.preventDefault(); invalidateImport(); $('#import-error').textContent = '';
-  if ($('#import-source-scheme').disabled) { $('#import-error').textContent = 'Find and select a source scheme first.'; return; }
-  const input = { format: $('#import-format').value, sourceScheme: $('#import-source-scheme').value,
+  const generation = importGeneration;
+  if (!importSource || $('#import-source-scheme').disabled) { $('#import-error').textContent = 'Find and select a source scheme first.'; return; }
+  const input = { ...importSource, sourceScheme: $('#import-source-scheme').value,
     schemeId: $('#import-id').value, hierarchy: $('#import-hierarchy').value, language: $('#import-language').value };
   if ($('#import-label').value.trim()) input.label = $('#import-label').value.trim();
-  if (input.format === 'turtle') input.data = importData;
-  else { input.endpoint = $('#import-endpoint').value; if ($('#import-graph').value.trim()) input.graph = $('#import-graph').value.trim(); }
   $('#preview-import').disabled = true;
   try {
-    importPreview = await api('imports/preview', { method: 'POST', body: JSON.stringify(input) });
+    const preview = await api('imports/preview', { method: 'POST', body: JSON.stringify(input) });
+    if (!importCurrent(generation)) return;
+    importPreview = { ...preview, generation };
     $('#import-preview').innerHTML = `<strong>${escape(importPreview.plan.scheme.label)} · ${importPreview.count} terms</strong><p class="help">A new scheme will be added. Source IRIs and SKOS mappings are preserved.</p>${importPreview.warnings.length ? `<div class="import-warnings"><strong>Review omitted data</strong><ul>${importPreview.warnings.map(warning => `<li>${escape(warning)}</li>`).join('')}</ul></div>` : '<p class="help">No import warnings.</p>'}<details><summary>Terms to import</summary><ul>${importPreview.terms.map(term => `<li>${escape(term.label)} · ${term.broader} broader</li>`).join('')}</ul></details>`;
     $('#import-preview').hidden = false; $('#apply-import').hidden = false;
-  } catch (error) { $('#import-error').textContent = error.message; }
-  finally { $('#preview-import').disabled = false; }
+  } catch (error) { if (importCurrent(generation)) $('#import-error').textContent = error.message; }
+  finally { if (importCurrent(generation)) $('#preview-import').disabled = false; }
 });
 $('#apply-import').onclick = async () => {
-  if (!importPreview) return;
+  if (!importPreview || !importCurrent(importPreview.generation) || importApplying) return;
+  const { plan, expectedVersion } = importPreview;
+  importApplying = true;
   $('#import-form').inert = true;
   try {
-    const result = await api('imports/apply', { method: 'POST', body: JSON.stringify({ plan: importPreview.plan, expectedVersion: importPreview.expectedVersion }) });
+    const result = await api('imports/apply', { method: 'POST', body: JSON.stringify({ plan, expectedVersion }) });
     $('#import-dialog').close(); $('#search').value = ''; await refresh(result.term.id);
     notice(`Imported “${result.scheme.label}” with ${result.count} terms.`);
   } catch (error) { $('#import-error').textContent = error.message; invalidateImport(); }
-  finally { $('#import-form').inert = false; }
+  finally { importApplying = false; $('#import-form').inert = false; }
 };
 $('#cancel-import').onclick = () => $('#import-dialog').close();
+$('#import-dialog').addEventListener('close', () => { if (!$('#import-dialog').open) invalidateImportSource(); });
+$('#import-dialog').addEventListener('cancel', event => {
+  if (importApplying) event.preventDefault(); else invalidateImportSource();
+});

@@ -74,8 +74,8 @@ export function planSkos(store: Store, data: string, request: ImportRequest): { 
   const known = store.terms();
   const resolveRelated = (uri: string) => members.has(uri) || known.some(term => term.sourceUri === uri || term.aliases.includes(uri));
   const supported = new Set([RDF + 'type', SKOS + 'inScheme', SKOS + 'prefLabel', SKOS + 'altLabel', SKOS + 'scopeNote',
-    SKOS + 'definition', SKOS + 'broader', SKOS + 'narrower', SKOS + 'related', SKOS + 'hasTopConcept', SKOS + 'topConceptOf',
-    ...matches.map(match => SKOS + match), DCT + 'description', DCT + 'isReplacedBy', EX + 'status', EX + 'alias', EX + 'hierarchy', EX + 'admissionTest', EX + 'opposite']);
+    SKOS + 'definition', SKOS + 'broader', SKOS + 'narrower', SKOS + 'related', SKOS + 'topConceptOf',
+    ...matches.map(match => SKOS + match), DCT + 'isReplacedBy', EX + 'status', EX + 'alias', EX + 'opposite']);
   const schemeSupported = new Set([RDF + 'type', SKOS + 'prefLabel', SKOS + 'hasTopConcept', DCT + 'description', EX + 'hierarchy', EX + 'admissionTest']);
   for (const q of rdf.getQuads(null, null, null, null)) {
     if (q.subject.equals(scheme) ? !schemeSupported.has(q.predicate.value) : members.has(q.subject.value) && !supported.has(q.predicate.value))
@@ -86,7 +86,8 @@ export function planSkos(store: Store, data: string, request: ImportRequest): { 
   }
   const schemeLabel = preferred(scheme, SKOS + 'prefLabel', !request.label);
   const terms = [...members.values()].map(subject => {
-    const memberships = named(objects(subject, SKOS + 'inScheme'), 'Scheme membership');
+    const memberships = named([...objects(subject, SKOS + 'inScheme'), ...objects(subject, SKOS + 'topConceptOf'),
+      ...rdf.getSubjects(nn(SKOS + 'hasTopConcept'), subject, null)], 'Scheme membership');
     if (memberships.some(uri => uri !== scheme.value)) throw new DomainError(422, `Concept belongs to multiple schemes: ${subject.value}`);
     const label = preferred(subject, SKOS + 'prefLabel', true)!;
     const broader = [...new Set([...named(objects(subject, SKOS + 'broader'), 'Broader'),

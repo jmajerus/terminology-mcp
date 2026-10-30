@@ -77,6 +77,18 @@ try {
   const after = await client.turtle('source-after', `CONSTRUCT { ?s ?p ?o } WHERE { GRAPH ${iri(graphs[0])} { ?s ?p ?o } }`);
   assert.deepEqual(fingerprint(after), fingerprint(before));
   results.push({ check: 'importer leaves source graph unchanged', passed: true });
+  // Alter only our disposable fixture to verify inbound membership assertions
+  // survive CONSTRUCT and receive the same validation as a file import.
+  await client.update('fixture-mixed-membership', `INSERT DATA { GRAPH ${iri(graphs[0])} {
+    <https://example.org/other> <http://www.w3.org/2004/02/skos/core#hasTopConcept> <https://example.org/child> .
+  } }`);
+  const mixed = await fetch(`${base}/api/imports/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format: 'sparql', endpoint, graph: graphs[0], sourceScheme: 'https://example.org/scheme',
+      schemeId: 'mixed', hierarchy: 'tree', language: 'en' }) });
+  assert.equal(mixed.status, 422);
+  assert.match((await mixed.json()).error, /multiple schemes/);
+  assert.equal(store.version, currentVersion);
+  results.push({ check: 'SPARQL imports retain inbound hasTopConcept and reject mixed memberships', passed: true });
 } catch (error) {
   results.push({ check: 'integration run', passed: false, detail: error instanceof Error ? error.message : String(error) });
   process.exitCode = 1;

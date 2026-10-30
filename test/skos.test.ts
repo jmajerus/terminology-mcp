@@ -76,3 +76,24 @@ test('inverse SKOS mappings are normalized and unrepresented child edges are rej
   assert.ok(child.links.some(link => link.match === 'exactMatch' && link.uri === 'https://example.org/equivalent'));
   assert.throws(() => planSkos(store, turtle + '\nx:root skos:narrower x:missing .', request), /no membership/);
 });
+
+test('concept predicates that only map at scheme level generate explicit omission warnings', t => {
+  const store = new Store(':memory:'); t.after(() => store.close());
+  const data = turtle + '\n@prefix term: <urn:terminology-mcp:vocab:> .\nx:child dct:description "Description" ; term:hierarchy "tree" ; term:admissionTest "Admission" .';
+  const { warnings } = planSkos(store, data, request);
+  for (const predicate of ['http://purl.org/dc/terms/description', 'urn:terminology-mcp:vocab:hierarchy', 'urn:terminology-mcp:vocab:admissionTest'])
+    assert.ok(warnings.some(warning => warning.includes(predicate)), predicate);
+});
+
+test('all three scheme membership forms reject mixed memberships and accept consistent ones', t => {
+  const store = new Store(':memory:'); t.after(() => store.close());
+  const declarations = ['x:child skos:topConceptOf x:other .', 'x:other skos:hasTopConcept x:child .',
+    'x:child skos:inScheme x:other .'];
+  for (const declaration of declarations)
+    assert.throws(() => planSkos(store, turtle + '\n' + declaration, request), /multiple schemes/);
+  for (const membership of ['x:child skos:topConceptOf x:scheme .', 'x:scheme skos:hasTopConcept x:child .']) {
+    const noInScheme = turtle.replace('x:child a skos:Concept ; skos:inScheme x:scheme ;', 'x:child a skos:Concept ;');
+    assert.equal(planSkos(store, noInScheme + '\n' + membership, request).plan.terms.length, 3);
+    assert.throws(() => planSkos(store, noInScheme + '\n' + membership + '\nx:other skos:hasTopConcept x:child .', request), /multiple schemes/);
+  }
+});

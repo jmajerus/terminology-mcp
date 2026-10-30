@@ -5,8 +5,8 @@ import { dirname } from 'node:path';
 import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, DomainError,
   type Scheme, type Term, type TermView, type Change } from './model.js';
 
-const slug = (label: string) => label.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
-  .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'term';
+const slug = (label: string) => label.normalize('NFKC').toLowerCase()
+  .replace(/[^\p{L}\p{N}\p{M}]+/gu, '-').replace(/^-|-$/g, '') || 'term';
 
 export class Store {
   readonly db: Database.Database;
@@ -171,14 +171,18 @@ export class Store {
       siblings.add(key);
     }
     const checkCycles = (edges: (term: Term) => string[], name: string) => {
-      const done = new Set<string>(), visiting = new Set<string>();
-      const visit = (id: string) => {
+      const depths = new Map<string, number>(), visiting = new Set<string>();
+      const visit = (id: string): number => {
         if (visiting.has(id)) throw new DomainError(422, `${name} would contain a cycle.`);
-        if (done.has(id)) return;
-        if (visiting.size >= 500) throw new DomainError(422, `${name} exceeds the supported depth of 500.`);
+        const cached = depths.get(id);
+        if (cached !== undefined) return cached;
+        if (visiting.size > 500) throw new DomainError(422, `${name} exceeds the supported depth of 500.`);
         visiting.add(id);
-        for (const parent of edges(byId.get(id)!)) visit(parent);
-        visiting.delete(id); done.add(id);
+        let depth = 0;
+        for (const parent of edges(byId.get(id)!)) depth = Math.max(depth, visit(parent) + 1);
+        if (depth > 500) throw new DomainError(422, `${name} exceeds the supported depth of 500.`);
+        visiting.delete(id); depths.set(id, depth);
+        return depth;
       };
       terms.forEach(term => visit(term.id));
     };
@@ -231,41 +235,24 @@ export class Store {
       const comparable = (value: Term) => JSON.stringify({ label: value.label, altLabels: value.altLabels,
         scopeNote: value.scopeNote, status: value.status, relations: value.relations, links: value.links });
       if (comparable(before) === comparable(term)) return this.lookup(id);
-      const alias = this.pathAlias(term);
-      term.aliases = [...new Set([...term.aliases, ...(alias ? [alias] : [])])];
       const onlyNote = comparable({ ...term, scopeNote: before.scopeNote }) === comparable(before);
-      const n = this.log({ kind: renamed ? 'labelled' : onlyNote ? 'noted' : 'updated', terms: [id],
-        before, after: term, breaking: renamed || removedRelation, reason });
-      this.persist(term, n);
-      // A renamed ancestor changes every descendant's path. Preserve old aliases
-      // and record new ones in the same atomic change and historical revision.
-      if (renamed) {
-        for (const view of this.terms(term.scheme)) {
-          if (view.id === id || !view.path) continue;
-          const newAlias = `${view.scheme}:${view.path}`;
-          if (view.aliases.includes(newAlias)) continue;
-          const { path: _p, depth: _d, narrower: _n, ...descendant } = view;
-          descendant.aliases.push(newAlias);
-          descendant.changed = n;
-          this.persist(descendant, n);
-          const row = this.db.prepare('SELECT body FROM changes WHERE n = ?').get(n) as { body: string };
-          const change = JSON.parse(row.body) as Change;
-          change.terms.push(descendant.id);
-          this.db.prepare('UPDATE changes SET body = ? WHERE n = ?').run(JSON.stringify(change), n);
-        }
-      }
-      return this.lookup(id);
+      return this.commitTerms([...this.rawTerms().filter(other => other.id !== id), term],
+        renamed ? 'labelled' : onlyNote ? 'noted' : 'updated', reason, id, renamed || removedRelation).term;
     })();
   }
   private commitTerms(candidates: Term[], kind: Change['kind'], reason: string, primary: string, breaking: boolean) {
     this.validateAll(candidates);
     const before = this.rawTerms();
     const old = new Map(before.map(term => [term.id, term]));
+    const oldViews = new Map(this.views(before).map(term => [term.id, term]));
     const n = this.version + 1;
-    const after = this.views(candidates).map(({ path, depth: _depth, narrower: _narrower, ...term }) => ({
+    const candidateViews = new Map(this.views(candidates).map(term => [term.id, term]));
+    const after = [...candidateViews.values()].map(({ path, depth: _depth, narrower: _narrower, ...term }) => ({
       ...term, aliases: [...new Set([...term.aliases, ...(term.sourceUri ? [term.sourceUri] : []), ...(path ? [`${term.scheme}:${path}`] : [])])],
     }));
-    const changed = after.filter(term => JSON.stringify(term) !== JSON.stringify(old.get(term.id)))
+    const changed = after.filter(term => JSON.stringify(term) !== JSON.stringify(old.get(term.id)) ||
+      oldViews.get(term.id)?.path !== candidateViews.get(term.id)?.path ||
+      oldViews.get(term.id)?.depth !== candidateViews.get(term.id)?.depth)
       .map(term => ({ ...term, changed: n }));
     if (!changed.length) throw new DomainError(422, 'This operation would not change any terms.');
     const primaryAfter = changed.find(term => term.id === primary) ?? changed[0];

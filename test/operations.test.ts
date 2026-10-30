@@ -76,3 +76,33 @@ test('cycles, descendant merges, and alias collisions fail without changing revi
   assert.equal(store.version, before);
   assert.deepEqual(store.lookup(a.id).broader, [b.id]);
 });
+
+test('moving back over existing aliases records every descendant path and revision change', t => {
+  const { store, a, b, child, leaf } = fixture(t);
+  store.operate(a.id, { kind: 'move', broader: [b.id], expectedVersion: store.version });
+  const before = store.version;
+  const aliases = store.lookup(leaf.id).aliases;
+  const op = { kind: 'move', broader: [], expectedVersion: before };
+  const preview = store.preview(() => store.operate(a.id, op));
+  assert.deepEqual(new Set(preview.affected.map(row => row.after.id)), new Set([a.id, child.id, leaf.id]));
+  assert.equal(store.lookup(leaf.id).path, 'b/a/child/leaf');
+  const result = store.operate(a.id, op);
+  assert.deepEqual(store.lookup(leaf.id).aliases, aliases);
+  assert.equal(store.lookup(leaf.id).path, 'a/child/leaf');
+  assert.equal(store.lookup(leaf.id).changed, result.version);
+  assert.equal(store.lookup(child.id).changed, result.version);
+  assert.equal(store.lookup(leaf.id, before).path, 'b/a/child/leaf');
+  assert.equal(store.changes(before)[0].afterTerms?.length, 3);
+});
+
+test('renaming an ancestor back to a known alias also advances descendant revisions', t => {
+  const { store, a, leaf } = fixture(t);
+  const rename = (label: string) => store.editTerm(a.id, { label, expectedChanged: store.lookup(a.id).changed });
+  rename('Renamed');
+  const before = store.version;
+  const result = rename('A');
+  assert.equal(store.lookup(leaf.id).changed, result.changed);
+  assert.equal(store.lookup(leaf.id, before).path, 'renamed/child/leaf');
+  assert.equal(store.lookup(leaf.id).path, 'a/child/leaf');
+  assert.ok(store.changes(before)[0].terms.includes(leaf.id));
+});

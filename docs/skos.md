@@ -75,7 +75,8 @@ matches and the broad/narrow inverse pair.
 ## Validation and limits
 
 The importer rejects ambiguous preferred labels, blank-node concept identities,
-multiple scheme memberships, missing broader terms, hierarchy/replacement cycles,
+multiple scheme memberships (including `inScheme`, `topConceptOf`, and inverse
+`hasTopConcept` together), missing broader terms, hierarchy/replacement cycles,
 invalid tree cardinality, duplicate identities, and alias collisions. Source IRIs
 already imported into the workspace cannot be imported again under a second ID.
 The preview reports omitted predicates, unselected languages, and unresolved
@@ -111,7 +112,8 @@ Override the server base URL with `OXIGRAPH_URL` if needed. The test creates two
 unique sample graphs, runs source discovery/preview/apply through the real app
 API and a separate SQLite database, exports back to Oxigraph, and imports that
 export again. It checks stable source identities, hierarchy, notes, all five
-mapping types, duplicate rejection, and source immutability. Both remote graphs
+mapping types, duplicate rejection, source immutability, and rejection of mixed
+memberships asserted through inbound `hasTopConcept`. Both remote graphs
 are dropped and their removal verified. It does not open your workspace database.
 
 Reports, request logs, exported Turtle, the sample SQLite database, and exact
@@ -123,7 +125,7 @@ npm run test:oxigraph -- --cleanup data/oxigraph-import/<UUID>/manifest.json
 ```
 
 Recorded run on 2026-10-30 against **Oxigraph/0.5.13**:
-`31f2d64b-4306-4318-ab6e-c4085593e8fc`. All six integration checks passed;
+`e40798fd-43b5-42e1-9854-21f6eeaa19b7`. All seven integration checks passed;
 both owned graphs were removed and verified. This import use does not require
 the concurrent-write coordination discussed in the earlier feasibility report.
 

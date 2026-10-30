@@ -41,13 +41,22 @@ scheme-qualified paths, for example `subjects:politics/public-opinion`.
 A rename keeps all existing aliases and adds the newly derived paths for
 the term and its descendants. Descendant revisions share the rename's
 changelog number. Reusing a historical path for a different term is rejected.
+Path segments preserve Unicode letters, numbers, and combining marks. Moves
+and renames record descendant path/depth changes even when returning to an
+existing alias, so descendant revision checks and impact history remain accurate.
 
 Tree schemes accept one broader term; polyhierarchies accept several and
 have no derived path. Depth starts at zero; for a polyhierarchy it is the
 shortest distance to a root. Broader terms must exist in the same scheme.
 Parent links change only through explicit structural operations. Whole-graph
 validation rejects hierarchy and replacement cycles. Sibling labels that
-normalize to the same path segment are rejected.
+normalize to the same path segment are rejected. The depth limit uses the
+longest path for hierarchy and replacement validation, regardless of input order;
+paths with 500 edges are accepted, and longer ones are rejected.
+
+The outline expands each concept's descendants once. Repeated occurrences in
+a polyhierarchy are selectable shared references. Rendering stops at 5,000
+rows with a prompt to filter, preventing a large graph from freezing the editor.
 
 Relations are explicit typed edges. `related` can cross schemes; `opposite`
 stays within one scheme. Self-relations and duplicate outgoing edges are
@@ -131,6 +140,10 @@ and shuts it down afterward. Browser checks cover first setup, creating and
 editing terms, reload persistence, rename review, relations, references,
 history, searching by alternative label, mobile overflow, concurrent tabs,
 file import/export, all four structural verbs, and stale structural previews.
+Delayed-response tests cover edited forms, closed/reopened dialogs, different
+selected terms, and changed import files. Discovery and preview requests carry
+generation checks; only a response matching the current form/session can enable
+Apply or populate the source selection.
 Screenshots and failure traces are written under ignored `test-results/`.
 
 ## Next slices

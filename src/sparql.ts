@@ -19,7 +19,7 @@ export function importQuery(scheme: string, graph?: string) {
   const pattern = `{ BIND(${s} AS ?subject) ?subject ?predicate ?object }
     UNION { { ${members} } BIND(?member AS ?subject) ?subject ?predicate ?object }
     UNION { { ${members} } ?subject ?predicate ?member .
-      VALUES ?predicate { <${SKOS}broader> <${SKOS}narrower> <${SKOS}related>
+      VALUES ?predicate { <${SKOS}hasTopConcept> <${SKOS}broader> <${SKOS}narrower> <${SKOS}related>
         <${SKOS}exactMatch> <${SKOS}closeMatch> <${SKOS}broadMatch> <${SKOS}narrowMatch> <${SKOS}relatedMatch> }
       BIND(?member AS ?object) }`;
   return `CONSTRUCT { ?subject ?predicate ?object } WHERE { ${graph ? `GRAPH ${iri(graph)} { ${pattern} }` : pattern} }`;

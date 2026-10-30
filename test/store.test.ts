@@ -141,3 +141,35 @@ test('rejects invalid versions, missing schemes, and duplicate explicit aliases 
   assert.equal(store.version, before);
   assert.equal(store.terms().length, 1);
 });
+
+test('non-Latin sibling labels retain distinct paths, including combining marks', t => {
+  const store = setup(t);
+  const cat = store.addTerm({ scheme: 'subjects', label: '猫' });
+  const dog = store.addTerm({ scheme: 'subjects', label: '犬' });
+  const hindi = store.addTerm({ scheme: 'subjects', label: 'किताब' });
+  assert.equal(cat.path, '猫'); assert.equal(dog.path, '犬'); assert.equal(hindi.path, 'किताब');
+  assert.equal(store.lookup('subjects:猫').id, cat.id);
+  assert.equal(store.lookup('subjects:犬').id, dog.id);
+});
+
+for (const edge of ['broader', 'replacedBy'] as const) {
+  for (const reverse of [false, true]) {
+    test(`${edge} depth boundary is independent of ${reverse ? 'child' : 'parent'}-first import order`, () => {
+      const plan = (count: number) => {
+        const terms = Array.from({ length: count }, (_, index) => ({
+          key: `urn:depth:${index}`, label: edge === 'broader' ? 'Node' : `Node ${index}`,
+          status: edge === 'replacedBy' ? 'retired' : 'active',
+          [edge]: index ? [`urn:depth:${index - 1}`] : [],
+        }));
+        return { scheme: { id: 'depth', label: 'Depth', hierarchy: 'tree' }, terms: reverse ? terms.reverse() : terms };
+      };
+      const store = new Store(':memory:');
+      try {
+        assert.throws(() => store.importScheme(plan(502), 0), /depth of 500/);
+        assert.equal(store.version, 0); assert.equal(store.schemes().length, 0);
+        assert.equal(store.importScheme(plan(501), 0).count, 501);
+        if (edge === 'broader') assert.equal(store.lookup('urn:depth:500').depth, 500);
+      } finally { store.close(); }
+    });
+  }
+}
