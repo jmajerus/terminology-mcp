@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Terminology · Concept sets</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script type="module" src="/sets.js"></script></head>
+<body>
+<header class="topbar"><a href="/" class="brand"><span class="brand-mark" aria-hidden="true">t.</span> terminology</a><a href="/" class="text-button">Taxonomy</a><span class="nav-current">Concept sets</span><a href="/graph" class="text-button">Graph</a><span class="local-label"><span class="dot"></span> Local workspace</span><span class="version">changelog <strong id="version">—</strong></span></header>
+<div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+<main class="workspace sets-workspace">
+<aside class="outline" aria-label="Concept sets"><div class="pane-heading"><span class="eyebrow">Your collections</span><button id="new-set" class="text-button">+ Set</button></div><label class="sr-only" for="set-scheme">Scheme</label><select id="set-scheme"></select><label class="search"><input id="set-search" type="search" placeholder="Filter sets…"></label><div id="sets-list" class="tree"></div><div class="outline-footer"><a id="export-sets" class="text-button">Export scheme with collections ↓</a><p>Import collections with their scheme through <a href="/?import=turtle">Import SKOS</a>.</p></div></aside>
+<section class="detail" aria-label="Set definition"><div id="set-empty" class="empty"><h1>Group concepts for a purpose</h1><p>Create a named collection, then select its members. Ordered collections preserve a meaningful sequence.</p></div>
+<form id="set-form" hidden><div class="detail-heading"><span class="eyebrow">Concept set</span><h1 id="set-title">New set</h1><p id="set-identity" class="help"></p></div>
+<label class="field"><span class="field-label">Name</span><input name="label" required maxlength="200"></label>
+<div class="two-columns"><label class="field"><span class="field-label">Slug</span><input name="slug" required pattern="[a-z]([a-z0-9]|-){0,79}" maxlength="80"></label><label class="field"><span class="field-label">Kind</span><select name="kind"><option value="theme">Theme</option><option value="profile">Profile</option><option value="map-view">Map view</option></select></label></div>
+<label class="field"><span class="field-label">Owner</span><input name="owner" required maxlength="200" value="local-editor"></label><label class="field"><span class="field-label">Description</span><textarea name="description" rows="3" maxlength="10000"></textarea></label>
+<label class="field"><span class="field-label">Definition</span><select name="mode"><option value="explicit">Explicit members</option><option value="recipe">Recipe</option></select></label>
+<div id="explicit-definition"><label class="field"><span><input type="checkbox" name="ordered"> Ordered collection</span><span class="help">Use the arrows to arrange members. Nested collections expand at their position.</span></label>
+<label class="field"><span class="field-label">Find a member</span><input id="member-search" type="search" placeholder="Search terms and other sets…"></label><div class="two-columns"><label class="field"><span class="field-label">Term or nested collection</span><select id="member-picker" size="5"></select></label><div><button id="add-member" type="button" class="button">Add member →</button><p class="help">Each set belongs to one scheme. Nested collection cycles are rejected.</p></div></div>
+<ol id="members-list" class="set-members"></ol></div>
+<div id="recipe-definition" hidden>
+<p class="help">Combine included concepts, descendants, and nearby related concepts, then apply exclusions. Expansions use the selected workspace version and omit retired concepts.</p>
+<label class="field"><span class="field-label">Include concepts</span><select name="concepts" multiple size="5"></select></label>
+<label class="field"><span class="field-label">Include descendants of</span><select name="narrower" multiple size="5"></select><span class="help">All narrower levels; select the anchor above too if it should be included.</span></label>
+<div id="around-rules"></div><button id="add-around" type="button" class="button">+ Related neighbourhood</button>
+<label class="field"><span class="field-label">Exclude concepts</span><select name="exclude" multiple size="5"></select></label>
+</div><p id="set-error" class="form-error" role="alert"></p>
+<div class="dialog-actions"><button id="delete-set" type="button" class="button">Delete set</button><button id="discard-set" type="button" class="button">Discard</button><button type="submit" id="preview-set" class="button">Preview changes</button><button id="save-set" type="button" class="button primary" disabled>Save set</button></div><p id="save-state" class="help">Saved</p></form></section>
+<aside class="history" aria-label="Set expansion"><div class="history-heading"><span class="eyebrow">Membership</span><h2>Expansion</h2><p id="expansion-version">Select a set to see its terms.</p></div><div id="set-expansion" class="changes"></div><div class="history-footer">Versioned with the workspace changelog</div></aside>
+</main></body></html>

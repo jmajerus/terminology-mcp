@@ -1,0 +1,21 @@
+{
+  "VsCodeTaskButtons.tasks": [
+    {
+      "label": "$(server) Deploy Terminology",
+      "tooltip": "Deploy a committed revision over SSH, verify LAN health, and restore the previous release on failure",
+      "alignment": "left",
+      "tasks": [
+        { "label": "Redeploy current branch", "task": "Deploy Terminology: current", "description": "$(sync) Latest head of the server's recorded branch or PR" },
+        { "label": "Switch to main", "task": "Deploy Terminology: main", "description": "$(git-branch) origin/main" },
+        { "label": "Switch to a pull request…", "task": "Deploy Terminology: PR", "description": "$(git-pull-request) Enter an open PR number" },
+        { "label": "Deploy checked-out commit", "task": "Deploy Terminology", "description": "$(device-desktop) Committed HEAD only; uncommitted files excluded" },
+        { "label": "Deploy checked-out commit without tests", "task": "Deploy Terminology: skip tests", "description": "$(debug-step-over) Target build and health checks still run" }
+      ]
+    },
+    { "label": "$(beaker) Test", "task": "Test Terminology", "tooltip": "npm test", "alignment": "left" }
+  ],
+  "statusProbe.items": [{
+    "id": "terminology-server", "command": "node tools/terminology-status.mjs", "intervalSeconds": 300,
+    "alignment": "left", "priority": -100, "refreshOnTasks": ["Deploy Terminology*"]
+  }]
+}

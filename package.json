@@ -13,8 +13,11 @@
     "start": "node --import tsx src/main.ts",
     "demo": "node --import tsx src/main.ts --demo",
     "build": "tsc",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.experiments.json && node --check public/app.js",
-    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.experiments.json && node --check public/app.js && node --check public/sets.js && node --check public/graph.js",
+    "test": "node --import tsx --test test/*.test.ts test/*.test.mjs",
+    "test:deploy": "python3 -m unittest discover -s test -p '*_test.py'",
+    "deploy": "python3 tools/deploy.py",
+    "status": "node tools/terminology-status.mjs",
     "test:ui": "playwright test",
     "test:oxigraph": "node --import tsx experiments/oxigraph/run.ts",
     "test:oxigraph-import": "node --import tsx experiments/oxigraph/import.ts"

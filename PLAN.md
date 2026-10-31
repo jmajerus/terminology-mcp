@@ -116,6 +116,27 @@ Concept sets and their expansion remain the next editor milestone. See
 
 ## What we borrow from FHIR
 
+**Import and membership update (2026-10-30):** imports default to Auto, honour
+compatible source declarations, explain recommendations, and expose a structural
+compatibility matrix with validated overrides. Term editing can assign multiple
+explicit collections in the same transaction/revision as field changes; recipe
+and nested membership remain calculated. See [SKOS](docs/skos.md) and
+[concept sets](docs/concept-sets.md).
+
+**Concept-graph update (2026-10-30):** concept networks are first-class scheme
+structures with flat authoring, an interactive neighbourhood explorer, symmetric
+edge editing, graph-shaped API/set reads, and quote-mcp/native JSON import.
+The quote-mcp compatibility check preserves its 221 concepts and 782 directed
+relationships, rather than reducing the source to a hierarchy. See
+[concept graphs](docs/concept-graphs.md).
+
+**Concept-set update (2026-10-30):** the second editor page now supports explicit,
+ordered, nested and recipe sets with immutable revisions and version-pinned
+expansion. Structural previews include set effects; merges update membership
+and recipe references atomically. Scheme import/export carries SKOS collections
+and RDF lists through files and local Oxigraph. See [concept sets](docs/concept-sets.md).
+Consumer subscribers and usage intake are the next milestone.
+
 FHIR's terminology module (CodeSystem, ValueSet, ConceptMap, and a handful
 of operations) solved the problems we have: stable codes, sets defined by
 rule rather than by list, versioned expansions, and maps between

@@ -24,6 +24,8 @@ stores the vocabulary; consumer integrations are still planned. What exists:
 | [docs/local-development.md](docs/local-development.md) | Storage design, API, verification, and current limits |
 | [docs/oxigraph-feasibility.md](docs/oxigraph-feasibility.md) | Runnable Oxigraph experiment, measured results, and storage recommendation |
 | [docs/skos.md](docs/skos.md) | File/SPARQL scheme import, SKOS field mappings, export, and local Oxigraph integration test |
+| [docs/concept-sets.md](docs/concept-sets.md) | Explicit, ordered, nested and recipe sets; versioned expansion and SKOS collection interchange |
+| [docs/concept-graphs.md](docs/concept-graphs.md) | Create and import concept networks; graph explorer, typed edges, quote-mcp compatibility and graph APIs |
 
 ## Run locally
 
@@ -55,10 +57,28 @@ Use **Import SKOS…** to add a scheme from a Turtle file or SPARQL endpoint,
 and **Export SKOS ↓** to download the current scheme. Imports preserve source
 IRIs and all five SKOS mapping types; preview reports omitted data before saving.
 
+Open **Concept sets** to group terms into named collections or define recipes
+using descendants, related neighbourhoods, and exclusions. Preview membership
+before saving; ordered and nested collections round-trip through SKOS with
+their scheme. See [concept sets](docs/concept-sets.md) for structural-change
+behavior and versioned expansion.
+The term editor can assign a concept to multiple collections in the same save.
+Imports default to **Auto**, with content-based structure recommendations,
+validated overrides and a compatibility matrix before Apply.
+
+Use **Concept graph** to explore and edit a network of broader, narrower,
+related and opposite concepts. New schemes can use a flat graph structure;
+**Import graph…** accepts quote-mcp exports and native graph JSON, with preview
+and atomic apply. See [concept graphs](docs/concept-graphs.md).
+
 Set `TERMINOLOGY_DB` to choose a database path or `PORT` to change the port.
 The server binds to `127.0.0.1`. No external services or credentials are needed.
 
 For a Debian LXC host accessed through SSH, see [deployment](docs/deployment.md).
+VS Code recommends the same Task Buttons and Status Probe extensions used by
+corpus-mcp and quote-mcp: **Deploy Terminology** selects main, a PR number, or
+the server's current source; the adjacent status shows the deployed revision
+and whether it needs updating.
 
 ```sh
 npm run typecheck

@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 const text = z.string().trim().min(1).max(200);
 const id = z.string().min(1).max(200);
+export const pathLabel = (label: string) => label.normalize('NFKC').toLowerCase()
+  .replace(/[^\p{L}\p{N}\p{M}]+/gu, '-').replace(/^-|-$/g, '') || 'term';
 export const iriSchema = z.string().max(2000).refine(value => /^[a-z][a-z0-9+.-]*:/i.test(value)
   && !/^(javascript|data|vbscript|file):/i.test(value)
   && !/[\u0000-\u0020<>"{}|^`\\]/u.test(value), 'Use an absolute IRI');
@@ -10,9 +12,22 @@ export const linkSchema = z.object({
   uri: iriSchema,
   match: z.enum(['exactMatch', 'closeMatch', 'broadMatch', 'narrowMatch', 'relatedMatch']),
 }).strict();
+export const XSD_STRING = 'http://www.w3.org/2001/XMLSchema#string';
+export const RDF_LANG_STRING = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#langString';
+export const notationSchema = z.object({
+  value: z.string().max(2000), datatype: iriSchema.default(XSD_STRING),
+  language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).toLowerCase().optional(),
+}).strict().superRefine((value, context) => {
+  if (Boolean(value.language) !== (value.datatype === RDF_LANG_STRING))
+    context.addIssue({ code: 'custom', message: 'A language tag requires rdf:langString, and rdf:langString requires a language tag.' });
+});
+export type Notation = z.infer<typeof notationSchema>;
+export const uniqueNotations = (values: Notation[]) => [...new Map(values.map(value =>
+  [JSON.stringify([value.value, value.datatype, value.language ?? '']), value])).values()];
 const fields = {
   label: text,
   altLabels: z.array(text).max(100).default([]),
+  notations: z.array(notationSchema).max(100).default([]),
   scopeNote: z.string().trim().max(20000).default(''),
   status: z.enum(['provisional', 'active']).default('provisional'),
   relations: z.array(relationSchema).max(200).default([]),
@@ -25,14 +40,16 @@ export const createTermSchema = z.object({
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
 }).strict();
 export const editTermSchema = z.object({
-  ...fields, expectedChanged: z.number().int().positive(),
+  ...fields, notations: z.array(notationSchema).max(100).optional(), expectedChanged: z.number().int().positive(),
   reason: z.string().trim().max(2000).default(''),
+  collections: z.array(id).max(1000).optional(), expectedVersion: z.number().int().nonnegative().optional(),
 }).strict();
 export const schemeSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,59}$/), label: text,
   description: z.string().trim().max(10000).default(''),
-  hierarchy: z.enum(['tree', 'poly']),
+  hierarchy: z.enum(['tree', 'poly', 'graph']),
   admissionTest: z.string().trim().max(10000).default(''),
+  notations: z.array(notationSchema).max(100).default([]),
   sourceUri: iriSchema.optional(),
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
 }).strict();
@@ -44,11 +61,27 @@ export type Term = Omit<CreateTerm, 'status'> & {
   id: string; created: number; changed: number;
 };
 export type TermView = Term & { path: string | null; depth: number; narrower: string[] };
+export const setRecipeSchema = z.object({
+  concepts: z.array(z.string().min(1).max(2000)).max(10000).default([]), narrower: z.array(z.string().min(1).max(2000)).max(1000).default([]),
+  around: z.array(z.object({ term: z.string().min(1).max(2000), depth: z.number().int().min(0).max(10),
+    types: z.array(z.enum(['broader', 'narrower', 'related', 'opposite'])).min(1).max(4),
+  }).strict()).max(100).default([]), exclude: z.array(z.string().min(1).max(2000)).max(10000).default([]),
+}).strict();
+export const conceptSetSchema = z.object({
+  scheme: id, slug: z.string().regex(/^[a-z][a-z0-9-]{0,79}$/), label: text,
+  description: z.string().trim().max(10000).default(''), owner: text.default('local-editor'),
+  kind: z.enum(['theme', 'profile', 'map-view']).default('theme'),
+  ordered: z.boolean().default(false), members: z.array(id).max(10000).default([]),
+  recipe: setRecipeSchema.optional(),
+  sourceUri: iriSchema.optional(), language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
+}).strict();
+export type ConceptSet = z.infer<typeof conceptSetSchema> & { id: string; created: number; changed: number; deleted?: boolean };
 export type Change = {
-  n: number; kind: 'scheme-added' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'imported';
-  terms: string[]; before: Term | null; after: Term | Scheme;
+  n: number; kind: 'scheme-added' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'imported' | 'set-added' | 'set-changed' | 'set-deleted';
+  terms: string[]; before: Term | ConceptSet | null; after: Term | Scheme | ConceptSet;
   breaking: boolean; author: string; reason: string; at: string;
   beforeTerms?: Term[]; afterTerms?: Term[];
+  beforeSets?: ConceptSet[]; afterSets?: ConceptSet[];
 };
 const operationBase = { expectedVersion: z.number().int().nonnegative(), reason: z.string().trim().max(2000).default('') };
 export const operationSchema = z.discriminatedUnion('kind', [
@@ -63,6 +96,9 @@ export const operationSchema = z.discriminatedUnion('kind', [
 export type Operation = z.infer<typeof operationSchema>;
 export const importPlanSchema = z.object({
   scheme: schemeSchema,
+  sets: z.array(conceptSetSchema.omit({ scheme: true }).extend({ key: iriSchema,
+    members: z.array(iriSchema).max(10000).default([]),
+  }).strict()).max(1000).default([]),
   terms: z.array(createTermSchema.omit({ scheme: true }).extend({
     key: iriSchema, broader: z.array(iriSchema).default([]),
     relations: z.array(z.object({ type: z.enum(['related', 'opposite']), target: iriSchema }).strict()).default([]),

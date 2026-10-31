@@ -8,6 +8,9 @@ import { exportSkos, importRequestSchema, planSkos, rdfSchemes } from './skos.js
 import { discoverSchemes, fetchScheme } from './sparql.js';
 import { z } from 'zod';
 import { allowedOrigins, requestOrigin } from './http-config.js';
+import { deploymentRecord } from './deployment.js';
+import { graphSchemes, planGraph } from './graph-import.js';
+import { conceptGraph, graphEdges, graphTypes } from './graph.js';
 
 async function body(req: IncomingMessage, limit = 128 * 1024): Promise<unknown> {
   if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json')
@@ -34,7 +37,7 @@ function json(res: ServerResponse, status: number, value: unknown) {
   res.end(JSON.stringify(value));
 }
 
-export function createApp(store: Store, options: { demo?: boolean; origins?: string[] } = {}) {
+export function createApp(store: Store, options: { demo?: boolean; origins?: string[]; deploymentFile?: string } = {}) {
   const origins = allowedOrigins(options.origins);
   return createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -50,6 +53,12 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
         if (req.headers['sec-fetch-site'] === 'cross-site')
           throw new DomainError(403, 'Cross-site writes are not allowed.');
       }
+      if (req.method === 'GET' && url.pathname === '/health') {
+        const count = (table: 'schemes' | 'terms') => (store.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+        json(res, 200, { ok: true, version: store.version, schemes: count('schemes'), terms: count('terms'),
+          deployed: await deploymentRecord(options.deploymentFile) });
+        return;
+      }
       if (url.pathname.startsWith('/api/')) {
         const at = numberParam(url, 'at');
         const exportMatch = url.pathname.match(/^\/api\/schemes\/([^/]+)\/skos$/);
@@ -60,18 +69,22 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           res.end(data); return;
         }
         if (req.method === 'POST' && url.pathname === '/api/imports/schemes') {
-          const input = z.object({ format: z.enum(['turtle', 'sparql']), data: z.string().optional(),
+          const input = z.object({ format: z.enum(['turtle', 'sparql', 'graph-json']), data: z.string().optional(),
             endpoint: z.string().optional(), graph: z.string().optional() }).strict().parse(await body(req, 6 * 1024 * 1024));
-          const schemes = input.format === 'turtle' ? rdfSchemes(input.data ?? '')
+          const schemes = input.format === 'graph-json' ? graphSchemes(input.data ?? '') : input.format === 'turtle' ? rdfSchemes(input.data ?? '')
             : await discoverSchemes(input.endpoint ?? '', input.graph);
           json(res, 200, { schemes }); return;
         }
         if (req.method === 'POST' && url.pathname === '/api/imports/preview') {
           const input = importRequestSchema.parse(await body(req, 6 * 1024 * 1024));
-          const data = input.format === 'turtle' ? input.data ?? '' : await fetchScheme(input.endpoint ?? '', input.sourceScheme, input.graph);
-          const { plan, warnings } = planSkos(store, data, input);
+          const data = input.format !== 'sparql' ? input.data ?? '' : await fetchScheme(input.endpoint ?? '', input.sourceScheme, input.graph);
+          const { plan, warnings, analysis } = input.format === 'graph-json' ? planGraph(store, data, input) : planSkos(store, data, input);
+          if (!analysis.compatible) {
+            json(res, 200, { plan, warnings, analysis, expectedVersion: store.version, count: plan.terms.length, sets: plan.sets,
+              terms: plan.terms.map(term => ({ label: term.label, broader: term.broader.length })) }); return;
+          }
           const result = store.preview(() => store.importScheme(plan, store.version));
-          json(res, 200, { plan, warnings, expectedVersion: store.version, count: result.count,
+          json(res, 200, { plan, warnings, analysis, expectedVersion: store.version, count: result.count, sets: result.sets,
             terms: result.affected.map(change => ({ label: change.after.label, broader: change.after.broader.length })) });
           return;
         }
@@ -87,8 +100,18 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 200, operation[2] === 'preview' ? store.preview(run) : run()); return;
         }
         if (req.method === 'GET' && url.pathname === '/api/state') {
-          json(res, 200, { version: at ?? store.version, head: store.version, demo: !!options.demo, schemes: store.schemes(at), terms: store.terms(undefined, at) });
+          json(res, 200, { version: at ?? store.version, head: store.version, demo: !!options.demo, schemes: store.schemes(at), terms: store.terms(undefined, at), sets: store.sets(undefined, at) });
           return;
+        }
+        if (req.method === 'GET' && url.pathname === '/api/graph') {
+          json(res, 200, conceptGraph(store, { at, scheme: url.searchParams.get('scheme') ?? undefined,
+            set: url.searchParams.get('set') ?? undefined, around: url.searchParams.get('around') ?? undefined,
+            depth: numberParam(url, 'depth'), types: url.searchParams.has('types') ? z.array(z.enum(graphTypes)).parse(url.searchParams.get('types')!.split(',')) : undefined })); return;
+        }
+        if (['POST', 'DELETE'].includes(req.method ?? '') && url.pathname === '/api/relations') {
+          const input = z.object({ from: z.string(), to: z.string(), type: z.enum(['related', 'opposite']),
+            expectedVersion: z.number().int().nonnegative() }).strict().parse(await body(req));
+          json(res, 200, store.setRelation(input.from, input.to, input.type, req.method === 'POST', input.expectedVersion)); return;
         }
         if (req.method === 'GET' && url.pathname === '/api/changes') {
           json(res, 200, { version: store.version,
@@ -99,13 +122,45 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 201, { scheme: store.addScheme(await body(req)), version: store.version });
           return;
         }
+        if (req.method === 'GET' && url.pathname === '/api/sets') {
+          json(res, 200, { sets: store.sets(url.searchParams.get('scheme') ?? undefined, at), version: at ?? store.version }); return;
+        }
+        const setMatch = url.pathname.match(/^\/api\/sets\/([^/]+)(?:\/(expand|preview|graph))?$/);
+        if (setMatch && setMatch[2] !== 'preview' && req.method === 'GET') {
+          const id = decodeURIComponent(setMatch[1]);
+          if (setMatch[2] === 'graph') { json(res, 200, { ...conceptGraph(store, { set: id, at }), set: store.conceptSet(id, at) }); return; }
+          json(res, 200, setMatch[2] === 'expand' ? store.expandSet(id, at) : { set: store.conceptSet(id, at), version: at ?? store.version }); return;
+        }
+        if ((url.pathname === '/api/sets' || setMatch) && ['POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) {
+          if (setMatch?.[2] === 'expand' || setMatch?.[2] === 'graph') throw new DomainError(404, 'API route not found.');
+          const input = z.object({ set: z.unknown().optional(), expectedVersion: z.number().int().nonnegative() }).strict().parse(await body(req, 2 * 1024 * 1024));
+          const newPreview = url.pathname === '/api/sets/preview';
+          const id = setMatch && !newPreview ? decodeURIComponent(setMatch[1]) : undefined;
+          const isPreview = newPreview || setMatch?.[2] === 'preview';
+          if ((isPreview && req.method !== 'POST') || (!id && !isPreview && req.method !== 'POST') ||
+              (id && !isPreview && !['PATCH', 'DELETE'].includes(req.method ?? '')))
+            throw new DomainError(404, 'API route not found.');
+          const run = () => {
+            if (req.method === 'DELETE') {
+              if (!id) throw new DomainError(404, 'Set ID required.');
+              return store.deleteSet(id, input.expectedVersion);
+            }
+            const set = store.saveSet(input.set, input.expectedVersion, id);
+            return { ...store.expandSet(set.id), version: store.version };
+          };
+          json(res, 200, isPreview ? store.preview(run) : run()); return;
+        }
         if (req.method === 'POST' && url.pathname === '/api/terms') {
           json(res, 201, { term: store.addTerm(await body(req)), version: store.version });
           return;
         }
+        const memberships = url.pathname.match(/^\/api\/terms\/([^/]+)\/collections$/);
+        if (memberships && req.method === 'GET') { json(res, 200, store.termCollections(decodeURIComponent(memberships[1]), at)); return; }
         const match = url.pathname.match(/^\/api\/terms\/([^/]+)$/);
         if (match && req.method === 'GET') {
-          json(res, 200, { term: store.lookup(decodeURIComponent(match[1]), at), version: at ?? store.version, head: store.version });
+          const term = store.lookup(decodeURIComponent(match[1]), at);
+          json(res, 200, { term, connections: graphEdges(store.terms(undefined, at)).filter(edge => edge.from === term.id)
+            .map(edge => ({ type: edge.type, target: edge.to })), version: at ?? store.version, head: store.version });
           return;
         }
         if (match && req.method === 'PATCH') {
@@ -117,6 +172,10 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       const assets: Record<string, [string, string]> = {
         '/': ['index.html', 'text/html; charset=utf-8'],
         '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
+        '/sets': ['sets.html', 'text/html; charset=utf-8'],
+        '/sets.js': ['sets.js', 'text/javascript; charset=utf-8'],
+        '/graph': ['graph.html', 'text/html; charset=utf-8'],
+        '/graph.js': ['graph.js', 'text/javascript; charset=utf-8'],
         '/style.css': ['style.css', 'text/css; charset=utf-8'],
       };
       const asset = assets[url.pathname];

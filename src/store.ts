@@ -2,11 +2,11 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, DomainError,
-  type Scheme, type Term, type TermView, type Change } from './model.js';
+import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, uniqueNotations, DomainError,
+  conceptSetSchema, pathLabel as slug, type ConceptSet, type Scheme, type Term, type TermView, type Change } from './model.js';
 
-const slug = (label: string) => label.normalize('NFKC').toLowerCase()
-  .replace(/[^\p{L}\p{N}\p{M}]+/gu, '-').replace(/^-|-$/g, '') || 'term';
+const setReferences = (set: Pick<ConceptSet, 'members' | 'recipe'>) => [...set.members,
+  ...set.recipe?.concepts ?? [], ...set.recipe?.narrower ?? [], ...set.recipe?.exclude ?? [], ...set.recipe?.around.map(rule => rule.term) ?? []];
 
 export class Store {
   readonly db: Database.Database;
@@ -31,21 +31,28 @@ export class Store {
   }
   private migrate() {
     const version = this.db.pragma('user_version', { simple: true }) as number;
-    if (version > 1) throw new Error('This database was created by a newer application version.');
-    if (version === 1) return;
+    if (version > 2) throw new Error('This database was created by a newer application version.');
+    if (version === 2) return;
     this.db.transaction(() => {
-      this.db.exec(`
-        CREATE TABLE schemes (id TEXT PRIMARY KEY, created INTEGER NOT NULL, body TEXT NOT NULL);
-        CREATE TABLE terms (id TEXT PRIMARY KEY, scheme TEXT NOT NULL REFERENCES schemes(id), body TEXT NOT NULL);
-        CREATE INDEX terms_scheme ON terms(scheme);
-        CREATE TABLE aliases (alias TEXT PRIMARY KEY, term_id TEXT NOT NULL REFERENCES terms(id));
-        CREATE TABLE changes (n INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL);
-        CREATE TABLE term_revisions (
-          term_id TEXT NOT NULL REFERENCES terms(id), n INTEGER NOT NULL REFERENCES changes(n),
-          body TEXT NOT NULL, PRIMARY KEY (term_id, n));
-        CREATE INDEX term_revisions_version ON term_revisions(n);
-        PRAGMA user_version = 1;
-      `);
+      if (version === 0) {
+        this.db.exec(`
+          CREATE TABLE schemes (id TEXT PRIMARY KEY, created INTEGER NOT NULL, body TEXT NOT NULL);
+          CREATE TABLE terms (id TEXT PRIMARY KEY, scheme TEXT NOT NULL REFERENCES schemes(id), body TEXT NOT NULL);
+          CREATE INDEX terms_scheme ON terms(scheme);
+          CREATE TABLE aliases (alias TEXT PRIMARY KEY, term_id TEXT NOT NULL REFERENCES terms(id));
+          CREATE TABLE changes (n INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL);
+          CREATE TABLE term_revisions (
+            term_id TEXT NOT NULL REFERENCES terms(id), n INTEGER NOT NULL REFERENCES changes(n),
+            body TEXT NOT NULL, PRIMARY KEY (term_id, n));
+          CREATE INDEX term_revisions_version ON term_revisions(n);
+          PRAGMA user_version = 1;
+        `);
+      }
+      this.db.exec(`CREATE TABLE concept_sets (id TEXT PRIMARY KEY, scheme TEXT NOT NULL REFERENCES schemes(id), body TEXT NOT NULL);
+        CREATE TABLE set_revisions (set_id TEXT NOT NULL REFERENCES concept_sets(id), n INTEGER NOT NULL REFERENCES changes(n),
+          body TEXT NOT NULL, PRIMARY KEY (set_id, n));
+        CREATE INDEX set_revisions_version ON set_revisions(n);
+        PRAGMA user_version = 2;`);
     })();
   }
   get version(): number {
@@ -58,12 +65,177 @@ export class Store {
   }
   schemes(at?: number): Scheme[] {
     return (this.db.prepare('SELECT body FROM schemes WHERE created <= ? ORDER BY id')
-      .all(this.atVersion(at)) as { body: string }[]).map(row => JSON.parse(row.body));
+      .all(this.atVersion(at)) as { body: string }[]).map(row => ({ notations: [], ...JSON.parse(row.body) }));
+  }
+  sets(scheme?: string, at?: number): ConceptSet[] {
+    return (this.db.prepare(`SELECT r.body FROM set_revisions r JOIN
+      (SELECT set_id, MAX(n) AS n FROM set_revisions WHERE n <= ? GROUP BY set_id) latest
+      ON r.set_id = latest.set_id AND r.n = latest.n`).all(this.atVersion(at)) as { body: string }[])
+      .map(row => JSON.parse(row.body) as ConceptSet).filter(set => !set.deleted && (!scheme || set.scheme === scheme))
+      .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+  }
+  conceptSet(id: string, at?: number): ConceptSet {
+    const set = this.sets(undefined, at).find(set => set.id === id);
+    if (!set) throw new DomainError(404, 'Concept set not found at this version.');
+    return set;
+  }
+  termCollections(id: string, at?: number) {
+    const version = this.atVersion(at), term = this.lookup(id, version);
+    const sets = this.sets(term.scheme, version), byId = new Map(sets.map(set => [set.id, set])), cache = new Map<string, boolean>();
+    const included = (id: string): boolean => {
+      if (!cache.has(id)) {
+        const set = byId.get(id)!;
+        cache.set(id, set.recipe ? this.expandSet(id, version).terms.some(member => member.id === term.id)
+          : set.members.includes(term.id) || set.members.some(member => byId.has(member) && included(member)));
+      }
+      return cache.get(id)!;
+    };
+    return { version, collections: sets.map(set => ({
+      id: set.id, label: set.label, direct: !set.recipe && set.members.includes(term.id), recipe: !!set.recipe,
+      included: included(set.id), inherited: !set.recipe && set.members.some(id => byId.has(id) && included(id)),
+    })) };
+  }
+  private collectionSourceUris(): Map<string, string> {
+    // Tombstones retain their source identity even though normal set reads hide them.
+    const sets = (this.db.prepare('SELECT body FROM concept_sets').all() as { body: string }[])
+      .map(row => JSON.parse(row.body) as ConceptSet);
+    return new Map(sets.flatMap(set => set.sourceUri ? [[set.sourceUri, set.id] as const] : []));
+  }
+  private validateSets(sets: ConceptSet[], terms = this.rawTerms()) {
+    const byId = new Map([...terms, ...sets].map(item => [item.id, item]));
+    const slugs = new Set<string>(), sources = new Set<string>();
+    const reserved = this.collectionSourceUris();
+    for (const set of sets) {
+      this.scheme(set.scheme);
+      if (set.recipe && (set.members.length || set.ordered)) throw new DomainError(422, 'Recipe sets cannot have explicit members or ordering.');
+      const key = `${set.scheme}:${set.slug}`;
+      if (slugs.has(key)) throw new DomainError(409, 'Set slugs must be unique within a scheme.');
+      slugs.add(key);
+      if (set.sourceUri) {
+        if ((reserved.has(set.sourceUri) && reserved.get(set.sourceUri) !== set.id) || sources.has(set.sourceUri) ||
+            terms.some(term => term.sourceUri === set.sourceUri || term.aliases.includes(set.sourceUri!)) || this.schemes().some(s => s.sourceUri === set.sourceUri))
+          throw new DomainError(409, 'That source IRI is already in use.');
+        sources.add(set.sourceUri);
+      }
+      if (new Set(set.members).size !== set.members.length) throw new DomainError(422, 'Collection members must be distinct.');
+      const recipeRefs = set.recipe ? [...set.recipe.concepts, ...set.recipe.narrower, ...set.recipe.exclude, ...set.recipe.around.map(rule => rule.term)] : [];
+      for (const member of [...set.members, ...recipeRefs]) {
+        const target = byId.get(member);
+        if (!target || target.scheme !== set.scheme) throw new DomainError(422, 'Members must be existing terms or sets in the same scheme.');
+        if (recipeRefs.includes(member) && !terms.some(term => term.id === member)) throw new DomainError(422, 'Recipe rules must refer to terms.');
+      }
+    }
+    const depths = new Map<string, number>(), setMap = new Map(sets.map(set => [set.id, set]));
+    const visit = (id: string, path: Set<string>): number => {
+      if (path.has(id)) throw new DomainError(422, 'Nested collections must not contain cycles.');
+      const saved = depths.get(id);
+      if (saved !== undefined) return saved;
+      const set = setMap.get(id);
+      const depth = set ? 1 + Math.max(0, ...set.members.map(member => visit(member, new Set([...path, id])))) : 0;
+      if (depth > 40) throw new DomainError(422, 'Nested collections are limited to 40 levels.');
+      depths.set(id, depth);
+      return depth;
+    };
+    for (const set of sets) visit(set.id, new Set());
+  }
+  private persistSet(set: ConceptSet) {
+    this.db.prepare('INSERT INTO concept_sets VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET body = excluded.body')
+      .run(set.id, set.scheme, JSON.stringify(set));
+    this.db.prepare('INSERT INTO set_revisions VALUES (?, ?, ?)').run(set.id, set.changed, JSON.stringify(set));
+  }
+  saveSet(input: unknown, expectedVersion: number, id?: string): ConceptSet {
+    const fields = conceptSetSchema.parse(input);
+    return this.db.transaction(() => {
+      this.expectVersion(expectedVersion);
+      const before = id ? this.conceptSet(id) : null;
+      if (before && (before.scheme !== fields.scheme || before.sourceUri !== fields.sourceUri))
+        throw new DomainError(422, 'A set’s scheme and source IRI cannot be changed.');
+      const set: ConceptSet = { ...fields, id: before?.id ?? `s_${randomUUID().replaceAll('-', '')}`,
+        created: before?.created ?? this.version + 1, changed: this.version + 1 };
+      this.validateSets([...this.sets().filter(other => other.id !== set.id), set]);
+      const breaking = !!before && (before.label !== set.label || before.members.some(member => !set.members.includes(member)) ||
+        before.ordered !== set.ordered || JSON.stringify(before.recipe) !== JSON.stringify(set.recipe) || (set.ordered && JSON.stringify(before.members) !== JSON.stringify(set.members)));
+      this.log({ kind: before ? 'set-changed' : 'set-added', terms: [...new Set([...(before ? setReferences(before) : []), ...setReferences(set)])].filter(id => id.startsWith('t_')),
+        before, after: set, beforeSets: before ? [before] : [], afterSets: [set], breaking, reason: '' });
+      this.persistSet(set);
+      return set;
+    })();
+  }
+  deleteSet(id: string, expectedVersion: number) {
+    return this.db.transaction(() => {
+      this.expectVersion(expectedVersion);
+      const before = this.conceptSet(id);
+      if (this.sets().some(set => set.members.includes(id))) throw new DomainError(422, 'Remove this set from its parent collections first.');
+      const after = { ...before, deleted: true, changed: this.version + 1 };
+      this.log({ kind: 'set-deleted', terms: [...new Set(setReferences(before))].filter(id => id.startsWith('t_')), before, after,
+        beforeSets: [before], afterSets: [after], breaking: true, reason: '' });
+      this.persistSet(after);
+      return { version: this.version };
+    })();
+  }
+  expandSet(id: string, at?: number) {
+    const version = this.atVersion(at), set = this.conceptSet(id, version);
+    const sets = new Map(this.sets(undefined, version).map(set => [set.id, set]));
+    const terms = new Map(this.terms(undefined, version).map(term => [term.id, term]));
+    const result = new Map<string, TermView>(), visited = new Set<string>();
+    const warnings = new Set<string>();
+    const recipeTerms = (set: ConceptSet): string[] => {
+      const recipe = set.recipe!;
+      const included = new Set(recipe.concepts);
+      const children = new Map<string, string[]>(), neighbours = new Map<string, { type: string; id: string }[]>();
+      for (const term of terms.values()) if (term.scheme === set.scheme && term.status !== 'retired') {
+        for (const parent of term.broader) {
+          children.set(parent, [...children.get(parent) ?? [], term.id]);
+          neighbours.set(term.id, [...neighbours.get(term.id) ?? [], { type: 'broader', id: parent }]);
+          neighbours.set(parent, [...neighbours.get(parent) ?? [], { type: 'narrower', id: term.id }]);
+        }
+        for (const relation of term.relations) {
+          if (terms.get(relation.target)?.scheme !== set.scheme || terms.get(relation.target)?.status === 'retired') continue;
+          neighbours.set(term.id, [...neighbours.get(term.id) ?? [], { type: relation.type, id: relation.target }]);
+          neighbours.set(relation.target, [...neighbours.get(relation.target) ?? [], { type: relation.type, id: term.id }]);
+        }
+      }
+      const valid = (id: string) => {
+        const term = terms.get(id);
+        if (term?.status === 'retired') { warnings.add(`Retired recipe reference retained for review: ${term.label}`); return false; }
+        return !!term;
+      };
+      for (const id of [...recipe.concepts, ...recipe.narrower, ...recipe.exclude, ...recipe.around.map(rule => rule.term)]) valid(id);
+      for (const root of recipe.narrower) if (valid(root)) {
+        const queue = [...children.get(root) ?? []], seen = new Set<string>();
+        for (let i = 0; i < queue.length; i++) {
+          const id = queue[i]; if (seen.has(id)) continue; seen.add(id); included.add(id); queue.push(...children.get(id) ?? []);
+        }
+      }
+      for (const rule of recipe.around) if (valid(rule.term)) {
+        const seen = new Set([rule.term]); let frontier = [rule.term]; included.add(rule.term);
+        for (let depth = 0; depth < rule.depth; depth++) {
+          const next: string[] = [];
+          for (const id of frontier) for (const edge of neighbours.get(id) ?? []) if (rule.types.some(type => type === edge.type) && !seen.has(edge.id)) {
+            seen.add(edge.id); included.add(edge.id); next.push(edge.id);
+          }
+          frontier = next;
+        }
+      }
+      return [...included].filter(id => !recipe.exclude.includes(id) && terms.get(id)?.status !== 'retired');
+    };
+    const visit = (id: string) => {
+      if (visited.has(id)) return;
+      visited.add(id);
+      const nested = sets.get(id);
+      if (nested) (nested.recipe ? recipeTerms(nested) : nested.members).forEach(visit);
+      else if (terms.has(id)) result.set(id, terms.get(id)!);
+    };
+    (set.recipe ? recipeTerms(set) : set.members).forEach(visit);
+    const members = [...result.values()];
+    if (!set.ordered) members.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+    return { set, version, terms: members, warnings: [...warnings, ...members.filter(term => term.status === 'retired')
+      .map(term => `Retired member retained for review: ${term.label}`)] };
   }
   private scheme(id: string): Scheme {
     const row = this.db.prepare('SELECT body FROM schemes WHERE id = ?').get(id) as { body: string } | undefined;
     if (!row) throw new DomainError(404, 'Scheme not found.');
-    return JSON.parse(row.body);
+    return { notations: [], ...JSON.parse(row.body) };
   }
   addScheme(input: unknown): Scheme {
     const data = schemeSchema.parse(input);
@@ -72,8 +244,10 @@ export class Store {
         throw new DomainError(409, 'That scheme ID already exists.');
       if (data.sourceUri && this.schemes().some(scheme => scheme.sourceUri === data.sourceUri))
         throw new DomainError(409, 'That source scheme is already imported.');
+      if (data.sourceUri && this.collectionSourceUris().has(data.sourceUri))
+        throw new DomainError(409, 'A collection IRI cannot also identify a scheme.');
       const n = this.version + 1;
-      const scheme = { ...data, created: n };
+      const scheme = { ...data, notations: uniqueNotations(data.notations), created: n };
       this.db.prepare('INSERT INTO schemes VALUES (?, ?, ?)').run(scheme.id, n, JSON.stringify(scheme));
       this.log({ kind: 'scheme-added', terms: [], before: null, after: scheme, breaking: false, reason: '' });
       return scheme;
@@ -84,7 +258,7 @@ export class Store {
     return (this.db.prepare(`SELECT r.body FROM term_revisions r
       JOIN (SELECT term_id, MAX(n) AS n FROM term_revisions WHERE n <= ? GROUP BY term_id) latest
       ON r.term_id = latest.term_id AND r.n = latest.n`).all(version) as { body: string }[])
-      .map(row => ({ replacedBy: [], ...JSON.parse(row.body) }));
+      .map(row => ({ replacedBy: [], notations: [], ...JSON.parse(row.body) }));
   }
   private views(terms: Term[]): TermView[] {
     const byId = new Map(terms.map(term => [term.id, term]));
@@ -133,12 +307,15 @@ export class Store {
   }
   private validateAll(terms: Term[]) {
     const byId = new Map(terms.map(term => [term.id, term]));
+    const collectionUris = this.collectionSourceUris();
     const schemes = new Map(this.schemes().map(scheme => [scheme.id, scheme]));
     const siblings = new Set<string>();
     for (const term of terms) {
+      if ((term.sourceUri && collectionUris.has(term.sourceUri)) || term.aliases.some(alias => collectionUris.has(alias)))
+        throw new DomainError(409, 'A collection IRI cannot also identify a concept.');
       editTermSchema.parse({ label: term.label, altLabels: term.altLabels, scopeNote: term.scopeNote,
         status: term.status === 'retired' ? 'active' : term.status, relations: term.relations,
-        links: term.links, expectedChanged: Math.max(1, term.changed) });
+        links: term.links, notations: term.notations, expectedChanged: Math.max(1, term.changed) });
       const scheme = schemes.get(term.scheme);
       if (!scheme) throw new DomainError(404, 'Scheme not found.');
       if (scheme.hierarchy === 'tree' && term.broader.length > 1)
@@ -167,7 +344,7 @@ export class Store {
           throw new DomainError(422, 'Replacements must be other terms in the same scheme.');
       }
       const key = `${term.scheme}:${[...term.broader].sort().join(',')}:${slug(term.label)}`;
-      if (siblings.has(key)) throw new DomainError(409, `A sibling already uses the path label “${term.label}”.`);
+      if (scheme.hierarchy !== 'graph' && siblings.has(key)) throw new DomainError(409, `A sibling already uses the path label “${term.label}”.`);
       siblings.add(key);
     }
     const checkCycles = (edges: (term: Term) => string[], name: string) => {
@@ -210,7 +387,7 @@ export class Store {
     const data = createTermSchema.parse(input);
     return this.db.transaction(() => {
       const n = this.version + 1;
-      const term: Term = { ...data, replacedBy: [], altLabels: [...new Set(data.altLabels)], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n };
+      const term: Term = { ...data, notations: uniqueNotations(data.notations), replacedBy: [], altLabels: [...new Set(data.altLabels)], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n };
       this.validateTerm(term);
       const alias = this.pathAlias(term);
       term.aliases = [...new Set([...term.aliases, ...(term.sourceUri ? [term.sourceUri] : []), ...(alias ? [alias] : [])])];
@@ -227,20 +404,45 @@ export class Store {
       if (before.id !== id) throw new DomainError(400, 'Use the stable term ID for edits.');
       if (before.changed !== data.expectedChanged)
         throw new DomainError(409, 'This term changed since you opened it. Reload it before saving.');
-      const { expectedChanged: _expected, reason, ...fields } = data;
-      const term: Term = { ...before, ...fields, altLabels: [...new Set(fields.altLabels)], changed: this.version + 1 };
+      const { expectedChanged: _expected, reason, collections, expectedVersion, ...fields } = data;
+      const setChanges: ConceptSet[] = [];
+      if (expectedVersion !== undefined) this.expectVersion(expectedVersion);
+      if (collections !== undefined) {
+        if (expectedVersion === undefined) throw new DomainError(422, 'Collection edits require the expected workspace version.');
+        if (new Set(collections).size !== collections.length) throw new DomainError(422, 'Collection assignments must be distinct.');
+        const sets = this.sets(), selected = new Set(collections);
+        for (const id of selected) {
+          const set = sets.find(set => set.id === id);
+          if (!set || set.scheme !== before.scheme || set.recipe) throw new DomainError(422, 'Choose explicit collections in this term’s scheme; recipe membership is calculated.');
+        }
+        for (const set of sets.filter(set => set.scheme === before.scheme && !set.recipe)) {
+          const has = set.members.includes(id), wanted = selected.has(set.id);
+          if (has === wanted) continue;
+          const members = wanted ? [...set.members, id] : set.members.filter(member => member !== id);
+          if (members.length > 10000) throw new DomainError(422, 'Collections are limited to 10,000 members.');
+          setChanges.push({ ...set, members, changed: this.version + 1 });
+        }
+        this.validateSets([...sets.filter(set => !setChanges.some(changed => changed.id === set.id)), ...setChanges]);
+      }
+      const term: Term = { ...before, ...fields, notations: uniqueNotations(fields.notations ?? before.notations), altLabels: [...new Set(fields.altLabels)], changed: this.version + 1 };
       this.validateTerm(term);
       const renamed = before.label !== term.label;
       const removedRelation = before.relations.some(old => !term.relations.some(r => r.type === old.type && r.target === old.target));
       const comparable = (value: Term) => JSON.stringify({ label: value.label, altLabels: value.altLabels,
-        scopeNote: value.scopeNote, status: value.status, relations: value.relations, links: value.links });
-      if (comparable(before) === comparable(term)) return this.lookup(id);
+        scopeNote: value.scopeNote, status: value.status, relations: value.relations, links: value.links, notations: value.notations });
+      const fieldsChanged = comparable(before) !== comparable(term);
+      if (!fieldsChanged && !setChanges.length) return this.lookup(id);
       const onlyNote = comparable({ ...term, scopeNote: before.scopeNote }) === comparable(before);
-      return this.commitTerms([...this.rawTerms().filter(other => other.id !== id), term],
-        renamed ? 'labelled' : onlyNote ? 'noted' : 'updated', reason, id, renamed || removedRelation).term;
+      const removed = before.relations.filter(old => !term.relations.some(r => r.type === old.type && r.target === old.target));
+      const candidates = this.rawTerms().filter(other => other.id !== id).map(other => ({ ...other,
+        relations: other.relations.filter(r => !removed.some(old => old.target === other.id && old.type === r.type && r.target === id)),
+      }));
+      return this.commitTerms([...candidates, term],
+        !fieldsChanged ? 'set-changed' : renamed ? 'labelled' : onlyNote ? 'noted' : 'updated', reason, id,
+        renamed || removedRelation || setChanges.some(set => !set.members.includes(id)), setChanges).term;
     })();
   }
-  private commitTerms(candidates: Term[], kind: Change['kind'], reason: string, primary: string, breaking: boolean) {
+  private commitTerms(candidates: Term[], kind: Change['kind'], reason: string, primary: string, breaking: boolean, setChanges: ConceptSet[] = []) {
     this.validateAll(candidates);
     const before = this.rawTerms();
     const old = new Map(before.map(term => [term.id, term]));
@@ -258,12 +460,31 @@ export class Store {
     const primaryAfter = changed.find(term => term.id === primary) ?? changed[0];
     this.log({ kind, terms: changed.map(term => term.id), before: old.get(primary) ?? null,
       after: primaryAfter, beforeTerms: changed.flatMap(term => old.has(term.id) ? [old.get(term.id)!] : []),
-      afterTerms: changed, breaking, reason });
+      afterTerms: changed, breaking, reason,
+      ...(setChanges.length ? { beforeSets: setChanges.map(set => this.conceptSet(set.id)), afterSets: setChanges } : {}) });
     for (const term of changed) this.persist(term, n);
+    for (const set of setChanges) this.persistSet(set);
     const views = new Map(this.terms().map(term => [term.id, term]));
     return { version: n, term: views.get(primary)!,
       affected: changed.map(term => ({ before: old.get(term.id) ?? null, after: views.get(term.id)! })),
       usage: 'unknown' as const };
+  }
+  setRelation(source: string, target: string, type: 'related' | 'opposite', enabled: boolean, expectedVersion: number) {
+    return this.db.transaction(() => {
+      this.expectVersion(expectedVersion);
+      const terms = this.rawTerms(), from = terms.find(term => term.id === source), to = terms.find(term => term.id === target);
+      if (!from || !to) throw new DomainError(404, 'Relation endpoint not found.');
+      if (from.status === 'retired' || to.status === 'retired') throw new DomainError(422, 'Retired concepts are read-only.');
+      if (from.id === to.id) throw new DomainError(422, 'A concept cannot relate to itself.');
+      let changed = false;
+      for (const [term, other] of [[from, to], [to, from]]) {
+        const exists = term.relations.some(r => r.target === other.id && r.type === type);
+        if (enabled && !exists) { term.relations.push({ type, target: other.id }); changed = true; }
+        if (!enabled && exists) { term.relations = term.relations.filter(r => r.target !== other.id || r.type !== type); changed = true; }
+      }
+      if (!changed) return { version: this.version, term: this.lookup(source), affected: [], usage: 'unknown' as const };
+      return this.commitTerms(terms, 'updated', `${enabled ? 'Added' : 'Removed'} ${type} relationship`, source, !enabled);
+    })();
   }
   importScheme(input: unknown, expectedVersion: number) {
     const plan = importPlanSchema.parse(input);
@@ -288,12 +509,26 @@ export class Store {
         throw new DomainError(422, `Unresolved concept reference: ${key}`);
       };
       const n = this.version + 1;
-      const terms: Term[] = plan.terms.map(({ key, ...term }) => ({ ...term, id: ids.get(key)!, scheme: scheme.id,
+      const terms: Term[] = plan.terms.map(({ key, ...term }) => ({ ...term, notations: uniqueNotations(term.notations), id: ids.get(key)!, scheme: scheme.id,
         sourceUri: key, broader: term.broader.map(key => resolve(key)),
         relations: term.relations.map(relation => ({ ...relation, target: resolve(relation.target, true) })),
         replacedBy: term.replacedBy.map(key => resolve(key)), created: n, changed: n }));
       const result = this.commitTerms([...before, ...terms], 'imported', `Imported scheme ${scheme.label}`, terms[0].id, false);
-      return { ...result, scheme, count: terms.length };
+      if (new Set(plan.sets.map(set => set.key)).size !== plan.sets.length || plan.sets.some(set => ids.has(set.key) || set.key === plan.scheme.sourceUri))
+        throw new DomainError(422, 'Collection IRIs must be distinct from concepts and schemes.');
+      const setIds = new Map(plan.sets.map(set => [set.key, `s_${randomUUID().replaceAll('-', '')}`]));
+      const sets: ConceptSet[] = plan.sets.map(({ key, ...set }) => ({ ...set, scheme: scheme.id, sourceUri: key,
+        id: setIds.get(key)!, members: set.members.map(key => setIds.get(key) ?? resolve(key)),
+        ...(set.recipe ? { recipe: { concepts: set.recipe.concepts.map(key => resolve(key)), narrower: set.recipe.narrower.map(key => resolve(key)),
+          exclude: set.recipe.exclude.map(key => resolve(key)), around: set.recipe.around.map(rule => ({ ...rule, term: resolve(rule.term) })) } } : {}),
+        created: this.version + 1, changed: this.version + 1 }));
+      if (sets.length) {
+        this.validateSets([...this.sets(), ...sets]);
+        this.log({ kind: 'set-added', terms: terms.map(term => term.id), before: null, after: sets[0],
+          beforeSets: [], afterSets: sets, breaking: false, reason: `Imported ${sets.length} collections` });
+        sets.forEach(set => this.persistSet(set));
+      }
+      return { ...result, version: this.version, scheme, count: terms.length, sets };
     })();
   }
   operate(id: string, input: unknown) {
@@ -305,6 +540,7 @@ export class Store {
       const source = byId.get(id);
       if (!source) throw new DomainError(404, 'Term not found.');
       if (source.status === 'retired') throw new DomainError(422, 'Retired terms are read-only.');
+      const beforeExpansions = new Map(this.sets().map(set => [set.id, this.expandSet(set.id)]));
       const children = terms.filter(term => term.broader.includes(id));
       let replacements: Term[] = [];
       if (operation.kind === 'move') {
@@ -313,7 +549,7 @@ export class Store {
         if (operation.kind === 'split') {
           replacements = operation.newTerms.map(term => ({ ...source, ...term,
             id: `t_${randomUUID().replaceAll('-', '')}`, aliases: [], sourceUri: undefined,
-            altLabels: [], links: [], replacedBy: [], created: this.version + 1, changed: this.version + 1 }));
+            altLabels: [], links: [], notations: [], replacedBy: [], created: this.version + 1, changed: this.version + 1 }));
           if (new Set(operation.children.map(child => child.id)).size !== operation.children.length ||
               operation.children.length !== children.length || children.some(child => !operation.children.some(row => row.id === child.id)))
             throw new DomainError(422, 'Assign every direct narrower term exactly once when splitting.');
@@ -353,6 +589,7 @@ export class Store {
         for (const target of replacements) {
           target.relations.push(...inherited.filter(relation => relation.target !== target.id));
           if (operation.kind === 'merge') {
+            target.notations = uniqueNotations([...target.notations, ...source.notations]);
             target.altLabels = [...new Set([...target.altLabels, source.label, ...source.altLabels])].filter(label => label !== target.label);
             target.links = [...new Map([...target.links, ...source.links].map(link => [`${link.match}:${link.uri}`, link])).values()];
           }
@@ -361,7 +598,28 @@ export class Store {
         for (const term of terms) term.relations = [...new Map(term.relations.map(relation => [`${relation.type}:${relation.target}`, relation])).values()];
       }
       const kinds = { move: 'moved', merge: 'merged', split: 'split', retire: 'retired' } as const;
-      return this.commitTerms(terms, kinds[operation.kind], operation.reason, id, true);
+      const setChanges = operation.kind === 'merge' ? this.sets().flatMap(set => {
+        const replace = (ids: string[]) => [...new Set(ids.map(member => member === id ? operation.target : member))];
+        const after = { ...set, members: replace(set.members), ...(set.recipe ? { recipe: {
+          concepts: replace(set.recipe.concepts), narrower: replace(set.recipe.narrower), exclude: replace(set.recipe.exclude),
+          around: set.recipe.around.map(rule => ({ ...rule, term: rule.term === id ? operation.target : rule.term })),
+        } } : {}) };
+        return JSON.stringify(after) === JSON.stringify(set) ? [] : [{ ...after, changed: this.version + 1 }];
+      }) : [];
+      const result = this.commitTerms(terms, kinds[operation.kind], operation.reason, id, true, setChanges);
+      return { ...result, affectedSets: this.sets().flatMap(set => {
+        const before = beforeExpansions.get(set.id)!, after = this.expandSet(set.id);
+        const beforeIds = before.terms.map(term => term.id), afterIds = after.terms.map(term => term.id);
+        const content = (value: typeof before) => JSON.stringify({ set: value.set, terms: value.terms.map(term => ({
+          id: term.id, status: term.status, replacedBy: term.replacedBy, path: term.path, depth: term.depth,
+        })), warnings: value.warnings });
+        if (!beforeIds.includes(id) && !afterIds.includes(id) && content(before) === content(after)) return [];
+        return [{ id: set.id, label: set.label, before: beforeIds, after: afterIds,
+          note: operation.kind === 'merge' ? 'Merged references follow the target; duplicates are removed.' : operation.kind === 'move'
+            ? 'Explicit membership is unchanged; recipes expand against the updated hierarchy.'
+            : 'Retired references are retained for review; recipes omit retired terms and replacements are not automatically added.',
+        }];
+      }) };
     })();
   }
 }

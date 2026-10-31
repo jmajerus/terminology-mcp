@@ -121,7 +121,9 @@ Historical reads return `version` for the requested state and `head` for
 the current changelog. Aliases resolve as they existed at the requested
 version, so future aliases do not leak into old reads. `PATCH` is a full
 save of editable fields; omitted collections and notes take their schema
-defaults. It cannot change scheme, parents, IDs, source IRI, or aliases. The browser
+defaults. The additive `notations` field is an exception: omission preserves
+existing codes, while an explicit empty array clears them. It cannot change
+scheme, parents, IDs, source IRI, or aliases. The browser
 sends all editable fields on each save.
 
 This API has no authentication. Development defaults to loopback. The Debian
@@ -150,8 +152,9 @@ Screenshots and failure traces are written under ignored `test-results/`.
 
 ## Next slices
 
-Concept sets and expansion are next. Their membership behavior under structural
-changes will need explicit treatment. Subscriber usage and gates, MCP, consumer
+Concept sets, recipes, versioned expansion and SKOS collections are implemented;
+see [concept sets](concept-sets.md) for storage, APIs and structural-change rules.
+Subscriber usage and gates, MCP, consumer
 seed importers, full vocabulary maps/translation, and live consumer connectivity
 remain planned. SKOS mapping references are already available; they are distinct
 from the planned consumer maps. The demo does not read or modify sibling repositories.

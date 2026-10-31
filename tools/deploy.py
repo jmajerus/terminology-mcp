@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 import paramiko
+from deploy_source import local_source, branch_source, pull_request_source, current_source, validate_source, pr_number
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,7 +40,7 @@ def settings():
     return values
 
 
-def connect(values):
+def connect(values, quiet=False):
     address = values['LAN_DEPLOY_SERVER']
     target = urlsplit(address if '://' in address else '//' + address)
     if not target.hostname or target.username or target.password or target.query or target.fragment or target.path not in ['', '/']:
@@ -53,7 +54,8 @@ def connect(values):
     client.load_system_host_keys()
     client.load_host_keys(str(known))
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    print(f'Connecting to {target.hostname}:{target.port or 22}', flush=True)
+    if not quiet:
+        print(f'Connecting to {target.hostname}:{target.port or 22}', flush=True)
     try:
         client.connect(target.hostname, port=target.port or 22, username=values['LAN_DEPLOY_USER'],
                        password=values['LAN_DEPLOY_PASSWORD'], timeout=15, auth_timeout=15,
@@ -63,11 +65,12 @@ def connect(values):
         raise
     key = client.get_transport().get_remote_server_key()
     fingerprint = base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip('=')
-    print('SSH host key SHA256:' + fingerprint, flush=True)
+    if not quiet:
+        print('SSH host key SHA256:' + fingerprint, flush=True)
     return client, target
 
 
-def run(client, command, timeout=300, password=None):
+def run(client, command, timeout=300, password=None, echo=True):
     if password is not None:
         # The child shell discards stdin even on NOPASSWD configurations.
         # No password can reach an npm lifecycle script or other child command.
@@ -80,11 +83,17 @@ def run(client, command, timeout=300, password=None):
     # Interleave reads so long build output cannot fill SSH's receive window.
     channel = stdout.channel
     deadline = time.monotonic() + timeout
+    output = []
     while True:
         if channel.recv_ready():
-            print(channel.recv(65536).decode(errors='replace'), end='', flush=True)
+            chunk = channel.recv(65536).decode(errors='replace')
+            output.append(chunk)
+            if echo:
+                print(chunk, end='', flush=True)
         if channel.recv_stderr_ready():
-            print(channel.recv_stderr(65536).decode(errors='replace'), end='', file=sys.stderr, flush=True)
+            chunk = channel.recv_stderr(65536).decode(errors='replace')
+            if echo:
+                print(chunk, end='', file=sys.stderr, flush=True)
         if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
             break
         if time.monotonic() > deadline:
@@ -93,6 +102,7 @@ def run(client, command, timeout=300, password=None):
         time.sleep(0.05)
     if channel.recv_exit_status():
         raise RuntimeError('Remote command failed. See output above.')
+    return ''.join(output)
 
 
 INSPECT = """set -eu
@@ -147,102 +157,77 @@ rm -f {shlex.quote(remote)}
 """, timeout=600, password=password)
 
 
-def deploy(client, values, target):
+def read_deployed(client, values):
     password = None if values['LAN_DEPLOY_USER'] == 'root' else values['LAN_DEPLOY_PASSWORD']
-    run(client, """set -eu
-test "$(id -u)" = 0
-export PATH=/opt/terminology-mcp/runtime/bin:$PATH
-test -x /opt/terminology-mcp/runtime/bin/node
-node -e 'if (Number(process.versions.node.split(".")[0]) < 22) process.exit(1)'
-command -v npm
-command -v curl
-command -v tar
-test -d /run/systemd/system
-""", password=password)
-    sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-    stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
-    release = f'{stamp}-{sha[:12]}'
-    # Archive an explicit allowlist from the commit. Never copy .env, databases,
-    # node_modules, test fixtures, or the developer's working directory.
+    data = run(client, "cat /var/lib/terminology-mcp/deployed.json 2>/dev/null || printf 'null\\n'", password=password, echo=False)
+    return json.loads(data)
+
+
+def deploy(client, values, target, source):
+    from datetime import datetime, timezone
+    import uuid
+    password = None if values['LAN_DEPLOY_USER'] == 'root' else values['LAN_DEPLOY_PASSWORD']
+    sha = source['commit']
+    installer = subprocess.check_output(['git', 'show', sha + ':deploy/install.sh'], cwd=ROOT, text=True)
+    release_id = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + sha[:12] + '-' + uuid.uuid4().hex[:8]
+    release = '/opt/terminology-mcp/releases/' + release_id
+    record = {**source, 'release': release_id, 'at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')}
+    remote = '/tmp/terminology-' + release_id
     with tempfile.TemporaryDirectory(prefix='terminology-deploy-') as temporary:
         archive = Path(temporary) / 'application.tar.gz'
         subprocess.run(['git', 'archive', '--format=tar.gz', f'--output={archive}', sha,
-                        'src', 'public', 'package.json', 'package-lock.json', 'tsconfig.json', 'LICENSE.md'],
-                       cwd=ROOT, check=True)
-        remote_archive = f'/tmp/terminology-{release}.tar.gz'
-        remote_unit = f'/tmp/terminology-{release}.service'
+                        'src', 'public', 'package.json', 'package-lock.json', 'tsconfig.json', 'LICENSE.md'], cwd=ROOT, check=True)
+        unit = subprocess.check_output(['git', 'show', sha + ':deploy/terminology-mcp.service'], cwd=ROOT)
         with client.open_sftp() as sftp:
-            sftp.put(str(archive), remote_archive)
-            sftp.put(str(ROOT / 'deploy/terminology-mcp.service'), remote_unit)
-    hosts = {target.hostname, target.hostname.split('.')[0], client.get_transport().sock.getpeername()[0]}
-    origins = ','.join('http://' + ('[' + host + ']' if ':' in host else host) + ':3210' for host in sorted(hosts))
-    path = '/opt/terminology-mcp/releases/' + release
-    run(client, f"""set -eu
-export PATH=/opt/terminology-mcp/runtime/bin:$PATH
-getent group terminology-mcp >/dev/null || groupadd --system terminology-mcp
-id terminology-mcp >/dev/null 2>&1 || useradd --system --gid terminology-mcp --home-dir /var/lib/terminology-mcp --shell /usr/sbin/nologin terminology-mcp
-install -d -m 0755 /opt/terminology-mcp/releases
-test ! -e {shlex.quote(path)}
-install -d -m 0755 {shlex.quote(path)}
-tar -xzf {shlex.quote(remote_archive)} -C {shlex.quote(path)}
-cd {shlex.quote(path)}
-npm ci --no-audit --no-fund
-npm run build
-npm prune --omit=dev --no-audit --no-fund
-chown -R root:root {shlex.quote(path)}
-chmod -R go-w {shlex.quote(path)}
-install -d -m 0700 -o terminology-mcp -g terminology-mcp /var/lib/terminology-mcp
-if test -f /var/lib/terminology-mcp/terminology.sqlite; then
-  systemctl stop terminology-mcp
-  cp -a /var/lib/terminology-mcp /var/lib/terminology-mcp.backup-{release}
-fi
-install -m 0644 {shlex.quote(remote_unit)} /etc/systemd/system/terminology-mcp.service
-install -d -m 0755 /etc/terminology-mcp
-printf '%s\\n' {shlex.quote('TERMINOLOGY_ORIGINS=' + origins)} > /etc/terminology-mcp/environment
-chmod 0644 /etc/terminology-mcp/environment
-ln -sfn {shlex.quote(path)} /opt/terminology-mcp/current.next
-mv -Tf /opt/terminology-mcp/current.next /opt/terminology-mcp/current
-systemctl daemon-reload
-systemctl enable terminology-mcp
-systemctl restart terminology-mcp
-rm -f {shlex.quote(remote_archive)} {shlex.quote(remote_unit)}
-""", password=password)
-    try:
-        run(client, """set -eu
-for attempt in $(seq 1 20); do
-  if curl -fsS http://127.0.0.1:3210/api/state >/dev/null; then
-    systemctl is-active terminology-mcp
-    curl -fsS http://127.0.0.1:3210/api/state | /opt/terminology-mcp/runtime/bin/node -e 'let input=""; process.stdin.on("data", part => input += part); process.stdin.on("end", () => { const state=JSON.parse(input); console.log(JSON.stringify({version:state.version, schemes:state.schemes.length, terms:state.terms.length})); });'
-    exit 0
-  fi
-  sleep 1
-done
-systemctl status terminology-mcp --no-pager
-journalctl -u terminology-mcp -n 40 --no-pager
-exit 1
-""", timeout=45, password=password)
-    except Exception:
-        print('Health check failed. The previous release and database backup are retained for recovery.', file=sys.stderr)
-        raise
-    print(f'\nDeployed commit {sha} to {path}')
+            sftp.put(str(archive), remote + '.tar.gz')
+            for suffix, data in [('.service', unit), ('.json', json.dumps(record).encode())]:
+                with sftp.file(remote + suffix, 'wb') as output:
+                    output.write(data)
+            for suffix in ['.tar.gz', '.service', '.json']:
+                sftp.chmod(remote + suffix, 0o600)
+    peer = client.get_transport().sock.getpeername()[0]
+    hosts = {target.hostname, target.hostname.split('.')[0], peer}
+    authority = lambda host: '[' + host + ']' if ':' in host else host
+    origins = ','.join('http://' + authority(host) + ':3210' for host in sorted(hosts))
+    variables = {'RELEASE': release, 'RELEASE_ID': release_id, 'COMMIT': sha, 'ORIGINS': origins,
+                 'LAN_URL': 'http://' + authority(peer) + ':3210',
+                 'ARCHIVE': remote + '.tar.gz', 'UNIT': remote + '.service', 'RECORD': remote + '.json'}
+    exports = ''.join('export ' + key + '=' + shlex.quote(value) + '\n' for key, value in variables.items())
+    run(client, exports + installer, password=password, timeout=300)
+    print(f'Deployed {source.get("pr") and "PR #" + str(source["pr"]) or source["branch"]} at {sha}')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--inspect', action='store_true', help='Read-only host inventory; do not deploy.')
-    parser.add_argument('--provision', action='store_true', help='Install prerequisites and a checksum-verified official Node.js 22 runtime before deploying.')
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument('--inspect', action='store_true', help='Read-only host inventory.')
+    action.add_argument('--status', action='store_true', help='Read deployment metadata as JSON over SSH (legacy-server fallback).')
+    action.add_argument('--provision', action='store_true', help='Install prerequisites and Node.js 22 before deploying.')
+    action.add_argument('--pr', type=pr_number, help='Deploy the exact head of an open, same-repository PR.')
+    action.add_argument('--main', action='store_true', help='Deploy origin/main.')
+    action.add_argument('--current', action='store_true', help='Redeploy the latest head of the recorded branch or PR.')
+    parser.add_argument('--skip-tests', action='store_true', help='Skip isolated selected-commit tests; target build still runs.')
     args = parser.parse_args()
+    source = None
+    if not (args.inspect or args.status or args.current):
+        source = pull_request_source(args.pr) if args.pr else branch_source('main') if args.main else local_source()
+        validate_source(source, skip_tests=args.skip_tests)
     values = settings()
-    client, target = connect(values)
+    client, target = connect(values, quiet=args.status)
     try:
         if args.inspect:
             run(client, INSPECT, timeout=30)
+        elif args.status:
+            print(json.dumps(read_deployed(client, values)))
         else:
+            if args.current:
+                source = current_source(read_deployed(client, values))
+                validate_source(source, skip_tests=args.skip_tests)
             password = None if values['LAN_DEPLOY_USER'] == 'root' else values['LAN_DEPLOY_PASSWORD']
             if args.provision:
                 provision(client, password)
-            deploy(client, values, target)
-            print(f'\nEditor: http://{target.hostname}:3210')
+            deploy(client, values, target, source)
+            print(f'Editor: http://{target.hostname}:3210')
     finally:
         client.close()
 

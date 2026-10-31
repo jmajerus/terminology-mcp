@@ -12,7 +12,7 @@ synchronization or an update/merge of an existing local scheme.
    named graph. For the local server use `http://oxigraph.localdomain:7878/query`.
    An omitted graph uses the endpoint's default graph, not every named graph.
 3. Click **Find schemes** and choose a declared `skos:ConceptScheme`.
-4. Set a new local scheme ID, tree/polyhierarchy mode, and label language.
+4. Set a new local scheme ID, target structure (**Auto** by default), and label language.
    The scheme name can be overridden when the source has no preferred name.
 5. Click **Preview import**. Review the count, terms, and warnings about data
    that cannot be represented in this application.
@@ -24,11 +24,50 @@ rather than querying a potentially changed source again. The entire scheme,
 its terms, aliases, and changelog records commit together or roll back together.
 A successful import records `scheme-added` and one `imported` batch change.
 All imported terms share the batch's creation/revision number.
+Collections import in the same transaction with a `set-added` batch revision.
+Ordered lists, nested collections, and application recipe definitions are
+preserved. See [concept sets](concept-sets.md) for mappings and restrictions.
 
 Use **Export SKOS ↓** for the selected scheme. The HTTP endpoint also supports
 historical exports via `?at=N`. The export includes retired terms and replacement
 metadata, so historical identities remain available. Local stable IDs are never
 derived from imported labels or paths.
+
+## Structure recommendations and overrides
+
+**Auto** analyses the normalized concepts and relationships. A valid source
+declaration (`term:hierarchy` in SKOS or `hierarchy` in native graph JSON) is
+honoured when compatible. Otherwise the importer recommends Tree for a purely
+hierarchical single-parent structure, Polyhierarchy for multiple parents, or
+Graph for associative networks and colliding path labels. quote-mcp exports
+recommend Graph. A flat source without hierarchy is ambiguous and defaults to
+Graph; the preview explains that choice. Invalid or conflicting declarations
+are reported in the explanation and do not override the content checks.
+
+The preview shows the selected/recommended structure, edge and parent counts,
+and a compatibility matrix with concrete examples. Choosing Tree, Polyhierarchy,
+or Graph manually overrides the recommendation. Preview again after changing
+the selection. An incompatible choice disables Apply, and the server still
+validates the complete plan if Apply is called directly.
+The preview API returns this matrix as `analysis`; structural incompatibility
+returns HTTP 200 with `analysis.compatible: false`. API clients must check that
+flag before applying. Other input/identity/reference errors still return errors.
+
+| Content | Tree | Polyhierarchy | Graph |
+|---|---|---|---|
+| Single-parent acyclic hierarchy | Compatible* | Compatible* | Compatible |
+| Multiple broader parents | Incompatible | Compatible* | Compatible |
+| Related/opposite relationships, including associative cycles | Preserved | Preserved | Preserved |
+| Broader/narrower cycles | Incompatible | Incompatible | Incompatible |
+| Disconnected concepts | Allowed | Allowed | Allowed |
+
+\* Tree and Polyhierarchy also reject colliding normalized labels for concepts
+with the same broader-parent set. Graph permits those homonymous concepts.
+
+These are structural compatibility checks; source identity, references, term
+fields, collections, and workspace conflicts are also validated. No mode drops
+associative links, prunes parents, or flattens the source. A lossy conversion to
+a tree requires a separately reviewed transformation and is not performed here.
 
 ## Field mapping
 
@@ -38,6 +77,7 @@ derived from imported labels or paths.
 | Term | `skos:Concept` | Import membership is explicit `inScheme`, `topConceptOf`, or scheme `hasTopConcept` |
 | Scheme/term label | `skos:prefLabel` | One label in the selected language; untagged fallback |
 | Alternative labels | `skos:altLabel` | Selected-language or untagged values |
+| Term/scheme notations | `skos:notation` | Literal text, datatype IRI, and optional language tag are preserved |
 | Scope note | `skos:scopeNote` | `skos:definition` is a fallback on import |
 | Scheme description | `dct:description` | Selected-language or untagged value |
 | Scheme membership | `skos:inScheme` | Every local term belongs to one scheme |
@@ -71,6 +111,29 @@ an `exactMatch` target does not automatically become an alias or replacement.
 These references can also be edited in the term form.
 Incoming mapping assertions are normalized using symmetry for exact/close/related
 matches and the broad/narrow inverse pair.
+
+## Notations
+
+Notations are classification codes, separate from preferred/alternative labels,
+source IRIs, and lookup aliases. Terms and schemes can have multiple notations.
+Each is stored as `{value, datatype, language?}`. Plain RDF strings use
+`http://www.w3.org/2001/XMLSchema#string`; custom datatype IRIs identify notation
+systems. Values are never trimmed or converted to numbers, so `"001.20"` keeps
+its leading zeros. Equal text with different datatypes remains distinct.
+Identical literals are deduplicated within a resource; codes are not forced
+unique across the scheme.
+
+Turtle and SPARQL imports both preserve notations, independently of the selected
+label language. Language-tagged notation literals retain their tags and
+`rdf:langString` datatype. Nonliteral notation values are rejected. The editor
+can add, edit, remove, and search term notations; scheme codes appear beneath
+the scheme selector. Notation edits are versioned and historical SKOS exports
+include the values at that version. Merges retain source and target codes;
+splits retain codes on the retired source and leave new concepts without codes.
+
+Existing databases need no schema migration. An omitted `notations` field on
+term edits preserves existing codes for compatibility with older clients; an
+explicit empty array clears them. See the [SKOS notation definition](https://www.w3.org/TR/skos-reference/#notations).
 
 ## Validation and limits
 
@@ -112,7 +175,7 @@ Override the server base URL with `OXIGRAPH_URL` if needed. The test creates two
 unique sample graphs, runs source discovery/preview/apply through the real app
 API and a separate SQLite database, exports back to Oxigraph, and imports that
 export again. It checks stable source identities, hierarchy, notes, all five
-mapping types, duplicate rejection, source immutability, and rejection of mixed
+mapping types, typed term/scheme notation round trips, duplicate rejection, source immutability, and rejection of mixed
 memberships asserted through inbound `hasTopConcept`. Both remote graphs
 are dropped and their removal verified. It does not open your workspace database.
 

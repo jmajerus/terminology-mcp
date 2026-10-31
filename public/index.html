@@ -12,7 +12,8 @@
 <body>
   <header class="topbar">
     <a href="/" class="brand"><span class="brand-mark" aria-hidden="true">t.</span> terminology</a>
-    <span class="nav-current">Taxonomy</span>
+    <span class="nav-current">Vocabulary</span><a href="/graph" class="text-button">Concept graph</a>
+    <a href="/sets" class="text-button">Concept sets</a>
     <span class="local-label"><span class="dot"></span> Local workspace</span>
     <span id="demo-badge" class="badge" hidden>Sample data</span>
     <span class="version">changelog <strong id="version">—</strong></span>
@@ -24,9 +25,10 @@
       <label class="sr-only" for="scheme">Scheme</label>
       <select id="scheme"></select>
       <div class="outline-meta"><span id="scheme-kind"></span><span id="term-count"></span></div>
+      <div id="scheme-notations" class="alias-list"></div>
       <div class="scheme-tools"><button id="import-scheme" class="text-button">Import SKOS…</button><a id="export-scheme" class="text-button" href="#">Export SKOS ↓</a></div>
       <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Filter terms…" autocomplete="off"><kbd>/</kbd></label>
-      <div class="tree-caption"><span>TERM</span><span>STATUS</span></div>
+      <p><a id="graph-view" class="text-button" href="/graph">Explore concept graph ↗</a></p><div class="tree-caption"><span>TERM</span><span>STATUS</span></div>
       <div id="tree" class="tree" aria-label="Terms"></div>
       <div class="outline-footer"><button id="new-root" class="button full">+ Top-level term</button><p>Stable IDs. Room to grow.</p></div>
     </aside>
@@ -65,15 +67,15 @@
   <dialog id="import-dialog" class="wide-dialog">
     <form id="import-form">
       <div class="dialog-heading"><span class="eyebrow">Bring in a vocabulary</span><h2>Import a SKOS scheme</h2></div>
-      <label class="field"><span class="field-label">Source</span><select id="import-format"><option value="turtle">Turtle file</option><option value="sparql">SPARQL endpoint</option></select></label>
-      <label class="field" id="import-file-field"><span class="field-label">Turtle file</span><input type="file" id="import-file" accept=".ttl,.nt,text/turtle"></label>
+      <label class="field"><span class="field-label">Source</span><select id="import-format"><option value="turtle">Turtle file</option><option value="sparql">SPARQL endpoint</option><option value="graph-json">Concept graph JSON · quote-mcp or terminology</option></select></label>
+      <label class="field" id="import-file-field"><span class="field-label">Turtle file</span><input type="file" id="import-file" accept=".ttl,.nt,.json,text/turtle,application/json"></label>
       <div id="import-sparql-fields" hidden>
         <label class="field"><span class="field-label">SPARQL query endpoint</span><input type="url" id="import-endpoint" value="http://oxigraph.localdomain:7878/query"></label>
         <label class="field"><span class="field-label">Named graph <span class="help">optional</span></span><input id="import-graph" placeholder="Leave empty for the endpoint’s default graph"></label>
       </div>
       <button type="button" id="read-import-source" class="button">Find schemes</button>
       <label class="field section-line"><span class="field-label">Source scheme</span><select id="import-source-scheme" disabled required></select></label>
-      <div class="two-columns"><label class="field"><span class="field-label">New scheme ID</span><input id="import-id" required pattern="[a-z]([a-z0-9]|-){0,59}" maxlength="60" placeholder="e.g. research-subjects"></label><label class="field"><span class="field-label">Hierarchy</span><select id="import-hierarchy"><option value="tree">Tree · one broader term</option><option value="poly">Polyhierarchy</option></select></label></div>
+      <div class="two-columns"><label class="field"><span class="field-label">New scheme ID</span><input id="import-id" required pattern="[a-z]([a-z0-9]|-){0,59}" maxlength="60" placeholder="e.g. research-subjects"></label><label class="field"><span class="field-label">Target structure</span><select id="import-hierarchy"><option value="auto" selected>Auto · recommend from content</option><option value="tree">Tree · one broader term</option><option value="poly">Polyhierarchy</option><option value="graph">Concept graph</option></select></label></div>
       <div class="two-columns"><label class="field"><span class="field-label">Scheme name <span class="help">optional override</span></span><input id="import-label" maxlength="200"></label><label class="field"><span class="field-label">Language</span><input id="import-language" value="en" required pattern="[a-zA-Z]+(-[a-zA-Z0-9]+)*"><span class="help">Uses untagged labels when this language is absent.</span></label></div>
       <div id="import-preview" class="preview-box" hidden></div>
       <p id="import-error" class="form-error" role="alert"></p>

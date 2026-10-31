@@ -21,7 +21,18 @@ export function importQuery(scheme: string, graph?: string) {
     UNION { { ${members} } ?subject ?predicate ?member .
       VALUES ?predicate { <${SKOS}hasTopConcept> <${SKOS}broader> <${SKOS}narrower> <${SKOS}related>
         <${SKOS}exactMatch> <${SKOS}closeMatch> <${SKOS}broadMatch> <${SKOS}narrowMatch> <${SKOS}relatedMatch> }
-      BIND(?member AS ?object) }`;
+      BIND(?member AS ?object) }
+    UNION { ?collection (<${SKOS}member>|<${SKOS}memberList>/<http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>*/<http://www.w3.org/1999/02/22-rdf-syntax-ns#first>)* ?collectionMember .
+      { ?collectionMember <${SKOS}inScheme> ${s} } UNION { ?collectionMember <${SKOS}topConceptOf> ${s} } UNION { ${s} <${SKOS}hasTopConcept> ?collectionMember }
+      { ?collection a ?collectionType . VALUES ?collectionType { <${SKOS}Collection> <${SKOS}OrderedCollection> } }
+      UNION { ?collection <${SKOS}member> ?directMember }
+      UNION { ?collection <${SKOS}memberList> ?listHead }
+      ?collection (<${SKOS}member>|<${SKOS}memberList>/<http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>*/<http://www.w3.org/1999/02/22-rdf-syntax-ns#first>)* ?node .
+      { BIND(?node AS ?subject) ?subject ?predicate ?object }
+      UNION { ?node <${SKOS}memberList>/<http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>* ?subject . ?subject ?predicate ?object } }
+    UNION { ?collection <urn:terminology-mcp:vocab:scheme> ${s} .
+      { BIND(?collection AS ?subject) ?subject ?predicate ?object }
+      UNION { ?collection <${SKOS}memberList>/<http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>* ?subject . ?subject ?predicate ?object } }`;
   return `CONSTRUCT { ?subject ?predicate ?object } WHERE { ${graph ? `GRAPH ${iri(graph)} { ${pattern} }` : pattern} }`;
 }
 async function query(endpoint: string, sparql: string, accept: string): Promise<string> {

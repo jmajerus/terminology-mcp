@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Deploy Terminology: current", "type": "process", "command": "npm", "args": ["run", "deploy", "--", "--current"], "problemMatcher": [] },
+    { "label": "Deploy Terminology: main", "type": "process", "command": "npm", "args": ["run", "deploy", "--", "--main"], "problemMatcher": [] },
+    { "label": "Deploy Terminology: PR", "type": "process", "command": "npm", "args": ["run", "deploy", "--", "--pr", "${input:terminologyPr}"], "problemMatcher": [] },
+    { "label": "Deploy Terminology", "type": "process", "command": "npm", "args": ["run", "deploy"], "problemMatcher": [] },
+    { "label": "Deploy Terminology: skip tests", "type": "process", "command": "npm", "args": ["run", "deploy", "--", "--skip-tests"], "problemMatcher": [] },
+    { "label": "Test Terminology", "type": "process", "command": "npm", "args": ["test"], "problemMatcher": [] }
+  ],
+  "inputs": [{ "id": "terminologyPr", "type": "promptString", "description": "Open pull request number to deploy to the terminology LAN host" }]
+}

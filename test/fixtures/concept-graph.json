@@ -1,0 +1,19 @@
+{
+ "format":"quote-mcp-export/1",
+ "schemes":[{"id":1,"slug":"human-work","label":"Human work","description":"Example concept network"}],
+ "concepts":[
+  {"id":1,"scheme":"human-work","slug":"psychic-prison","label":"psychic prison","definition":"A concept connected through several kinds of relationship.","alt_labels":["psychological prison"],"status":"confirmed","source":"drupal:kid:44"},
+  {"id":2,"scheme":"human-work","slug":"organizational-psychodynamics","label":"organizational psychodynamics","status":"confirmed"},
+  {"id":3,"scheme":"human-work","slug":"false-self","label":"false self","status":"confirmed"},
+  {"id":4,"scheme":"human-work","slug":"unconscious","label":"unconscious","status":"confirmed"},
+  {"id":5,"scheme":"human-work","slug":"true-self","label":"true self","status":"confirmed"}
+ ],
+ "relations":[
+  {"from":"psychic-prison","to":"organizational-psychodynamics","type":"broader"},
+  {"from":"organizational-psychodynamics","to":"psychic-prison","type":"narrower"},
+  {"from":"psychic-prison","to":"false-self","type":"related"},
+  {"from":"false-self","to":"unconscious","type":"related"},
+  {"from":"unconscious","to":"psychic-prison","type":"related"},
+  {"from":"false-self","to":"true-self","type":"inverse"}
+ ]
+}
