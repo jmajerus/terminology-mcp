@@ -61,9 +61,16 @@ export class Store {
   }
   private backfillSlugs() {
     // Slugs are minted once at creation, so earlier revisions and change snapshots carry the same slug.
-    const terms = this.rawTerms().sort((a, b) => a.created - b.created || a.id.localeCompare(b.id));
-    this.mintSlugs(terms);
-    const slugs = new Map(terms.map(term => [term.id, term.slug]));
+    // Mint from each term's creation revision, so a rename before the upgrade does not change the slug, and
+    // reserve it in both its creation-time and current scopes so the current state stays valid.
+    const current = this.rawTerms().sort((a, b) => a.created - b.created || a.id.localeCompare(b.id));
+    const first = new Map((this.db.prepare(`SELECT term_id, body FROM term_revisions r
+      WHERE n = (SELECT MIN(n) FROM term_revisions WHERE term_id = r.term_id)`).all() as { term_id: string; body: string }[])
+      .map(row => [row.term_id, JSON.parse(row.body) as Term]));
+    const created = current.map(term => ({ ...term, slug: '', label: first.get(term.id)?.label ?? term.label, broader: first.get(term.id)?.broader ?? term.broader }));
+    const then = this.slugScopes(created), now = this.slugScopes(current);
+    this.mintSlugs(created, new Map(current.map(term => [term.id, [...new Set([...then.get(term.id)!, ...now.get(term.id)!])]])));
+    const slugs = new Map(created.map(term => [term.id, term.slug]));
     const fill = (value: unknown) => {
       const item = value as Partial<Term> | null;
       if (item?.id && item.scheme && slugs.has(item.id) && !item.slug) Object.assign(item, { slug: slugs.get(item.id), formerSlugs: item.formerSlugs ?? [] });
@@ -441,10 +448,10 @@ export class Store {
     }));
   }
   /** Gives each term without a slug one from its label, suffixed -2, -3, … within its scopes. Mutates the terms. */
-  private mintSlugs(terms: Term[]) {
+  private mintSlugs(terms: Term[], scopes = this.slugScopes(terms)) {
     const pending = terms.filter(term => !term.slug);
     if (!pending.length) return;
-    const scopes = this.slugScopes(terms), taken = new Set<string>();
+    const taken = new Set<string>();
     const reserve = (term: Term) => scopes.get(term.id)!.forEach(scope => [term.slug, ...term.formerSlugs].forEach(value => taken.add(`${scope}|${value}`)));
     terms.filter(term => term.slug).forEach(reserve);
     for (const term of pending) {

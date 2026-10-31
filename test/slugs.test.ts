@@ -132,6 +132,13 @@ test('older stores get slugs and a log id on open, including history and change 
   store.addScheme({ id: 'subjects', label: 'Subjects', hierarchy: 'tree' });
   const root = store.addTerm({ scheme: 'subjects', label: 'Root' });
   store.addTerm({ scheme: 'subjects', label: 'Röot' });
+  const renamed = store.addTerm({ scheme: 'subjects', label: 'Old Name', broader: [root.id] });
+  store.editTerm(renamed.id, { label: 'New Name', expectedChanged: renamed.changed });
+  const other = store.addTerm({ scheme: 'subjects', label: 'Other', broader: [root.id] });
+  store.addTerm({ scheme: 'subjects', label: 'Café', broader: [root.id] });
+  // A pre-v3 store had no slug checks; a placeholder slug (stripped below) lets this move through.
+  const moved = store.addTerm({ scheme: 'subjects', label: 'Cafe', slug: 'placeholder', broader: [other.id] });
+  store.operate(moved.id, { kind: 'move', broader: [root.id], expectedVersion: store.version });
   store.close();
   const db = new Database(filename);
   const strip = (body: string) => { const value = JSON.parse(body); delete value.slug; delete value.formerSlugs; delete value.after?.slug; return JSON.stringify(value); };
@@ -141,7 +148,11 @@ test('older stores get slugs and a log id on open, including history and change 
   db.exec('DROP TABLE meta; PRAGMA user_version = 2;'); db.close();
   const reopened = new Store(filename); t.after(() => reopened.close());
   assert.match(reopened.logId, /^[0-9a-f-]{36}$/);
-  assert.deepEqual(reopened.terms('subjects').map(term => term.slug).sort(), ['root', 'root-2']);
+  assert.deepEqual(reopened.terms('subjects').map(term => term.slug).sort(), ['cafe', 'cafe-2', 'old-name', 'other', 'root', 'root-2']);
+  assert.equal(reopened.lookup(renamed.id).slug, 'old-name');
+  assert.equal(reopened.lookup(moved.id).slug, 'cafe-2');
+  // The upgraded state is valid, so later edits succeed.
+  assert.equal(reopened.editTerm(moved.id, { label: 'Cafe 2', expectedChanged: reopened.lookup(moved.id).changed }).slug, 'cafe-2');
   assert.equal(reopened.lookup(root.id, 2).slug, 'root');
   assert.equal((reopened.changes(1)[0].after as { slug?: string }).slug, 'root');
 });
