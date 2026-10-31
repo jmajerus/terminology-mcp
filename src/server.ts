@@ -13,6 +13,8 @@ import { graphSchemes, planGraph } from './graph-import.js';
 import { conceptGraph, graphEdges, graphTypes } from './graph.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpServer } from './mcp.js';
+import { AccessError, authorizeRequest, requestAccessConfig, type RequestAccessConfig } from './access.js';
+import type { JWTVerifyGetKey } from 'jose';
 
 async function body(req: IncomingMessage, limit = 128 * 1024): Promise<unknown> {
   if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json')
@@ -39,8 +41,10 @@ function json(res: ServerResponse, status: number, value: unknown) {
   res.end(JSON.stringify(value));
 }
 
-export function createApp(store: Store, options: { demo?: boolean; origins?: string[]; deploymentFile?: string } = {}) {
+export function createApp(store: Store, options: { demo?: boolean; origins?: string[]; deploymentFile?: string;
+  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey } = {}) {
   const origins = allowedOrigins(options.origins);
+  const access = options.access ?? requestAccessConfig({}, ['terminology-mcp', 'terminology-mcp.localdomain']);
   return createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
@@ -49,6 +53,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       if (!origin) throw new DomainError(403, 'This host is not configured for the editor.');
       const url = new URL(req.url ?? '/', origin);
       if (url.origin !== origin) throw new DomainError(403, 'Request URL does not match its Host header.');
+      await authorizeRequest(req, url.pathname, access, options.accessKeys);
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         if (req.headers.origin && req.headers.origin !== origin)
           throw new DomainError(403, 'Cross-origin writes are not allowed.');
@@ -187,6 +192,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       }
       const assets: Record<string, [string, string]> = {
         '/': ['index.html', 'text/html; charset=utf-8'],
+        '/admin': ['index.html', 'text/html; charset=utf-8'],
         '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
         '/sets': ['sets.html', 'text/html; charset=utf-8'],
         '/sets.js': ['sets.js', 'text/javascript; charset=utf-8'],
@@ -201,7 +207,9 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       res.end(req.method === 'HEAD' ? undefined : data);
     } catch (error) {
       if (res.headersSent) { res.end(); return; }
-      if (error instanceof ZodError) {
+      if (error instanceof AccessError) {
+        json(res, error.status, { error: error.message });
+      } else if (error instanceof ZodError) {
         json(res, 422, { error: error.issues.map(issue => `${issue.path.join('.') || 'Input'}: ${issue.message}`).join('; ') });
       } else if (error instanceof DomainError) {
         json(res, error.status, { error: error.message });

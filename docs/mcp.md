@@ -10,8 +10,39 @@ Start with `npm run demo` for sample data or `npm start` for your workspace.
 The local endpoint is `http://127.0.0.1:8000/mcp`; the LAN deployment is
 `http://terminology-mcp.localdomain:8000/mcp`. The existing
 `TERMINOLOGY_ORIGINS` setting must include any non-loopback hostname used by
-clients (see [deployment](deployment.md)). This endpoint uses the same LAN
-access boundary as the editor, without a separate authentication mechanism.
+clients (see [deployment](deployment.md)). Direct LAN access remains available
+from private peers naming the service's LAN hostname/IP. Proxied and public-host
+requests require a verified Cloudflare Access assertion.
+
+## Access applications
+
+The three sibling servers use the same runtime settings in `/etc/<service>/env`:
+
+```dotenv
+ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com
+ACCESS_MCP_AUD=<authoring-mcp-access audience>
+ACCESS_ADMIN_AUD=<authoring-admin-access audience>
+```
+
+Terminology also needs `TERMINOLOGY_PUBLIC_ORIGIN=https://terminology-mcp.example.com`
+for its public hostname. This persists across deployments separately from the
+deploy-managed LAN origins. Both audiences are application identifiers, not
+tokens a caller can use to authenticate.
+
+Cloudflare Managed OAuth authenticates MCP clients at the edge and forwards a
+signed JWT in `Cf-Access-Jwt-Assertion`. The origin verifies its signature with
+the team's JWKS, issuer, expiry and subject, requiring the MCP audience on
+`/mcp` and the admin audience on all other private routes, including editor
+assets and `/api` reads/writes. A token for one audience cannot use the other
+surface. An invalid assertion never falls back to LAN access. Public hostnames
+or requests carrying Cloudflare headers cannot take the LAN bypass.
+
+The existing editor routes `/`, `/sets`, `/graph`, scripts/styles and `/api`
+must be included in the admin Access application's protection as well as the
+`/admin` alias. OAuth discovery must remain reachable by MCP clients. The
+origin returns JSON errors rather than generating its own login page; use
+Cloudflare Managed OAuth for client sign-in. Configuration alone does not test
+the user's OAuth consent/callback flow.
 
 For VS Code, use its [MCP configuration format](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
 and add the following server entry to `.vscode/mcp.json` in a client

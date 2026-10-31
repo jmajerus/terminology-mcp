@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { Store } from './store.js';
 import { seedDemo } from './seed.js';
 import { createApp } from './server.js';
+import { requestAccessConfig } from './access.js';
 
 const demo = process.argv.includes('--demo');
 const filename = resolve(process.env.TERMINOLOGY_DB ?? (demo ? 'data/demo.sqlite' : 'data/terminology.sqlite'));
@@ -11,7 +12,9 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT m
 const store = new Store(filename);
 if (demo) seedDemo(store);
 const server = createApp(store, { demo, deploymentFile: resolve('deployed.json'),
-  origins: process.env.TERMINOLOGY_ORIGINS?.split(',').map(value => value.trim()).filter(Boolean) });
+  access: requestAccessConfig(process.env, ['terminology-mcp', 'terminology-mcp.localdomain']),
+  origins: [...(process.env.TERMINOLOGY_ORIGINS?.split(',').map(value => value.trim()).filter(Boolean) ?? []),
+    ...(process.env.TERMINOLOGY_PUBLIC_ORIGIN ? [process.env.TERMINOLOGY_PUBLIC_ORIGIN] : [])] });
 server.on('error', error => { console.error(error.message); store.close(); process.exitCode = 1; });
 server.listen(port, host, () => {
   console.log(`Terminology editor listening on ${host}:${port}`);

@@ -126,8 +126,11 @@ The service listens on `0.0.0.0:8000`. `/etc/terminology-mcp/env`
 contains the allowed browser origins for the full hostname, short hostname,
 and SSH connection's LAN IP. The application rejects other Host headers and
 cross-origin writes. The printed editor URL can be opened directly from the LAN.
-This is the LAN editor, without authentication; public routing remains a later
-deployment step.
+Direct LAN access remains available. Public/proxied requests require the
+route-specific Cloudflare Access JWT described in [MCP access](mcp.md).
+Set `ACCESS_TEAM_DOMAIN`, `ACCESS_MCP_AUD`, `ACCESS_ADMIN_AUD`, and
+`TERMINOLOGY_PUBLIC_ORIGIN` in the server's env file before exposing its public
+hostname. Public routing and Managed OAuth are configured in Cloudflare.
 
 All three sibling services use `/etc/<service>/env`: `/etc/quote-mcp/env`,
 `/etc/corpus-mcp/env`, and `/etc/terminology-mcp/env`. Development checkouts
