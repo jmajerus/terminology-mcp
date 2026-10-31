@@ -246,3 +246,14 @@ test('collection source IRIs remain reserved across deletion, scheme creation, c
   assert.equal(store.sets().length, 0);
   assert.deepEqual(store.conceptSet(set.id, updated.changed), updated);
 });
+
+test('an imported collection cannot take the IRI of an imported concept alias', t => {
+  const { store } = fixture(t);
+  const plan = planSkos(store, source, request()).plan;
+  const uri = 'https://example.org/alias-collision';
+  plan.terms[0].aliases = [...plan.terms[0].aliases, uri];
+  plan.sets[0].key = uri;
+  const version = store.version;
+  assert.throws(() => store.importScheme(plan, version), /already in use/);
+  assert.equal(store.version, version);
+});

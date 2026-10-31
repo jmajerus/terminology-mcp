@@ -14,7 +14,7 @@ const nodeSchema = z.object({
 const documentSchema = z.object({
   format: z.enum(['quote-mcp-export/1', 'terminology-graph/1']),
   schemes: z.array(z.object({ id: z.union([z.string(), z.number()]), slug: z.string().optional(), label: z.string(),
-    description: z.string().optional(), sourceUri: iriSchema.optional(), hierarchy: z.string().optional() })).min(1).max(1000),
+    description: z.string().optional(), sourceUri: iriSchema.optional(), hierarchy: z.string().optional(), notations: z.array(z.unknown()).optional() })).min(1).max(1000),
   concepts: z.array(nodeSchema).max(10000),
   relations: z.array(z.object({ from: z.string(), to: z.string(), type: z.enum(['broader', 'narrower', 'related', 'opposite', 'inverse']) })).max(100000),
 });
@@ -88,7 +88,7 @@ export function planGraph(_store: Store, data: string, request: ImportRequest) {
     term.relations = [...new Map(term.relations.map(edge => [`${edge.type}:${edge.target}`, edge])).values()];
   }
   const plan = importPlanSchema.parse({ scheme: { id: request.schemeId, label: request.label || scheme.label,
-    description: scheme.description ?? '', hierarchy: 'graph', sourceUri: schemeUri }, terms });
+    description: scheme.description ?? '', hierarchy: 'graph', sourceUri: schemeUri, notations: scheme.notations ?? [] }, terms });
   const analysis = analyseStructure(plan, request.hierarchy, scheme.hierarchy, quote);
   return { plan, analysis, warnings: [...warnings] };
 }

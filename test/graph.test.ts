@@ -124,3 +124,12 @@ test('HTTP exposes graph-shaped set reads and full connections including incomin
  for(const path of ['/graph','/graph.js'])assert.equal((await fetch(base+path)).status,200);
  assert.equal((await fetch(base+'/api/graph?types=unknown')).status,422);
 });
+
+test('graph JSON keeps scheme notations through export and import',t=>{
+ const store=new Store(':memory:');t.after(()=>store.close());
+ const notations=[{value:'HW',datatype:'http://www.w3.org/2001/XMLSchema#string'}];
+ store.addScheme({id:'coded',label:'Coded',hierarchy:'graph',notations,sourceUri:'https://example.org/coded'});store.addTerm({scheme:'coded',label:'One'});
+ const copy=new Store(':memory:');t.after(()=>copy.close());
+ copy.importScheme(planGraph(copy,JSON.stringify(conceptGraph(store,{scheme:'coded'})),importRequestSchema.parse({format:'graph-json',sourceScheme:'https://example.org/coded',schemeId:'coded',hierarchy:'graph'})).plan,0);
+ assert.deepEqual(copy.schemes().find(s=>s.id==='coded')!.notations,notations);
+});
