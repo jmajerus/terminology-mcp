@@ -122,12 +122,26 @@ record; `/health` returns that running release's identity and counts without
 vocabulary contents. Records contain only branch, commit, optional PR number,
 timestamp, release identifier, and whether the source was local.
 
-The service listens on `0.0.0.0:8000`. `/etc/terminology-mcp/environment`
+The service listens on `0.0.0.0:8000`. `/etc/terminology-mcp/env`
 contains the allowed browser origins for the full hostname, short hostname,
 and SSH connection's LAN IP. The application rejects other Host headers and
 cross-origin writes. The printed editor URL can be opened directly from the LAN.
 This is the LAN editor, without authentication; public routing remains a later
 deployment step.
+
+All three sibling services use `/etc/<service>/env`: `/etc/quote-mcp/env`,
+`/etc/corpus-mcp/env`, and `/etc/terminology-mcp/env`. Development checkouts
+continue to use `.env` at the repository root. Server files stay outside
+release directories so application deployments preserve their settings.
+Edit Terminology's settings with `sudoedit /etc/terminology-mcp/env`, then
+run `sudo systemctl restart terminology-mcp`.
+
+Deployments migrate Terminology's former `environment` file automatically,
+preserving its settings except for the deploy-managed allowed origins. The
+original is retained in the release's root-only rollback directory; the old
+live filename is removed after a healthy activation. Failed activation
+restores the original files and unit. If both live filenames exist and differ,
+deployment stops before cutover so settings cannot be silently discarded.
 
 Local development still defaults to loopback. For a manual LAN launch, set
 `HOST=0.0.0.0` and `TERMINOLOGY_ORIGINS` to a comma-separated list of exact HTTP(S)
