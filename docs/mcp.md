@@ -20,21 +20,19 @@ The three sibling servers use the same runtime settings in `/etc/<service>/env`:
 
 ```dotenv
 ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com
-ACCESS_MCP_AUD=<authoring-mcp-access audience>
-ACCESS_ADMIN_AUD=<authoring-admin-access audience>
 ```
 
 Terminology also needs `TERMINOLOGY_PUBLIC_ORIGIN=https://terminology-mcp.example.com`
 for its public hostname. This persists across deployments separately from the
-deploy-managed LAN origins. Both audiences are application identifiers, not
-tokens a caller can use to authenticate.
+deploy-managed LAN origins.
 
 Cloudflare Managed OAuth authenticates MCP clients at the edge and forwards a
 signed JWT in `Cf-Access-Jwt-Assertion`. The origin verifies its signature with
-the team's JWKS, issuer, expiry and subject, requiring the MCP audience on
-`/mcp` and the admin audience on all other private routes, including editor
-assets and `/api` reads/writes. A token for one audience cannot use the other
-surface. An invalid assertion never falls back to LAN access. Public hostnames
+the team's JWKS, issuer, expiry and subject on `/mcp` and on all other private
+routes, including editor assets and `/api` reads/writes. It does not check the
+audience (which Access application issued the token): every application in the
+team admits only the owner, so recreating or merging applications needs no
+change here. An invalid assertion never falls back to LAN access. Public hostnames
 or requests carrying Cloudflare headers cannot take the LAN bypass.
 
 The existing editor routes `/`, `/sets`, `/graph`, scripts/styles and `/api`

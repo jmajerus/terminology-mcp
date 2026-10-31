@@ -9,7 +9,7 @@ import { Store } from '../src/store.js';
 import { createApp } from '../src/server.js';
 
 const issuer = 'https://example.cloudflareaccess.com';
-const config: RequestAccessConfig = { teamDomain: issuer, mcpAudience: 'mcp-aud', adminAudience: 'admin-aud', lanHosts: ['terminology-mcp.localdomain'] };
+const config: RequestAccessConfig = { teamDomain: issuer, lanHosts: ['terminology-mcp.localdomain'] };
 const { privateKey, publicKey } = await generateKeyPair('RS256');
 const keys = createLocalJWKSet({ keys: [{ ...await exportJWK(publicKey), kid: 'test', alg: 'RS256' }] });
 async function token(aud = 'mcp-aud', overrides: Record<string, unknown> = {}, key = privateKey) {
@@ -21,15 +21,12 @@ const request = (headers: Record<string, string> = {}, peer = '127.0.0.1') => ({
   headers: { host: 'public.example', ...headers }, socket: { remoteAddress: peer },
 }) as IncomingMessage;
 
-test('Access enforces distinct MCP and administration audiences, including APIs and assets', async () => {
+test('Access accepts a token from any application in the team, on every route', async () => {
   const mcp = request({ 'cf-access-jwt-assertion': await token() });
   const admin = request({ 'cf-access-jwt-assertion': await token('admin-aud') });
-  assert.equal((await authorizeRequest(mcp, '/mcp', config, keys)).via, 'access');
-  for (const path of ['/admin', '/', '/api/state', '/app.js']) {
-    assert.equal((await authorizeRequest(admin, path, config, keys)).via, 'access');
-    await assert.rejects(authorizeRequest(mcp, path, config, keys), { status: 403 });
-  }
-  await assert.rejects(authorizeRequest(admin, '/mcp', config, keys), { status: 403 });
+  const recreated = request({ 'cf-access-jwt-assertion': await token('a-recreated-application') });
+  for (const path of ['/mcp', '/admin', '/', '/api/state', '/app.js'])
+    for (const req of [mcp, admin, recreated]) assert.equal((await authorizeRequest(req, path, config, keys)).via, 'access');
 });
 
 test('Access rejects expired, premature, wrong-issuer, forged and incomplete JWTs', async () => {
@@ -50,7 +47,7 @@ test('only direct private peers naming a LAN host can bypass Access; proxy heade
     await assert.rejects(authorizeRequest(request(headers), '/mcp', config, keys), { status: 401 });
   await assert.rejects(authorizeRequest(request({host:'localhost'}, '203.0.113.1'), '/mcp', config, keys), {status:401});
   await assert.rejects(authorizeRequest(request({host:'evil.example@localhost'}), '/mcp', config, keys), {status:400});
-  await assert.rejects(authorizeRequest(request({'cf-access-jwt-assertion':await token()}), '/mcp', {...config,mcpAudience:undefined}, keys), {status:503});
+  await assert.rejects(authorizeRequest(request({'cf-access-jwt-assertion':await token()}), '/mcp', {...config,teamDomain:undefined}, keys), {status:503});
 });
 
 test('HTTP routes enforce Access before reads or writes while local health and MCP remain usable', async t => {
@@ -65,13 +62,13 @@ test('HTTP routes enforce Access before reads or writes while local health and M
       'Content-Type':'application/json',...(value?{'cf-access-jwt-assertion':value}:{})},body:body?JSON.stringify(body):undefined,
   });
   assert.equal((await send('/api/state')).status,401);
-  assert.equal((await send('/api/state',mcp)).status,403);
+  assert.equal((await send('/api/state',mcp)).status,200);
   assert.equal((await send('/api/state',admin)).status,200);
   assert.equal((await send('/admin',admin)).status,200);
-  assert.equal((await send('/api/schemes',mcp,{id:'forbidden',label:'Forbidden',hierarchy:'tree'})).status,403);
+  assert.equal((await send('/api/schemes',undefined,{id:'forbidden',label:'Forbidden',hierarchy:'tree'})).status,401);
   assert.equal(store.version,0);
   const init={jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'test',version:'1'}}};
-  assert.equal((await send('/mcp',admin,init)).status,403);
-  const result=await send('/mcp',mcp,init);assert.equal(result.status,200);assert.ok((await result.json()).result.capabilities.tools);
+  assert.equal((await send('/mcp',undefined,init)).status,401);
+  const result=await send('/mcp',admin,init);assert.equal(result.status,200);assert.ok((await result.json()).result.capabilities.tools);
   assert.equal((await fetch(base+'/health')).status,200);
 });

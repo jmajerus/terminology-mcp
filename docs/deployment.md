@@ -127,8 +127,8 @@ contains the allowed browser origins for the full hostname, short hostname,
 and SSH connection's LAN IP. The application rejects other Host headers and
 cross-origin writes. The printed editor URL can be opened directly from the LAN.
 Direct LAN access remains available. Public/proxied requests require the
-route-specific Cloudflare Access JWT described in [MCP access](mcp.md).
-Set `ACCESS_TEAM_DOMAIN`, `ACCESS_MCP_AUD`, `ACCESS_ADMIN_AUD`, and
+Cloudflare Access JWT described in [MCP access](mcp.md).
+Set `ACCESS_TEAM_DOMAIN` and
 `TERMINOLOGY_PUBLIC_ORIGIN` in the server's env file before exposing its public
 hostname. Public routing and Managed OAuth are configured in Cloudflare.
 
