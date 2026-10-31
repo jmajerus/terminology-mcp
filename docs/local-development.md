@@ -103,18 +103,40 @@ conflicts 409, and missing resources 404, with `{ "error": "…" }` bodies.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/state?at=N` | Schemes and terms at N, including derived hierarchy |
+| GET | `/api/state?at=N&scheme=ID` | Schemes, terms and sets at N, including derived hierarchy; optional scheme filter |
 | GET | `/api/terms/:id-or-alias?at=N` | Lookup by stable ID or URL-encoded alias |
-| GET | `/api/changes?since=N&term=ID` | Ordered changes after N; optional affected-term filter |
-| POST | `/api/schemes` | Create `{id, label, hierarchy, description?, admissionTest?}` |
-| POST | `/api/terms` | Create `{scheme, label, broader?, altLabels?, scopeNote?, status?, relations?, links?, aliases?}` |
+| GET | `/api/changes?since=N&term=ID&scheme=ID` | Ordered changes after N; optional affected-term and scheme filters |
+| GET | `/api/schemes/:id/slugs/:slug?parent=REF&depth=D&at=N` | Resolve a current or former slug; `parent` (ID, alias or slug) or `depth` narrows it |
+| POST | `/api/schemes` | Create `{id, label, hierarchy, description?, admissionTest?, slugUniqueDepths?}` |
+| POST | `/api/terms` | Create `{scheme, label, broader?, altLabels?, scopeNote?, status?, relations?, links?, aliases?, slug?}` |
 | PATCH | `/api/terms/:id` | Save all editable fields and `expectedChanged`, with optional `reason` |
-| POST | `/api/terms/:id/operations/preview` | Preview move/merge/split/retire, using `expectedVersion` |
+| POST | `/api/terms/:id/operations/preview` | Preview move/merge/split/retire/slug, using `expectedVersion` |
 | POST | `/api/terms/:id/operations/apply` | Apply an explicit structural operation at its previewed version |
 | GET | `/api/schemes/:id/skos?at=N` | Download versioned SKOS Turtle |
 | POST | `/api/imports/schemes` | Discover schemes in a Turtle payload or SPARQL source |
 | POST | `/api/imports/preview` | Parse, map and validate a new scheme, returning a frozen import plan |
 | POST | `/api/imports/apply` | Atomically apply `{plan, expectedVersion}` |
+
+`/api/state` and `/api/changes` also return `log`, a random ID created with
+the store. A subscriber saves it beside its cursor; a different `log` means
+the store was rebuilt and the subscriber must bootstrap again from
+`/api/state`. A `since` beyond the head returns 400.
+
+Every term has a `slug`, minted once from its label at creation (Concept
+Clusters' rule, with diacritics folded) or taken from the request or SKOS
+`urn:terminology-mcp:vocab:slug`. Renames never change it. Slugs are unique
+among siblings, and scheme-wide at each depth a tree scheme lists in
+`slugUniqueDepths` (SKOS `vocab:slugUniqueDepth`); each listed depth is its
+own scope. Minted slugs take `-2`, `-3`, … on collision, while explicit slugs
+that collide are refused. The `slug` operation changes a slug as a breaking
+`slugged` change; the old value moves to `formerSlugs`, stays reserved in the
+same scopes, and still resolves through the slug lookup. A `parent` given
+as a slug matches every term with that slug, so a slug repeated across
+depths still narrows correctly.
+
+A change's `breaking` flag means it may break some consumer (renames break
+label-keyed ones), not that every subscriber must stop; each subscriber
+decides per kind.
 
 `at` defaults to the current version; zero is the empty initial state.
 Historical reads return `version` for the requested state and `head` for

@@ -4,6 +4,14 @@ const text = z.string().trim().min(1).max(200);
 const id = z.string().min(1).max(200);
 export const pathLabel = (label: string) => label.normalize('NFKC').toLowerCase()
   .replace(/[^\p{L}\p{N}\p{M}]+/gu, '-').replace(/^-|-$/g, '') || 'term';
+// Concept Clusters' slugify, plus diacritic folding, a length cap and a fallback.
+export const slugify = (label: string) => {
+  const value = label.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/&/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const cut = value.length <= 80 ? value : value[80] === '-' ? value.slice(0, 80) : value.slice(0, 80).replace(/-[^-]*$/, '');
+  return cut.replace(/-+$/, '') || 'term';
+};
+export const slugSchema = z.string().max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use lowercase letters and digits separated by single hyphens');
 export const iriSchema = z.string().max(2000).refine(value => /^[a-z][a-z0-9+.-]*:/i.test(value)
   && !/^(javascript|data|vbscript|file):/i.test(value)
   && !/[\u0000-\u0020<>"{}|^`\\]/u.test(value), 'Use an absolute IRI');
@@ -36,6 +44,7 @@ const fields = {
 export const createTermSchema = z.object({
   ...fields, scheme: id, broader: z.array(id).max(100).default([]),
   aliases: z.array(z.string().trim().min(1).max(2000)).max(100).default([]),
+  slug: slugSchema.optional(),
   sourceUri: iriSchema.optional(),
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
 }).strict();
@@ -50,14 +59,15 @@ export const schemeSchema = z.object({
   hierarchy: z.enum(['tree', 'poly', 'graph']),
   admissionTest: z.string().trim().max(10000).default(''),
   notations: z.array(notationSchema).max(100).default([]),
+  slugUniqueDepths: z.array(z.number().int().min(0).max(500)).max(20).default([]),
   sourceUri: iriSchema.optional(),
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
 }).strict();
 export type Scheme = z.infer<typeof schemeSchema> & { created: number };
 export type CreateTerm = z.infer<typeof createTermSchema>;
 export type EditTerm = z.infer<typeof editTermSchema>;
-export type Term = Omit<CreateTerm, 'status'> & {
-  status: 'provisional' | 'active' | 'retired'; replacedBy: string[];
+export type Term = Omit<CreateTerm, 'status' | 'slug'> & {
+  status: 'provisional' | 'active' | 'retired'; replacedBy: string[]; slug: string; formerSlugs: string[];
   id: string; created: number; changed: number;
 };
 export type TermView = Term & { path: string | null; depth: number; narrower: string[] };
@@ -77,7 +87,7 @@ export const conceptSetSchema = z.object({
 }).strict();
 export type ConceptSet = z.infer<typeof conceptSetSchema> & { id: string; created: number; changed: number; deleted?: boolean };
 export type Change = {
-  n: number; kind: 'scheme-added' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'imported' | 'set-added' | 'set-changed' | 'set-deleted';
+  n: number; kind: 'scheme-added' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'slugged' | 'imported' | 'set-added' | 'set-changed' | 'set-deleted';
   terms: string[]; before: Term | ConceptSet | null; after: Term | Scheme | ConceptSet;
   breaking: boolean; author: string; reason: string; at: string;
   beforeTerms?: Term[]; afterTerms?: Term[];
@@ -88,6 +98,7 @@ export const operationSchema = z.discriminatedUnion('kind', [
   z.object({ ...operationBase, kind: z.literal('move'), broader: z.array(id).max(100) }).strict(),
   z.object({ ...operationBase, kind: z.literal('merge'), target: id }).strict(),
   z.object({ ...operationBase, kind: z.literal('retire'), replacements: z.array(id).max(20).default([]) }).strict(),
+  z.object({ ...operationBase, kind: z.literal('slug'), slug: slugSchema }).strict(),
   z.object({ ...operationBase, kind: z.literal('split'),
     newTerms: z.array(z.object({ label: text, scopeNote: z.string().trim().max(20000).default('') }).strict()).min(2).max(20),
     children: z.array(z.object({ id, targets: z.array(z.number().int().nonnegative()).min(1).max(20) }).strict()).max(10000),
@@ -104,6 +115,7 @@ export const importPlanSchema = z.object({
     relations: z.array(z.object({ type: z.enum(['related', 'opposite']), target: iriSchema }).strict()).default([]),
     status: z.enum(['provisional', 'active', 'retired']).default('active'),
     replacedBy: z.array(iriSchema).default([]),
+    formerSlugs: z.array(slugSchema).max(100).default([]),
   }).strict()).min(1).max(10000),
 }).strict();
 export type ImportPlan = z.infer<typeof importPlanSchema>;

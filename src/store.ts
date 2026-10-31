@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, uniqueNotations, DomainError,
-  conceptSetSchema, pathLabel as slug, type ConceptSet, type Scheme, type Term, type TermView, type Change } from './model.js';
+  conceptSetSchema, pathLabel as slug, slugify, slugSchema, type ConceptSet, type Scheme, type Term, type TermView, type Change } from './model.js';
 
 const setReferences = (set: Pick<ConceptSet, 'members' | 'recipe'>) => [...set.members,
   ...set.recipe?.concepts ?? [], ...set.recipe?.narrower ?? [], ...set.recipe?.exclude ?? [], ...set.recipe?.around.map(rule => rule.term) ?? []];
@@ -31,8 +31,8 @@ export class Store {
   }
   private migrate() {
     const version = this.db.pragma('user_version', { simple: true }) as number;
-    if (version > 2) throw new Error('This database was created by a newer application version.');
-    if (version === 2) return;
+    if (version > 3) throw new Error('This database was created by a newer application version.');
+    if (version === 3) return;
     this.db.transaction(() => {
       if (version === 0) {
         this.db.exec(`
@@ -48,12 +48,40 @@ export class Store {
           PRAGMA user_version = 1;
         `);
       }
-      this.db.exec(`CREATE TABLE concept_sets (id TEXT PRIMARY KEY, scheme TEXT NOT NULL REFERENCES schemes(id), body TEXT NOT NULL);
+      if (version < 2) this.db.exec(`CREATE TABLE concept_sets (id TEXT PRIMARY KEY, scheme TEXT NOT NULL REFERENCES schemes(id), body TEXT NOT NULL);
         CREATE TABLE set_revisions (set_id TEXT NOT NULL REFERENCES concept_sets(id), n INTEGER NOT NULL REFERENCES changes(n),
           body TEXT NOT NULL, PRIMARY KEY (set_id, n));
         CREATE INDEX set_revisions_version ON set_revisions(n);
         PRAGMA user_version = 2;`);
+      this.db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        PRAGMA user_version = 3;`);
+      this.db.prepare('INSERT OR IGNORE INTO meta VALUES (?, ?)').run('log', randomUUID());
+      this.backfillSlugs();
     })();
+  }
+  private backfillSlugs() {
+    // Slugs are minted once at creation, so earlier revisions and change snapshots carry the same slug.
+    const terms = this.rawTerms().sort((a, b) => a.created - b.created || a.id.localeCompare(b.id));
+    this.mintSlugs(terms);
+    const slugs = new Map(terms.map(term => [term.id, term.slug]));
+    const fill = (value: unknown) => {
+      const item = value as Partial<Term> | null;
+      if (item?.id && item.scheme && slugs.has(item.id) && !item.slug) Object.assign(item, { slug: slugs.get(item.id), formerSlugs: item.formerSlugs ?? [] });
+      return item;
+    };
+    for (const table of ['terms', 'term_revisions'] as const) {
+      const rows = this.db.prepare(`SELECT rowid, body FROM ${table}`).all() as { rowid: number; body: string }[];
+      for (const row of rows) this.db.prepare(`UPDATE ${table} SET body = ? WHERE rowid = ?`).run(JSON.stringify(fill(JSON.parse(row.body))), row.rowid);
+    }
+    for (const row of this.db.prepare('SELECT n, body FROM changes').all() as { n: number; body: string }[]) {
+      const change = JSON.parse(row.body) as Change;
+      [change.before, change.after, ...change.beforeTerms ?? [], ...change.afterTerms ?? []].forEach(fill);
+      this.db.prepare('UPDATE changes SET body = ? WHERE n = ?').run(JSON.stringify(change), row.n);
+    }
+  }
+  /** Identifies this changelog; a rebuilt store starts a new log, so saved cursors no longer apply. */
+  get logId(): string {
+    return (this.db.prepare("SELECT value FROM meta WHERE key = 'log'").get() as { value: string }).value;
   }
   get version(): number {
     return (this.db.prepare('SELECT COALESCE(MAX(n), 0) AS n FROM changes').get() as { n: number }).n;
@@ -65,7 +93,7 @@ export class Store {
   }
   schemes(at?: number): Scheme[] {
     return (this.db.prepare('SELECT body FROM schemes WHERE created <= ? ORDER BY id')
-      .all(this.atVersion(at)) as { body: string }[]).map(row => ({ notations: [], ...JSON.parse(row.body) }));
+      .all(this.atVersion(at)) as { body: string }[]).map(row => ({ notations: [], slugUniqueDepths: [], ...JSON.parse(row.body) }));
   }
   sets(scheme?: string, at?: number): ConceptSet[] {
     return (this.db.prepare(`SELECT r.body FROM set_revisions r JOIN
@@ -235,7 +263,7 @@ export class Store {
   private scheme(id: string): Scheme {
     const row = this.db.prepare('SELECT body FROM schemes WHERE id = ?').get(id) as { body: string } | undefined;
     if (!row) throw new DomainError(404, 'Scheme not found.');
-    return { notations: [], ...JSON.parse(row.body) };
+    return { notations: [], slugUniqueDepths: [], ...JSON.parse(row.body) };
   }
   addScheme(input: unknown): Scheme {
     const data = schemeSchema.parse(input);
@@ -246,8 +274,11 @@ export class Store {
         throw new DomainError(409, 'That source scheme is already imported.');
       if (data.sourceUri && this.collectionSourceUris().has(data.sourceUri))
         throw new DomainError(409, 'A collection IRI cannot also identify a scheme.');
+      if (data.slugUniqueDepths.length && data.hierarchy !== 'tree')
+        throw new DomainError(422, 'Scheme-wide slug depths apply only to tree schemes.');
       const n = this.version + 1;
-      const scheme = { ...data, notations: uniqueNotations(data.notations), created: n };
+      const scheme = { ...data, notations: uniqueNotations(data.notations),
+        slugUniqueDepths: [...new Set(data.slugUniqueDepths)].sort((a, b) => a - b), created: n };
       this.db.prepare('INSERT INTO schemes VALUES (?, ?, ?)').run(scheme.id, n, JSON.stringify(scheme));
       this.log({ kind: 'scheme-added', terms: [], before: null, after: scheme, breaking: false, reason: '' });
       return scheme;
@@ -258,7 +289,7 @@ export class Store {
     return (this.db.prepare(`SELECT r.body FROM term_revisions r
       JOIN (SELECT term_id, MAX(n) AS n FROM term_revisions WHERE n <= ? GROUP BY term_id) latest
       ON r.term_id = latest.term_id AND r.n = latest.n`).all(version) as { body: string }[])
-      .map(row => ({ replacedBy: [], notations: [], ...JSON.parse(row.body) }));
+      .map(row => ({ replacedBy: [], notations: [], formerSlugs: [], ...JSON.parse(row.body) }));
   }
   private views(terms: Term[]): TermView[] {
     const byId = new Map(terms.map(term => [term.id, term]));
@@ -292,10 +323,31 @@ export class Store {
     if (!term) throw new DomainError(404, 'Term not found at this version.');
     return term;
   }
-  changes(since = 0, term?: string): Change[] {
+  /** Resolves a current or former slug within a scheme; `parent` (an ID, alias or slug) or `depth` narrows the match. */
+  slugLookup(scheme: string, value: string, filter: { parent?: string; depth?: number } = {}, at?: number): { version: number; term: TermView; current: boolean } {
+    const { parent, depth } = filter;
+    const version = this.atVersion(at);
+    if (!this.schemes(version).some(item => item.id === scheme)) throw new DomainError(404, 'Scheme not found at this version.');
+    const terms = this.terms(scheme, version);
+    let matches = terms.filter(term => term.slug === value || term.formerSlugs.includes(value));
+    if (parent !== undefined) {
+      // A parent slug may itself repeat across depths, so every term it names is a candidate parent.
+      const owners = new Set(terms.filter(term => term.id === parent || term.aliases.includes(parent) ||
+        term.slug === parent || term.formerSlugs.includes(parent)).map(term => term.id));
+      if (!owners.size) throw new DomainError(404, 'No parent term has that ID, alias or slug at this version.');
+      matches = matches.filter(term => term.broader.some(id => owners.has(id)));
+    }
+    if (depth !== undefined) matches = matches.filter(term => term.depth === depth);
+    if (!matches.length) throw new DomainError(404, 'No term has that slug at this version.');
+    if (matches.length > 1) throw new DomainError(409, 'That slug names several terms; pass a parent or depth to choose one.');
+    return { version, term: matches[0], current: matches[0].slug === value };
+  }
+  changes(since = 0, term?: string, scheme?: string): Change[] {
     this.atVersion(since);
+    const inScheme = (change: Change) => [change.before, change.after, ...change.beforeTerms ?? [], ...change.afterTerms ?? [],
+      ...change.beforeSets ?? [], ...change.afterSets ?? []].some(item => item && ('scheme' in item ? item.scheme === scheme : item.id === scheme));
     return (this.db.prepare('SELECT body FROM changes WHERE n > ? ORDER BY n').all(since) as { body: string }[])
-      .map(row => JSON.parse(row.body) as Change).filter(change => !term || change.terms.includes(term));
+      .map(row => JSON.parse(row.body) as Change).filter(change => (!term || change.terms.includes(term)) && (!scheme || inScheme(change)));
   }
   private log(data: Omit<Change, 'n' | 'at' | 'author'>): number {
     const change: Change = { ...data, n: this.version + 1, at: new Date().toISOString(), author: 'local-editor' };
@@ -365,6 +417,57 @@ export class Store {
     };
     checkCycles(term => term.broader, 'Hierarchy');
     checkCycles(term => term.replacedBy, 'Replacement chain');
+    this.validateSlugs(terms);
+  }
+  private slugScopes(terms: Term[]): Map<string, string[]> {
+    // Slugs are unique among siblings, and scheme-wide at the scheme's listed depths. Retired terms keep their scope.
+    const byId = new Map(terms.map(term => [term.id, term])), schemes = new Map(this.schemes().map(scheme => [scheme.id, scheme]));
+    const depths = new Map<string, number>(), visiting = new Set<string>();
+    const depth = (term: Term): number => {
+      const saved = depths.get(term.id);
+      if (saved !== undefined) return saved;
+      if (visiting.has(term.id)) return 0;
+      visiting.add(term.id);
+      const parents = term.broader.flatMap(id => byId.has(id) ? [depth(byId.get(id)!)] : []);
+      visiting.delete(term.id);
+      const value = parents.length ? Math.min(...parents) + 1 : 0;
+      depths.set(term.id, value);
+      return value;
+    };
+    return new Map(terms.map(term => {
+      const siblings = term.broader.length ? term.broader.map(parent => `${term.scheme}|in:${parent}`) : [`${term.scheme}|top`];
+      const wide = schemes.get(term.scheme)?.slugUniqueDepths.includes(depth(term)) ? [`${term.scheme}|depth:${depth(term)}`] : [];
+      return [term.id, [...siblings, ...wide]];
+    }));
+  }
+  /** Gives each term without a slug one from its label, suffixed -2, -3, … within its scopes. Mutates the terms. */
+  private mintSlugs(terms: Term[]) {
+    const pending = terms.filter(term => !term.slug);
+    if (!pending.length) return;
+    const scopes = this.slugScopes(terms), taken = new Set<string>();
+    const reserve = (term: Term) => scopes.get(term.id)!.forEach(scope => [term.slug, ...term.formerSlugs].forEach(value => taken.add(`${scope}|${value}`)));
+    terms.filter(term => term.slug).forEach(reserve);
+    for (const term of pending) {
+      const base = slugify(term.label), free = (value: string) => scopes.get(term.id)!.every(scope => !taken.has(`${scope}|${value}`));
+      let value = base;
+      for (let i = 2; !free(value); i++) value = `${base.slice(0, 79 - String(i).length).replace(/-+$/, '')}-${i}`;
+      term.slug = value; reserve(term);
+    }
+  }
+  private validateSlugs(terms: Term[]) {
+    const scopes = this.slugScopes(terms), owners = new Map<string, string>();
+    for (const term of terms) {
+      if (![term.slug, ...term.formerSlugs].every(value => slugSchema.safeParse(value).success))
+        throw new DomainError(422, `Invalid slug for “${term.label}”: use lowercase letters and digits separated by single hyphens.`);
+      if (term.formerSlugs.includes(term.slug) || new Set(term.formerSlugs).size !== term.formerSlugs.length)
+        throw new DomainError(422, 'Former slugs must be distinct from each other and from the current slug.');
+      for (const scope of scopes.get(term.id)!) for (const value of [term.slug, ...term.formerSlugs]) {
+        const key = `${scope}|${value}`, owner = owners.get(key);
+        if (owner && owner !== term.id)
+          throw new DomainError(409, `The slug “${value}” is already used ${scope.includes('|depth:') ? 'at this depth of the scheme' : 'by a sibling term'}.`);
+        owners.set(key, term.id);
+      }
+    }
   }
   private persist(term: Term, n: number) {
     this.db.prepare(`INSERT INTO terms VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET body = excluded.body`)
@@ -387,7 +490,8 @@ export class Store {
     const data = createTermSchema.parse(input);
     return this.db.transaction(() => {
       const n = this.version + 1;
-      const term: Term = { ...data, notations: uniqueNotations(data.notations), replacedBy: [], altLabels: [...new Set(data.altLabels)], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n };
+      const term: Term = { ...data, slug: data.slug ?? '', formerSlugs: [], notations: uniqueNotations(data.notations), replacedBy: [], altLabels: [...new Set(data.altLabels)], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n };
+      this.mintSlugs([...this.rawTerms(), term]);
       this.validateTerm(term);
       const alias = this.pathAlias(term);
       term.aliases = [...new Set([...term.aliases, ...(term.sourceUri ? [term.sourceUri] : []), ...(alias ? [alias] : [])])];
@@ -509,10 +613,11 @@ export class Store {
         throw new DomainError(422, `Unresolved concept reference: ${key}`);
       };
       const n = this.version + 1;
-      const terms: Term[] = plan.terms.map(({ key, ...term }) => ({ ...term, notations: uniqueNotations(term.notations), id: ids.get(key)!, scheme: scheme.id,
+      const terms: Term[] = plan.terms.map(({ key, ...term }) => ({ ...term, slug: term.slug ?? '', notations: uniqueNotations(term.notations), id: ids.get(key)!, scheme: scheme.id,
         sourceUri: key, broader: term.broader.map(key => resolve(key)),
         relations: term.relations.map(relation => ({ ...relation, target: resolve(relation.target, true) })),
         replacedBy: term.replacedBy.map(key => resolve(key)), created: n, changed: n }));
+      this.mintSlugs([...before, ...terms]);
       const result = this.commitTerms([...before, ...terms], 'imported', `Imported scheme ${scheme.label}`, terms[0].id, false);
       if (new Set(plan.sets.map(set => set.key)).size !== plan.sets.length || plan.sets.some(set => ids.has(set.key) || set.key === plan.scheme.sourceUri))
         throw new DomainError(422, 'Collection IRIs must be distinct from concepts and schemes.');
@@ -545,10 +650,15 @@ export class Store {
       let replacements: Term[] = [];
       if (operation.kind === 'move') {
         source.broader = operation.broader;
+      } else if (operation.kind === 'slug') {
+        if (operation.slug === source.slug) throw new DomainError(422, 'That is already this term’s slug.');
+        // The old slug stays reserved in the term's scopes so existing references resolve while consumers migrate.
+        source.formerSlugs = [...source.formerSlugs.filter(value => value !== operation.slug), source.slug];
+        source.slug = operation.slug;
       } else {
         if (operation.kind === 'split') {
           replacements = operation.newTerms.map(term => ({ ...source, ...term,
-            id: `t_${randomUUID().replaceAll('-', '')}`, aliases: [], sourceUri: undefined,
+            id: `t_${randomUUID().replaceAll('-', '')}`, aliases: [], sourceUri: undefined, slug: '', formerSlugs: [],
             altLabels: [], links: [], notations: [], replacedBy: [], created: this.version + 1, changed: this.version + 1 }));
           if (new Set(operation.children.map(child => child.id)).size !== operation.children.length ||
               operation.children.length !== children.length || children.some(child => !operation.children.some(row => row.id === child.id)))
@@ -597,7 +707,7 @@ export class Store {
         source.status = 'retired'; source.replacedBy = replacements.map(term => term.id); source.relations = [];
         for (const term of terms) term.relations = [...new Map(term.relations.map(relation => [`${relation.type}:${relation.target}`, relation])).values()];
       }
-      const kinds = { move: 'moved', merge: 'merged', split: 'split', retire: 'retired' } as const;
+      const kinds = { move: 'moved', merge: 'merged', split: 'split', retire: 'retired', slug: 'slugged' } as const;
       const setChanges = operation.kind === 'merge' ? this.sets().flatMap(set => {
         const replace = (ids: string[]) => [...new Set(ids.map(member => member === id ? operation.target : member))];
         const after = { ...set, members: replace(set.members), ...(set.recipe ? { recipe: {
@@ -606,6 +716,7 @@ export class Store {
         } } : {}) };
         return JSON.stringify(after) === JSON.stringify(set) ? [] : [{ ...after, changed: this.version + 1 }];
       }) : [];
+      this.mintSlugs(terms);
       const result = this.commitTerms(terms, kinds[operation.kind], operation.reason, id, true, setChanges);
       return { ...result, affectedSets: this.sets().flatMap(set => {
         const before = beforeExpansions.get(set.id)!, after = this.expandSet(set.id);
@@ -616,7 +727,8 @@ export class Store {
         if (!beforeIds.includes(id) && !afterIds.includes(id) && content(before) === content(after)) return [];
         return [{ id: set.id, label: set.label, before: beforeIds, after: afterIds,
           note: operation.kind === 'merge' ? 'Merged references follow the target; duplicates are removed.' : operation.kind === 'move'
-            ? 'Explicit membership is unchanged; recipes expand against the updated hierarchy.'
+            ? 'Explicit membership is unchanged; recipes expand against the updated hierarchy.' : operation.kind === 'slug'
+            ? 'Membership is unchanged; references by slug should follow the new slug.'
             : 'Retired references are retained for review; recipes omit retired terms and replacements are not automatically added.',
         }];
       }) };
