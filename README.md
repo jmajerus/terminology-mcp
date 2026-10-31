@@ -37,11 +37,11 @@ npm install
 npm run demo
 ```
 
-Open **http://127.0.0.1:3210**. The demo creates a separate, persistent
+Open **http://127.0.0.1:8000**. The demo creates a separate, persistent
 `data/demo.sqlite` with sample tree and polyhierarchical schemes. These are
 demonstration terms, not an import from your other projects.
 
-MCP clients can connect to **http://127.0.0.1:3210/mcp** using Streamable
+MCP clients can connect to **http://127.0.0.1:8000/mcp** using Streamable
 HTTP. The same endpoint is available on the configured LAN hostname;
 see [MCP access](docs/mcp.md) for client setup and the twelve read-only tools.
 

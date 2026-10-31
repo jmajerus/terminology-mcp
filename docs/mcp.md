@@ -7,8 +7,8 @@ database or service to initialize. These tools read data; they do not edit,
 import, fetch external sources or apply proposals.
 
 Start with `npm run demo` for sample data or `npm start` for your workspace.
-The local endpoint is `http://127.0.0.1:3210/mcp`; the LAN deployment is
-`http://terminology-mcp.localdomain:3210/mcp`. The existing
+The local endpoint is `http://127.0.0.1:8000/mcp`; the LAN deployment is
+`http://terminology-mcp.localdomain:8000/mcp`. The existing
 `TERMINOLOGY_ORIGINS` setting must include any non-loopback hostname used by
 clients (see [deployment](deployment.md)). This endpoint uses the same LAN
 access boundary as the editor, without a separate authentication mechanism.
@@ -22,7 +22,7 @@ workspace (replace the URL with loopback for a local demo):
   "servers": {
     "terminology": {
       "type": "http",
-      "url": "http://terminology-mcp.localdomain:3210/mcp"
+      "url": "http://terminology-mcp.localdomain:8000/mcp"
     }
   }
 }

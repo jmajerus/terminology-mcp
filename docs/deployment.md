@@ -1,7 +1,7 @@
 # Debian LXC deployment over SSH
 
 SSH is used to install and update the application. The deployed editor is
-accessible directly on the LAN at `http://terminology-mcp.localdomain:3210`
+accessible directly on the LAN at `http://terminology-mcp.localdomain:8000`
 (or the configured deployment hostname), without an SSH tunnel. Cloudflare
 routing is not modified.
 
@@ -84,7 +84,7 @@ The selected source must include both `deploy/terminology-mcp.service` and
 even with `--skip-tests`. Merge the deployment controls before using
 **Switch to main** if main predates them.
 
-Status uses `http://<LAN_DEPLOY_SERVER hostname>:3210`. Set
+Status uses `http://<LAN_DEPLOY_SERVER hostname>:8000`. Set
 `TERMINOLOGY_STATUS_URL` in `.env` to override it (HTTP(S), no embedded
 credentials). For releases predating `/health`, it reads `/api/state` and
 uses SSH to read the deployment record. A host without a record needs one
@@ -122,7 +122,7 @@ record; `/health` returns that running release's identity and counts without
 vocabulary contents. Records contain only branch, commit, optional PR number,
 timestamp, release identifier, and whether the source was local.
 
-The service listens on `0.0.0.0:3210`. `/etc/terminology-mcp/environment`
+The service listens on `0.0.0.0:8000`. `/etc/terminology-mcp/environment`
 contains the allowed browser origins for the full hostname, short hostname,
 and SSH connection's LAN IP. The application rejects other Host headers and
 cross-origin writes. The printed editor URL can be opened directly from the LAN.
@@ -131,7 +131,7 @@ deployment step.
 
 Local development still defaults to loopback. For a manual LAN launch, set
 `HOST=0.0.0.0` and `TERMINOLOGY_ORIGINS` to a comma-separated list of exact HTTP(S)
-origins, including port (for example `http://terminology-mcp:3210`). Configured
+origins, including port (for example `http://terminology-mcp:8000`). Configured
 HTTPS origins also work behind a separately configured trusted reverse proxy;
 the application uses the configured scheme and does not trust forwarded headers.
 

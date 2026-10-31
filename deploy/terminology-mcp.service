@@ -9,7 +9,7 @@ Group=terminology-mcp
 WorkingDirectory=/opt/terminology-mcp/current
 ExecStart=/opt/terminology-mcp/runtime/bin/node /opt/terminology-mcp/current/dist/main.js
 Environment=NODE_ENV=production
-Environment=PORT=3210
+Environment=PORT=8000
 Environment=HOST=0.0.0.0
 Environment=TERMINOLOGY_DB=/var/lib/terminology-mcp/terminology.sqlite
 EnvironmentFile=/etc/terminology-mcp/environment

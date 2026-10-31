@@ -188,9 +188,9 @@ def deploy(client, values, target, source):
     peer = client.get_transport().sock.getpeername()[0]
     hosts = {target.hostname, target.hostname.split('.')[0], peer}
     authority = lambda host: '[' + host + ']' if ':' in host else host
-    origins = ','.join('http://' + authority(host) + ':3210' for host in sorted(hosts))
+    origins = ','.join('http://' + authority(host) + ':8000' for host in sorted(hosts))
     variables = {'RELEASE': release, 'RELEASE_ID': release_id, 'COMMIT': sha, 'ORIGINS': origins,
-                 'LAN_URL': 'http://' + authority(peer) + ':3210',
+                 'LAN_URL': 'http://' + authority(peer) + ':8000',
                  'ARCHIVE': remote + '.tar.gz', 'UNIT': remote + '.service', 'RECORD': remote + '.json'}
     exports = ''.join('export ' + key + '=' + shlex.quote(value) + '\n' for key, value in variables.items())
     run(client, exports + installer, password=password, timeout=300)
@@ -227,7 +227,7 @@ def main():
             if args.provision:
                 provision(client, password)
             deploy(client, values, target, source)
-            print(f'Editor: http://{target.hostname}:3210')
+            print(f'Editor: http://{target.hostname}:8000')
     finally:
         client.close()
 
