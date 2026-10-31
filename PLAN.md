@@ -285,6 +285,29 @@ whole tree and the changelog instead.
   should gate breaking changes on top terms. The `info` texts stay as
   CC's player copy.
 
+- *Concept Clusters' subjects come from here; LCC is linked, not
+  flattened* (2026-10-31). The Concept Clusters side is in its
+  [subjects-from-terminology-mcp](https://github.com/jmajerus/concept-clusters/blob/main/docs/dev-briefs/subjects-from-terminology-mcp.md)
+  dev-brief.
+  - **Seed:** import `subjects` with **Import SKOS…** from
+    `http://oxigraph.localdomain:7878/query`, named graph
+    `urn:concept-clusters:graph:subjects`, scheme
+    `urn:concept-clusters:scheme:subjects`. It holds 13 domains, 56
+    categories and 117 subcategories as a declared tree with `cc-*`
+    aliases. Concept Clusters' sync keeps it current until this server
+    takes over.
+  - **Depth:** `subjects` stays three levels deep, matching what Concept
+    Clusters shows.
+  - **LCC:** the classification is a shelving scheme, and its depth means
+    different things in different branches. A `subjects` term links to the
+    LCC class that fits, at any depth, with `closeMatch` or `broadMatch`.
+    A new subcategory is promoted from one LCC class at a time.
+  - **Proposals:** a proposed term is `provisional` and usable by Concept
+    Clusters at once, on published puzzles too. The owner confirms,
+    merges or retires it from the changes tray.
+  - **Player copy:** Concept Clusters keeps its category editor, narrowed
+    to player copy (`info` texts, wiki links).
+
 ## Open questions
 
 - Does a profile's depth rule live in the set (a `depth` filter) or in the
