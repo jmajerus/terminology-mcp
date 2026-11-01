@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { Store } from './store.js';
-import { DomainError, type TermView } from './model.js';
+import { DomainError, termIri, type TermView } from './model.js';
 import { conceptGraph, graphEdges, graphTypes } from './graph.js';
 import { exportSkos } from './skos.js';
 
@@ -47,11 +47,11 @@ export function createMcpServer(store: Store, options: { caller?: string } = {})
     inputSchema: z.object({ at, ...page }).strict(), annotations }, args => run(() => {
     const v = version(args.at); return { version: v, ...slice(store.schemes(v), args.offset, args.limit) };
   }));
-  server.registerTool('search_terms', { description: 'Case-insensitive substring search across labels, alternative labels, notations, aliases and source IRIs. Empty query browses terms. Defaults to active and provisional terms; status=all includes retired terms. Set filters use expanded membership.',
-    inputSchema: z.object({ query: z.string().max(2000).default(''), scheme, set: z.string().min(1).max(200).optional(),
+  server.registerTool('search_terms', { description: 'Case-insensitive substring search across labels, alternative labels, notations, aliases and source IRIs. Empty query browses terms. Each hit carries its iri. Defaults to active and provisional terms; status=all includes retired terms. Set filters use expanded membership. Before propose_term, search a reference vocabulary (scheme loc-classification, or excludeScheme set to the target scheme) for a source.',
+    inputSchema: z.object({ query: z.string().max(2000).default(''), scheme, excludeScheme: z.string().min(1).max(200).optional(), set: z.string().min(1).max(200).optional(),
       status: z.enum(['active', 'provisional', 'retired', 'all']).optional(), at, ...page }).strict(), annotations }, args => run(() => {
     const v = version(args.at); requireScheme(args.scheme, v);
-    let terms = store.terms(args.scheme, v);
+    let terms = store.terms(args.scheme, v).filter(t => t.scheme !== args.excludeScheme);
     if (args.set) {
       const expanded = store.expandSet(args.set, v);
       if (args.scheme && expanded.set.scheme !== args.scheme) throw new DomainError(422, 'Set belongs to a different scheme.');
@@ -60,7 +60,8 @@ export function createMcpServer(store: Store, options: { caller?: string } = {})
     const query = normalize(args.query.trim());
     terms = terms.filter(t => (args.status === 'all' || (args.status ? t.status === args.status : t.status !== 'retired'))
       && [t.label, ...t.altLabels, ...t.notations.map(n => n.value), ...t.aliases, t.sourceUri ?? ''].some(value => normalize(value).includes(query)));
-    return { version: v, ...slice(terms, args.offset, args.limit) };
+    const found = slice(terms, args.offset, args.limit);
+    return { version: v, ...found, items: found.items.map(t => ({ ...t, iri: termIri(t) })) };
   }));
   server.registerTool('get_term', { description: 'Resolve an ID or exact alias, including retired terms, replacements and all incoming/outgoing typed connections.',
     inputSchema: z.object({ ref, at }).strict(), annotations }, args => run(() => {
@@ -138,8 +139,13 @@ export function createMcpServer(store: Store, options: { caller?: string } = {})
   }));
   server.registerTool('list_subscribers', { description: 'List consumers that follow the changelog: how far each has applied it (through), what is still pending for its schemes (including breaking changes), and any change it is held at, with a code and reason.',
     inputSchema: z.object({}).strict(), annotations }, () => run(() => ({ log: store.logId, version: store.version, subscribers: store.subscribers() })));
-  server.registerTool('propose_term', { description: 'Propose a new term under an existing broader term (stable ID, alias or slug). It is created at once as provisional with a server-minted slug, and the owner confirms, merges or retires it in the editor. Pass a slug to request a specific one. An existing term with the same slug or label in that place is refused with its id, slug and status; a retired match says so. Reuse requestId on retries to get the original term back instead of a duplicate.',
-    inputSchema: z.object({ scheme: z.string().min(1).max(200), label: z.string().min(1).max(200), broader: ref,
+  server.registerTool('propose_term', { description: 'Propose a new term under an existing broader term (stable ID, alias or slug), copied from a term in a reference vocabulary. First find the source with search_terms (scheme loc-classification, or excludeScheme set to the target scheme); if nothing fits even broadly, leave the addition to a person. The label defaults to the source label, and the new term links to the source with match (closeMatch by default; use broadMatch when the source is wider). It is created at once as provisional with a server-minted slug, and the owner confirms, merges or retires it in the editor. Pass a slug to request a specific one. An existing term with the same slug or label in that place is refused with its id, slug and status; a retired match says so. So is a sibling with a close or exact match to the same source, or any term with an exact match to it. Reuse requestId on retries to get the original term back instead of a duplicate.',
+    inputSchema: z.object({ scheme: z.string().min(1).max(200), broader: ref,
+      source: z.string().min(1).max(2000).describe('The reference term to copy, in another scheme: stable ID, alias, IRI or notation (e.g. "QA76.9.H85").'),
+      sourceScheme: z.string().min(1).max(200).optional().describe('The scheme to resolve source in, when a notation or alias repeats.'),
+      match: z.enum(['closeMatch', 'broadMatch', 'narrowMatch', 'exactMatch', 'relatedMatch']).optional()
+        .describe('How the new term relates to the source: broadMatch means the source is wider. Defaults to closeMatch.'),
+      label: z.string().min(1).max(200).optional().describe('Defaults to the source label.'),
       scopeNote: z.string().max(20000).optional(), altLabels: z.array(z.string().min(1).max(200)).max(100).optional(),
       slug: z.string().min(1).max(80).optional(),
       proposer: z.string().min(1).max(200).optional().describe('Who is proposing, e.g. "concept-clusters:authoring". Required on the LAN; Access callers are named by their verified identity.'),

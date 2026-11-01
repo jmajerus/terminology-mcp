@@ -154,6 +154,13 @@ Concept Clusters' subjects tree is imported as `cc-subjects`. Server-side
 subscriber registration, usage, gates and proposals are next. See
 [following changes](docs/following-changes.md).
 
+**Proposal provenance update (2026-11-01):** every proposal now names a
+`source` term in a reference vocabulary (by ID, alias, IRI or notation) and a
+`match`. The new term links to the source, its label defaults to the
+source's, and a second close match among siblings, or a second exact match
+anywhere in the scheme, is refused. `search_terms` returns each hit's `iri`
+and takes `excludeScheme`, so agents look up a source first.
+
 **Subscriber milestone update (2026-11-01):** subscribers report their
 progress (`through`) and holds (`blocked`, with a code and reason) to
 `/api/subscribers/:id/progress`; the editor shows each one's pending and

@@ -22,6 +22,13 @@ function subjects(t: test.TestContext) {
   const sub = store.addTerm({ scheme: 'cc-subjects', label: 'Hydrology', broader: [category.id], status: 'active' });
   return { store, domain, other, category, sub };
 }
+// A reference vocabulary to copy proposals from.
+function reference(store: Store) {
+  store.addScheme({ id: 'loc-classification', label: 'LCC', hierarchy: 'poly' });
+  const lcc = (label: string, notation: string) => store.addTerm({ scheme: 'loc-classification', label, status: 'active',
+    notations: [{ value: notation }], sourceUri: `https://id.loc.gov/authorities/classification/${notation}` });
+  return { glaciers: lcc('Glaciers. Glaciology', 'GB2401-2598'), oceans: lcc('Oceanography', 'GC1-1581'), karst: lcc('Karst', 'GB600') };
+}
 async function serve(t: test.TestContext, store: Store) {
   const server = createApp(store); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
@@ -84,9 +91,10 @@ test('v3 stores gain versioned schemes and an empty subscriber list on open', t 
 
 test('proposals create provisional terms with a slug, and refuse duplicates with the existing term', async t => {
   const { store, domain, category, sub } = subjects(t);
+  const { glaciers } = reference(store);
   store.updateScheme('cc-subjects', { maxDepth: 2, expectedVersion: store.version });
   const { send } = await serve(t, store);
-  const proposal = { scheme: 'cc-subjects', label: 'Glaciology', broader: 'geography', proposer: 'concept-clusters:authoring',
+  const proposal = { scheme: 'cc-subjects', label: 'Glaciology', broader: 'geography', source: 'GB2401-2598', proposer: 'concept-clusters:authoring',
     evidence: { draftId: 'd-17' }, requestId: 'r-1' };
   const created = await send('POST', '/api/proposals', proposal);
   assert.equal(created.status, 201);
@@ -94,7 +102,9 @@ test('proposals create provisional terms with a slug, and refuse duplicates with
   assert.deepEqual(created.body.term.broader, [category.id]);
   const change = store.changes(store.version - 1)[0];
   assert.deepEqual([change.kind, change.author, change.breaking, change.proposal], ['added', 'concept-clusters:authoring', false,
-    { proposer: 'concept-clusters:authoring', evidence: { draftId: 'd-17' }, requestId: 'r-1' }]);
+    { proposer: 'concept-clusters:authoring', evidence: { draftId: 'd-17' }, requestId: 'r-1', source: { id: glaciers.id,
+      scheme: 'loc-classification', uri: glaciers.sourceUri, label: 'Glaciers. Glaciology', match: 'closeMatch' } }]);
+  assert.deepEqual(created.body.term.links, [{ uri: glaciers.sourceUri, match: 'closeMatch' }]);
   assert.deepEqual(store.lookup(created.body.id).aliases, ['cc-subjects:sciences/geography/glaciology']);
 
   const replay = await send('POST', '/api/proposals', { ...proposal, label: 'Ignored on replay' });
@@ -162,21 +172,63 @@ test('subscribers report progress; pending counts follow their schemes and holds
   assert.equal((await send('GET', '/api/subscribers/nobody')).status, 404);
 });
 
+test('proposals copy a source from another scheme, and refuse a second close match among siblings', async t => {
+  const { store, category } = subjects(t);
+  const { oceans, karst } = reference(store);
+  const { send } = await serve(t, store);
+  const propose = (body: Record<string, unknown>) => send('POST', '/api/proposals',
+    { scheme: 'cc-subjects', broader: 'geography', proposer: 'agent:test', ...body });
+
+  const missing = await propose({ label: 'Karst' });
+  assert.deepEqual([missing.status, /search_terms/.test(missing.body.error)], [422, true]);
+  const copied = await propose({ source: karst.id, match: 'broadMatch' });
+  assert.deepEqual([copied.status, copied.body.term.label, copied.body.slug, copied.body.term.links],
+    [201, 'Karst', 'karst', [{ uri: karst.sourceUri, match: 'broadMatch' }]]);
+  assert.equal((await propose({ label: 'Oceans', source: oceans.sourceUri })).body.term.proposal.source.id, oceans.id);
+
+  // A close match to the same source is a duplicate among siblings, but not under another parent.
+  const linked = await propose({ label: 'Marine Science', source: 'GC1-1581' });
+  assert.deepEqual([linked.status, linked.body.reason, linked.body.existing.label], [409, 'linked', 'Oceans']);
+  assert.equal((await propose({ label: 'Marine Science', source: 'GC1-1581', match: 'broadMatch' })).status, 201);
+  assert.equal((await propose({ label: 'Ocean Life', source: 'GC1-1581', broader: 'sciences' })).status, 201);
+  // An exact match claims equivalence, so it is unique across the scheme.
+  assert.equal((await propose({ label: 'Limestone', source: 'GB600', match: 'exactMatch', broader: 'sciences' })).status, 201);
+  const exact = await propose({ label: 'Karst Landforms', source: 'GB600', match: 'exactMatch', broader: 'humanities' });
+  assert.deepEqual([exact.status, exact.body.reason], [409, 'linked']);
+
+  assert.equal((await propose({ label: 'Lakes', source: category.id })).status, 422);
+  assert.equal((await propose({ label: 'Lakes', source: 'GB600', sourceScheme: 'cc-subjects' })).status, 422);
+  assert.equal((await propose({ label: 'Lakes', source: 'GB9999' })).status, 404);
+  store.addScheme({ id: 'other', label: 'Other', hierarchy: 'poly' });
+  const twin = store.addTerm({ scheme: 'other', label: 'Lakes', notations: [{ value: 'GB600' }] });
+  const ambiguous = await propose({ label: 'Lakes', source: 'GB600' });
+  assert.deepEqual([ambiguous.status, ambiguous.body.reason, ambiguous.body.candidates.map((c: { id: string }) => c.id).sort()],
+    [409, 'ambiguous', [karst.id, twin.id].sort()]);
+  assert.equal((await propose({ label: 'Lakes', source: 'GB600', sourceScheme: 'other', match: 'relatedMatch' })).body.term.links[0].uri,
+    `urn:terminology-mcp:term:${twin.id}`);
+  store.operate(twin.id, { kind: 'retire', replacements: [], expectedVersion: store.version });
+  assert.equal((await propose({ label: 'Ponds', source: twin.id })).status, 422);
+});
+
 test('MCP propose_term and list_subscribers', async t => {
   const { store } = subjects(t);
+  const { oceans } = reference(store);
   const { origin } = await serve(t, store);
   const client = new Client({ name: 'test', version: '1' }); t.after(() => client.close());
   await client.connect(new StreamableHTTPClientTransport(new URL(origin + '/mcp')));
   const proposed = await client.callTool({ name: 'propose_term', arguments: {
-    scheme: 'cc-subjects', label: 'Oceanography', broader: 'geography', proposer: 'agent:test', requestId: 'x' } });
+    scheme: 'cc-subjects', source: 'GC1-1581', broader: 'geography', proposer: 'agent:test', requestId: 'x' } });
   assert.ok(!proposed.isError, JSON.stringify(proposed));
   const result = proposed.structuredContent as { id: string; slug: string; status: string };
   assert.deepEqual([result.slug, result.status], ['oceanography', 'provisional']);
   assert.equal(store.changes(store.version - 1)[0].author, 'agent:test');
   const duplicate = await client.callTool({ name: 'propose_term', arguments: {
-    scheme: 'cc-subjects', label: 'Oceanography', broader: 'geography', proposer: 'agent:other' } });
+    scheme: 'cc-subjects', source: oceans.id, match: 'broadMatch', broader: 'geography', proposer: 'agent:other' } });
   assert.equal(duplicate.isError, true);
   assert.match(JSON.stringify(duplicate.content), new RegExp(result.id));
+  const found = await client.callTool({ name: 'search_terms', arguments: { query: 'ocean', excludeScheme: 'cc-subjects' } });
+  assert.deepEqual((found.structuredContent as { items: { id: string; iri: string }[] }).items.map(item => [item.id, item.iri]),
+    [[oceans.id, oceans.sourceUri]]);
   store.reportProgress('concept-clusters', { log: store.logId, through: 1 });
   const listed = await client.callTool({ name: 'list_subscribers', arguments: {} });
   const subscribers = (listed.structuredContent as { subscribers: { id: string; pending: number }[] }).subscribers;

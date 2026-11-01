@@ -76,7 +76,7 @@ arguments. Unknown versions, schemes and sets produce explicit errors.
 | Tool | Purpose |
 |---|---|
 | `list_schemes` | List scheme definitions with their declared structure. |
-| `search_terms` | Browse/search labels, alternative labels, notation values, aliases and source IRIs. Filter by scheme, expanded set and/or status. |
+| `search_terms` | Browse/search labels, alternative labels, notation values, aliases and source IRIs. Filter by scheme (or `excludeScheme`), expanded set and/or status. Each hit carries its `iri`. |
 | `get_term` | Resolve a stable ID or exact alias; return fields, replacements and connections in all four directions. |
 | `get_graph` | Active nodes and typed edges within a scheme, set or neighbourhood. Supports `around`, `depth` (0–5) and `types`. |
 | `list_sets` | List collection definitions, optionally within a scheme. |
@@ -88,7 +88,7 @@ arguments. Unknown versions, schemes and sets produce explicit errors.
 | `get_changes` | Read change summaries after `since`, optionally filtered by stable term ID or by `scheme`. Request full revision bodies with `includeSnapshots: true`. |
 | `export_skos` | Export a scheme and its collections as Turtle, preserving notations, mappings and collection definitions. |
 | `list_subscribers` | Each consumer's reported progress through the changelog, what is pending for its schemes (and how much of it is breaking), and any change it is held at. |
-| `propose_term` | Add a provisional term under an existing broader term (ID, alias or slug), with a server-minted slug. See [proposals](following-changes.md#proposing-terms). |
+| `propose_term` | Add a provisional term under an existing broader term (ID, alias or slug), copied from a `source` term in a reference vocabulary and linked to it with `match`. Find the source with `search_terms` first. See [proposals](following-changes.md#proposing-terms). |
 
 Search uses case-insensitive NFKC-normalized substring matching, without
 fuzzy matching or full-text syntax. It includes active and provisional terms
@@ -124,8 +124,8 @@ For changelog catch-up, call `get_changes` with your saved `since` cursor.
 Keep its `version` as `at` and continue with `nextSince` until null. Once
 complete, record `version` as your new cursor, including when a term filter
 matched no changes. Save the returned `log` with it: a different `log` means
-the store was rebuilt, so bootstrap again instead of resuming. This is a read cursor only; subscriber registration,
-notifications, usage intake and proposals remain planned. See
+the store was rebuilt, so bootstrap again instead of resuming. Report how far you got with the REST progress endpoint; notifications and
+usage intake remain planned. See
 [following changes](following-changes.md) for applying what the log returns.
 
 Change summaries contain the change number, kind, affected term/set IDs,

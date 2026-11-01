@@ -68,13 +68,20 @@ export type Scheme = z.infer<typeof schemeSchema> & { created: number };
 export type CreateTerm = z.infer<typeof createTermSchema>;
 export type EditTerm = z.infer<typeof editTermSchema>;
 const evidenceSchema = z.record(z.string(), z.unknown()).refine(value => JSON.stringify(value).length <= 4096, 'Evidence is limited to 4 KiB of JSON.');
-export type Proposal = { proposer: string; evidence?: Record<string, unknown>; requestId?: string };
+export type Match = z.infer<typeof linkSchema>['match'];
+export type ProposalSource = { id: string; scheme: string; uri: string; label: string; match: Match };
+export type Proposal = { proposer: string; evidence?: Record<string, unknown>; requestId?: string; source?: ProposalSource };
+/** A term's public IRI: its source IRI, else an http(s) alias, else its URN. */
+export const termIri = (term: { id: string; sourceUri?: string; aliases: string[] }) =>
+  term.sourceUri ?? term.aliases.find(alias => /^https?:\/\//.test(alias)) ?? `urn:terminology-mcp:term:${term.id}`;
 export type Term = Omit<CreateTerm, 'status' | 'slug'> & {
   status: 'provisional' | 'active' | 'retired'; replacedBy: string[]; slug: string; formerSlugs: string[];
   id: string; created: number; changed: number; proposal?: Proposal;
 };
 export const proposeTermSchema = z.object({
-  scheme: id, label: text, broader: z.string().min(1).max(2000),
+  scheme: id, label: text.optional(), broader: z.string().min(1).max(2000),
+  source: z.string().trim().min(1).max(2000).optional(), sourceScheme: id.optional(),
+  match: linkSchema.shape.match.default('closeMatch'),
   altLabels: fields.altLabels, scopeNote: fields.scopeNote, slug: slugSchema.optional(),
   proposer: text.optional(), evidence: evidenceSchema.optional(), requestId: z.string().trim().min(1).max(200).optional(),
 }).strict();

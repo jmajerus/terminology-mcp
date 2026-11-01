@@ -1,6 +1,6 @@
 import { Parser, Writer, Store as RdfStore, DataFactory, type Quad, type Term as RdfTerm } from 'n3';
 import { z } from 'zod';
-import { DomainError, iriSchema, importPlanSchema, type ImportPlan, type Notation } from './model.js';
+import { DomainError, iriSchema, importPlanSchema, termIri as publicIri, type ImportPlan, type Notation } from './model.js';
 import type { Store } from './store.js';
 import { readCollections } from './collections.js';
 import { analyseStructure } from './import-structure.js';
@@ -164,7 +164,7 @@ export async function exportSkos(store: Store, schemeId: string, at?: number): P
   const termIri = (id: string) => {
     const term = all.find(term => term.id === id);
     if (!term) throw new DomainError(422, 'Missing referenced term.');
-    return nn(term.sourceUri ?? `urn:terminology-mcp:term:${term.id}`);
+    return nn(publicIri(term));
   };
   const subject = nn(scheme.sourceUri ?? `urn:terminology-mcp:scheme:${scheme.id}`);
   const quads: Quad[] = [];

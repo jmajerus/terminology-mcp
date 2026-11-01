@@ -77,12 +77,14 @@ test('Access callers are named by their verified identity when proposing', async
   const store = new Store(':memory:');
   store.addScheme({ id: 'subjects', label: 'Subjects', hierarchy: 'tree' });
   store.addTerm({ scheme: 'subjects', label: 'Sciences' });
+  store.addScheme({ id: 'reference', label: 'Reference', hierarchy: 'poly' });
+  store.addTerm({ scheme: 'reference', label: 'Geography', notations: [{ value: 'G1' }] });
   const server = createApp(store, { origins: ['http://public.example'], access: config, accessKeys: keys });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); store.close(); });
   const response = await fetch('http://127.0.0.1:' + (server.address() as AddressInfo).port + '/api/proposals', { method: 'POST',
     headers: { Host: 'public.example', 'cf-ray': 'test', 'Content-Type': 'application/json', 'cf-access-jwt-assertion': await token() },
-    body: JSON.stringify({ scheme: 'subjects', label: 'Geography', broader: 'sciences', proposer: 'someone-else' }) });
+    body: JSON.stringify({ scheme: 'subjects', source: 'G1', broader: 'sciences', proposer: 'someone-else' }) });
   assert.equal(response.status, 201);
   assert.equal(store.changes(store.version - 1)[0].author, 'owner@example.com');
   assert.equal(store.lookup((await response.json()).id).proposal?.proposer, 'owner@example.com');

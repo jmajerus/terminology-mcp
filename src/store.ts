@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, uniqueNotations, DomainError,
-  conceptSetSchema, pathLabel as slug, slugify, slugSchema, proposeTermSchema, schemeSettingsSchema, progressSchema,
+  conceptSetSchema, pathLabel as slug, slugify, slugSchema, proposeTermSchema, schemeSettingsSchema, progressSchema, termIri,
   type ConceptSet, type Scheme, type Term, type TermView, type Change, type Subscriber } from './model.js';
 
 const setReferences = (set: Pick<ConceptSet, 'members' | 'recipe'>) => [...set.members,
@@ -568,11 +568,17 @@ export class Store {
       this.scheme(data.scheme);
       const parent = this.resolveRef(data.scheme, data.broader);
       if (parent.status === 'retired') throw new DomainError(422, 'Propose terms under an active or provisional term.');
+      if (!data.source) throw new DomainError(422, 'Pass source: search a reference vocabulary first (search_terms with scheme '
+        + 'loc-classification, or excludeScheme set to the target scheme). If nothing fits even broadly, leave the addition to a person in the editor.');
+      const origin = this.resolveSource(data.scheme, data.source, data.sourceScheme);
+      const label = data.label ?? origin.label;
+      if (label.length > 200) throw new DomainError(422, 'The source label is longer than 200 characters. Pass a shorter label.');
+      const source = { id: origin.id, scheme: origin.scheme, uri: termIri(origin), label: origin.label, match: data.match };
       const n = this.version + 1;
-      const term: Term = { scheme: data.scheme, label: data.label, altLabels: [...new Set(data.altLabels)], scopeNote: data.scopeNote,
-        broader: [parent.id], notations: [], relations: [], links: [], aliases: [], status: 'provisional', replacedBy: [],
-        slug: data.slug ?? slugify(data.label), formerSlugs: [], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n,
-        proposal: { proposer, ...(data.evidence ? { evidence: data.evidence } : {}), ...(data.requestId ? { requestId: data.requestId } : {}) } };
+      const term: Term = { scheme: data.scheme, label, altLabels: [...new Set(data.altLabels)], scopeNote: data.scopeNote,
+        broader: [parent.id], notations: [], relations: [], links: [{ uri: source.uri, match: source.match }], aliases: [], status: 'provisional', replacedBy: [],
+        slug: data.slug ?? slugify(label), formerSlugs: [], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n,
+        proposal: { proposer, ...(data.evidence ? { evidence: data.evidence } : {}), ...(data.requestId ? { requestId: data.requestId } : {}), source } };
       const scopes = this.slugScopes([...terms, term]), mine = new Set(scopes.get(term.id));
       const clashes = terms.filter(other => other.scheme === term.scheme && (
         (other.broader.includes(parent.id) && slug(other.label) === slug(term.label)) ||
@@ -586,6 +592,13 @@ export class Store {
         { reason: retired ? 'retired' : 'duplicate', existing: { id: existing.id, slug: existing.slug, label: existing.label,
           status: existing.status, replacedBy: existing.replacedBy } });
       }
+      // Close and exact matches claim the same concept, so they must be unique among siblings; exact matches scheme-wide.
+      const claims = (other: Term, matches: string[]) => other.links.some(link => link.uri === source.uri && matches.includes(link.match));
+      const linked = source.match === 'closeMatch' || source.match === 'exactMatch' ? terms.find(other => other.scheme === term.scheme
+        && other.status !== 'retired' && ((other.broader.includes(parent.id) && claims(other, ['closeMatch', 'exactMatch']))
+          || (source.match === 'exactMatch' && claims(other, ['exactMatch'])))) : undefined;
+      if (linked) throw new DomainError(409, `“${linked.label}” already matches ${source.uri}. Use it, or link with a broader, narrower or related match.`,
+        { reason: 'linked', existing: { id: linked.id, slug: linked.slug, label: linked.label, status: linked.status, replacedBy: linked.replacedBy } });
       this.validateTerm(term);
       const alias = this.pathAlias(term);
       if (alias) term.aliases = [alias];
@@ -598,6 +611,29 @@ export class Store {
   private proposalResult(term: Term) {
     const view = this.lookup(term.id);
     return { id: view.id, slug: view.slug, status: view.status, change: term.created, version: this.version, term: view };
+  }
+  /**
+   * Resolves a proposal's source in another scheme by stable ID, alias, IRI, then notation; the first kind of
+   * reference that matches decides. Several matches are ambiguous.
+   */
+  private resolveSource(target: string, ref: string, scheme?: string): TermView {
+    if (scheme === target) throw new DomainError(422, 'The source must be in another scheme.');
+    if (scheme) this.scheme(scheme);
+    const terms = this.terms().filter(term => !scheme || term.scheme === scheme);
+    const tests: ((term: TermView) => boolean)[] = [term => term.id === ref, term => term.aliases.includes(ref),
+      term => term.sourceUri === ref || termIri(term) === ref, term => term.notations.some(notation => notation.value === ref)];
+    for (const test of tests) {
+      const found = terms.filter(test);
+      if (!found.length) continue;
+      const candidates = found.filter(term => term.scheme !== target);
+      if (!candidates.length) throw new DomainError(422, 'The source must be in another scheme.');
+      if (candidates.length > 1) throw new DomainError(409, 'The source matches several terms. Pass a stable ID or sourceScheme.', { reason: 'ambiguous',
+        candidates: candidates.map(term => ({ id: term.id, scheme: term.scheme, label: term.label, notations: term.notations.map(notation => notation.value), uri: termIri(term) })) });
+      const [source] = candidates;
+      if (source.status === 'retired') throw new DomainError(422, 'The source is retired. Use one of its replacements.', { replacedBy: source.replacedBy });
+      return source;
+    }
+    throw new DomainError(404, 'Source term not found.');
   }
   /** Resolves a term reference within a scheme: a stable ID, an alias, or a current or former slug. */
   private resolveRef(scheme: string, ref: string): TermView {

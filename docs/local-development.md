@@ -122,7 +122,7 @@ conflicts 409, and missing resources 404, with `{ "error": "…" }` bodies.
 | GET | `/api/schemes/:id/slugs/:slug?parent=REF&depth=D&at=N` | Resolve a current or former slug; `parent` (ID, alias or slug) or `depth` narrows it |
 | POST | `/api/schemes` | Create `{id, label, hierarchy, description?, admissionTest?, slugUniqueDepths?, maxDepth?}` |
 | PATCH | `/api/schemes/:id` | Change settings `{maxDepth, expectedVersion}`; `maxDepth: null` removes the limit |
-| POST | `/api/proposals` | Propose a provisional term `{scheme, label, broader, proposer, scopeNote?, altLabels?, slug?, evidence?, requestId?}` |
+| POST | `/api/proposals` | Propose a provisional term `{scheme, broader, source, sourceScheme?, match?, label?, proposer, scopeNote?, altLabels?, slug?, evidence?, requestId?}`, copied from a term in another scheme |
 | POST | `/api/subscribers/:id/progress` | Report `{log, through, schemes?, label?, blocked?, reset?}` |
 | GET | `/api/subscribers`, `/api/subscribers/:id` | Each subscriber's progress, pending changes and hold |
 | POST | `/api/terms` | Create `{scheme, label, broader?, altLabels?, scopeNote?, status?, relations?, links?, aliases?, slug?}` |

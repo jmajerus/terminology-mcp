@@ -112,19 +112,39 @@ subscriber with `through`, `head`, `pending`, `pendingBreaking`,
 
 ## Proposing terms
 
+Every proposed term is copied from a term in a reference vocabulary, so it
+carries its provenance. Find the source first, for example with the MCP
+`search_terms` tool (`scheme: "loc-classification"`, or
+`excludeScheme: "cc-subjects"`), which returns each hit's `iri` and
+notations. If nothing fits even broadly, leave the addition to a person in
+the editor, where a source is optional.
+
 ```
 POST /api/proposals
-{"scheme": "cc-subjects", "label": "Glaciology", "broader": "geography",
- "proposer": "concept-clusters:authoring", "evidence": {"draftId": "d-17"}, "requestId": "d-17"}
+{"scheme": "cc-subjects", "broader": "geography", "source": "GB2401-2598", "match": "closeMatch",
+ "label": "Glaciology", "proposer": "concept-clusters:authoring", "evidence": {"draftId": "d-17"}, "requestId": "d-17"}
 ```
 
 A proposal is created at once as a `provisional` term, so it can be used
 straight away. The answer (201) carries `id`, `slug`, `status`, `change` (its
-change number) and the full `term`. `broader` is a stable ID, an alias or a
-slug in that scheme. The slug is minted from the label, or taken from `slug`
-if given. The change is an ordinary `added`, with `author` set to the
-proposer and a `proposal` field holding the proposer and evidence, so a
-subscriber applies it like any other addition.
+change number) and the full `term`.
+
+- `broader` is a stable ID, an alias or a slug in the target scheme.
+- `source` names one term in another scheme by stable ID, alias, IRI or
+  notation, tried in that order. `sourceScheme` narrows it to one scheme
+  when a notation repeats.
+- `match` says how the new term relates to the source: `closeMatch` (the
+  default), `broadMatch` (the source is wider, common with the LCC
+  excerpt), `narrowMatch`, `exactMatch` or `relatedMatch`.
+- `label` defaults to the source's label; override it when the wording
+  should differ. The slug is minted from the label, or taken from `slug`.
+
+The new term links to the source's IRI (its source IRI, else an http(s)
+alias, else `urn:terminology-mcp:term:<id>`) with that match. The change is
+an ordinary `added`, with `author` set to the proposer and a `proposal`
+field holding the proposer, evidence and
+`source: {id, scheme, uri, label, match}`, so a subscriber applies it like any
+other addition.
 
 - **Retries:** the same proposer and `requestId` return the original term
   (200, `replayed: true`) instead of a duplicate.
@@ -134,6 +154,13 @@ subscriber applies it like any other addition.
   (`duplicate`, or `retired` for a retired match) and
   `existing: {id, slug, label, status, replacedBy}`. Use the existing term,
   or propose a different `slug`.
+- **Already linked:** a sibling with a `closeMatch` or `exactMatch` to the
+  same source refuses a new close or exact match, and an `exactMatch` is
+  unique across the scheme. Both are a 409 with `reason: "linked"` and
+  `existing`. Broad, narrow and related matches to one source are allowed.
+- **Source:** no `source` is 422, with a hint to search first. A source that
+  isn't found is 404; several matches are a 409 with `reason: "ambiguous"`
+  and `candidates`; a source in the target scheme, or a retired one, is 422.
 - **Depth:** a proposal deeper than the scheme's maximum depth is 422.
   `cc-subjects` allows depth 2, so subcategories can't have narrower terms.
 - **Who:** on the LAN the caller names the `proposer`. Through Cloudflare
