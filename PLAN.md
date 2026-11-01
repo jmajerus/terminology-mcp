@@ -157,7 +157,9 @@ subscriber registration, usage, gates and proposals are next. See
 **Public read-only update (2026-11-01):** with `TERMINOLOGY_PUBLIC_READ=1` and
 an Access Bypass policy, visitors browse the vocabulary read-only (emails
 redacted; writes, `/mcp` and subscribers refused), and **Sign in to edit**
-goes through Access. A sandboxed playground instance that anyone can edit,
+goes through Access. Editing controls stay in place, greyed out. Live at
+[vocabulary.majerus.us](https://vocabulary.majerus.us); the repository is
+public. A sandboxed playground instance that anyone can edit,
 with caps and a nightly reset, is next.
 
 **Proposal provenance update (2026-11-01):** every proposal now names a
@@ -221,10 +223,13 @@ should show for a deeper one).
   `scopeNote`, `status`, `broader[]` (one in a tree scheme), `relations[]`
   (`{type, target}`; only `related` may target another scheme), `links[]`,
   `aliases[]`, `slug`, `formerSlugs[]`, `replacedBy[]`, `sourceUri`,
-  `created`/`changed` (changelog numbers).
+  `source` (the term in another scheme it was copied from:
+  `{id, scheme, uri, label, match}`), `proposal` (proposer, evidence,
+  requestId, source), `created`/`changed` (changelog numbers).
   Derived: `path` (tree schemes), `depth`, `narrower[]`, usage counts.
 - **Scheme**: `id`, `label`, `description`, `hierarchy`, top terms,
-  admission test text. The top terms of `cc-subjects` are CC's domains.
+  admission test text, `slugUniqueDepths`, `maxDepth` (versioned: each change
+  is a `scheme-changed` revision). The top terms of `cc-subjects` are CC's domains.
 - **Concept set**: `id`, `slug`, `label`, `description`, `owner`
   (a subscriber or the editor), `kind` (`theme`, `profile`, `map-view`),
   and either `members[]` or a recipe. Every set is in one scheme.
@@ -232,10 +237,12 @@ should show for a deeper one).
   `{from, to, equivalence, note}`.
 - **Change**: `n`, `kind` (`scheme-added`, `imported`, `added`,
   `labelled`, `noted`, `updated`, `moved`, `merged`, `split`, `retired`,
-  `slugged`, `set-added`, `set-changed`, `set-deleted`; relation edits are
-  `updated`), `terms`, before/after with snapshots of every affected term
-  and set, `breaking`, `author`, `reason`, `at`. Proposals (planned) are
-  changes with no `n` yet.
+  `slugged`, `scheme-changed`, `set-added`, `set-changed`, `set-deleted`;
+  relation edits are `updated`), `terms`, before/after with snapshots of
+  every affected term and set, `breaking`, `author`, `reason`, `at`, and
+  `proposal` when it came from one. A proposal is an ordinary `added` change
+  creating a provisional term; `propose_change` (planned) would be a change
+  with no `n` yet.
 - **Subscriber**: `id`, `label`, `schemes`, `through` (its cursor), `blocked`
   (a hold with `code` and `reason`), `lastSeen`; still planned: `usage` (term id → counts by kind),
   `gates` (change kinds it answers), `hold` (a lease, when set).
@@ -250,11 +257,14 @@ should show for a deeper one).
   `propose_change` (planned). Agents propose; only the editor applies
   breaking changes.
 - **Exports**: SKOS Turtle per scheme (done; JSON-LD not yet); a snapshot
-  file for consumers that can't reach the LAN (CC's public site, CI).
+  file for consumers that can't reach the server at all (CC's public site,
+  CI). With public read on, consumers off the LAN can already read the API
+  without credentials.
 - **Editor**: two pages, below, plus a concept-graph explorer.
 
 Same stack as corpus-mcp and quote-mcp: TypeScript, better-sqlite3, the MCP
-SDK, zod, Access JWTs (`jose`). Runs on the LAN behind Access.
+SDK, zod, Access JWTs (`jose`). Runs on the LAN behind Access, with an
+optional public read-only view.
 
 ## The editor
 

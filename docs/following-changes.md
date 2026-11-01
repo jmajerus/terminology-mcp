@@ -6,6 +6,40 @@ The consumer keeps its own cursor and reports its progress back, so the editor
 shows how far each one has got. Usage reports, gates and leases are planned
 (see [PLAN.md](../PLAN.md)); everything below works today.
 
+## Reaching the server
+
+| From | Reads (`GET`) | Progress reports, proposals, MCP |
+| --- | --- | --- |
+| The LAN, naming the LAN host (`http://terminology-mcp.localdomain:8000`) | Open | Open; the caller names itself |
+| The public hostname, signed out (needs `TERMINOLOGY_PUBLIC_READ`) | Open | Refused with 401 |
+| The public hostname with an Access identity | Open | Allowed; the verified email or subject names the caller |
+
+A consumer off the LAN can therefore follow the changelog without
+credentials when public read is on. To report progress or propose terms, it
+needs an Access identity that names a user. Cloudflare Access service tokens
+aren't accepted yet: their assertions carry no subject, which the server
+requires. Until that changes, report from the LAN. Signed-out reads see email addresses, such as change authors and
+proposers, as "an editor"; nothing else in the data differs. See
+[deployment](deployment.md#public-read-only) for the setup.
+
+## A subscriber's loop
+
+1. **Bootstrap** once: read the state, store the terms, save `log` and
+   `version` as the cursor, and report `through` = `version`.
+2. **Each tick**, read the changes since the cursor for your schemes.
+   - If `log` changed, the store was rebuilt: bootstrap again and report with
+     `reset: true`.
+   - Otherwise apply the changes in order, stopping at the first one you
+     won't apply on your own.
+3. **Report**: `through` is the last change you applied, plus `blocked` if
+   you stopped at one. Report when the cursor or the hold changes, and as a
+   heartbeat every few minutes.
+4. **Resume** after the owner deals with the hold, for example by reverting
+   the change or coordinating it with you. The next report without
+   `blocked` clears the hold.
+
+The sections below cover each step.
+
 ## Bootstrap
 
 ```
@@ -45,7 +79,10 @@ Changes to existing terms, and imports, also carry `beforeTerms` and
 renamed term and the children reparented by a merge. Set changes carry
 `beforeSets` and `afterSets`. Replacing each local term with its
 `afterTerms` snapshot (or `after` for an `added` term) is enough to stay
-correct; the kind says why it changed.
+correct; the kind says why it changed. An `added` term copied from another
+vocabulary carries `source: {id, scheme, uri, label, match}` and the matching
+link; a proposed one also carries `proposal`. A consumer that doesn't use
+them can ignore both.
 
 | Kind | Meaning | Breaking |
 | --- | --- | --- |
@@ -94,8 +131,23 @@ When the subscriber stops at a change it won't apply on its own, it says so:
 
 `code` is free text for grouping (Concept Clusters sends `slug-change`,
 `subcategory-move`, `depth-change`, `split` or `retire-ambiguous`). A later
-report without `blocked` clears it. The editor's **Subscribers** panel shows
-each hold, and the outline marks the terms a subscriber hasn't applied yet.
+report without `blocked` clears it.
+
+### What the owner sees
+
+- The editor's **Subscribers** panel, beside the changelog, lists each
+  subscriber with:
+  - how far it has got (`through #N`);
+  - how many changes in its schemes are still pending, and how many of
+    those are breaking;
+  - when it last reported;
+  - any hold, with its code and reason; **Held at #N** opens that change.
+- The outline marks each term with a change that some subscriber hasn't
+  applied yet. The **pending** mark's tooltip names those subscribers.
+- The panel shows only subscribers that have reported.
+
+Signed-out visitors on the public hostname don't see the panel, because
+`/api/subscribers` needs sign-in there.
 
 Refusals:
 - a `log` that isn't the store's is 409, with the current `log`;

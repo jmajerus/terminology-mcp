@@ -7,18 +7,25 @@ The master taxonomy server: one home for the subject terms and concepts that
 each in its own copy. Consumers key on stable term ids, follow a numbered
 changelog, and see what a change would break before it is applied.
 
+**See it live, read-only, at [vocabulary.majerus.us](https://vocabulary.majerus.us).**
+Browse Concept Clusters' subject tree (`cc-subjects`) and an excerpt of the
+Library of Congress Classification, explore the concept graph and sets, and
+read the changelog. Editing controls are visible but greyed out; editing
+needs the owner's sign-in.
+
 It borrows its model from FHIR terminology servers: code systems become
 **schemes**, value sets become **concept sets**, concept maps become
 **maps**, and the operations (`lookup`, `expand`, `validate`, `subsumes`,
 `translate`) keep their meaning. SKOS is the export format.
 
 **Status: taxonomy editor, concept sets and graphs, SKOS interchange, read-only
-MCP with term proposals, and a consumer changelog feed with progress reports
-implemented.** SQLite stores the vocabulary,
-deployed on the LAN behind Cloudflare Access for proxied requests. Concept
-Clusters' subjects tree is imported as `cc-subjects`, and Concept Clusters is
-the first consumer to follow its changelog. Usage reports, gates and
-`propose_change` are still planned. What exists:
+MCP with sourced term proposals, a consumer changelog feed with progress
+reports, and a public read-only view implemented.** SQLite stores the
+vocabulary. The server runs on the LAN; its public hostname is read-only to
+visitors, and editing, MCP and subscriber reports need Cloudflare Access.
+Concept Clusters' subjects tree is imported as `cc-subjects`, and Concept
+Clusters is the first consumer to follow its changelog. Usage reports, gates
+and `propose_change` are still planned. What exists:
 
 | | |
 |---|---|
@@ -31,8 +38,8 @@ the first consumer to follow its changelog. Usage reports, gates and
 | [docs/skos.md](docs/skos.md) | File/SPARQL scheme import, SKOS field mappings, export, and local Oxigraph integration test |
 | [docs/concept-sets.md](docs/concept-sets.md) | Explicit, ordered, nested and recipe sets; versioned expansion and SKOS collection interchange |
 | [docs/concept-graphs.md](docs/concept-graphs.md) | Create and import concept networks; graph explorer, typed edges, quote-mcp compatibility and graph APIs |
-| [docs/following-changes.md](docs/following-changes.md) | For consumers: bootstrap a scheme, follow the changelog, report progress and holds, propose terms, change kinds, slugs |
-| [docs/deployment.md](docs/deployment.md) | Deploying to the Debian LXC host, status checks, Access settings and rollback |
+| [docs/following-changes.md](docs/following-changes.md) | For consumers: reach the server, bootstrap a scheme, follow the changelog, report progress and holds, propose terms from a reference vocabulary, change kinds, slugs |
+| [docs/deployment.md](docs/deployment.md) | Deploying to the Debian LXC host, status checks, Access settings, public read-only mode and rollback |
 | [docs/mcp.md](docs/mcp.md) | Connect agents to the LAN MCP endpoint; term search/lookup, graphs, collections, validation, subsumption, SKOS and changelog tools |
 
 ## Run locally
@@ -63,7 +70,9 @@ npm start
 
 This uses `data/terminology.sqlite`. Create a scheme, add terms, and edit
 labels, alternative labels, scope notes, status, relations, and external
-references. Each term gets a stable slug from its first label; **Change slug…**
+references. **+ Narrower term** can copy a new term from another vocabulary:
+search it by label or code, and the new term takes its label and links to it,
+recording where it came from. Each term gets a stable slug from its first label; **Change slug…**
 alters it as a logged, breaking change. Saves survive restarts. Renames preserve old path aliases and
 show a review dialog; the changelog records each applied change. The UI
 also checks for conflicting edits from another tab.
@@ -119,9 +128,10 @@ import/export against Oxigraph using disposable source graphs and a test databas
 
 Done: holding the vocabularies, concept sets, the editor, SKOS export and
 import, the MCP tools, the changelog consumers follow with their reported
-progress, and term proposals. Still to come: usage-based impact, gates and
-leases, `propose_change`, roll-up, maps and `translate`, and a snapshot for
-consumers off the LAN.
+progress and holds, term proposals copied from reference vocabularies, and a
+public read-only view. Still to come: usage-based impact, gates and leases,
+`propose_change`, roll-up, maps and `translate`, and a snapshot file for
+consumers that can't reach the server at all.
 
 - **Hold the vocabularies.** Schemes of terms with opaque ids, labels,
   alternative labels, scope notes, status, links to Wikidata or LCSH, and
@@ -131,11 +141,19 @@ consumers off the LAN.
   (include around, narrower of, exclude), for themes, map views, and each
   consumer's profile of the depth it shows.
 - **Publish changes.** Every change is numbered in one changelog that
-  consumers follow from their own cursor. Planned: renames, moves, merges,
-  splits, and retirements show their impact on each subscriber first, and
-  subscribers can hold delivery or answer a gate.
+  consumers follow from their own cursor. Subscribers report how far they
+  have applied it and hold at a change they won't apply on their own; the
+  editor shows each one's pending and breaking changes and marks the terms
+  it hasn't caught up on. Planned: renames, moves, merges, splits, and
+  retirements show their impact on each subscriber's usage first, and
+  subscribers can answer a gate.
+- **Take proposals with provenance.** Consumers and agents propose new
+  terms, each copied from a term in a reference vocabulary such as the
+  Library of Congress Classification and linked to it. A proposal is usable
+  at once as a provisional term; the owner confirms, merges or retires it.
 - **Serve consumers and agents.** A REST API, an MCP server, SKOS exports,
-  and a snapshot for consumers off the LAN.
+  and a public read-only view; a snapshot file for consumers off the network
+  is planned.
 - **Edit.** A web editor with the whole tree in view, and a separate page
   for concept sets.
 

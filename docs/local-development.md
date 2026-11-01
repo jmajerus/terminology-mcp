@@ -227,7 +227,9 @@ versioned expansion, SKOS collections), [concept graphs](concept-graphs.md),
 is imported as `cc-subjects`.
 
 Subscribers report their progress and holds, and consumers and agents propose
-terms ([following changes](following-changes.md)). Still planned: usage
+terms copied from a reference vocabulary ([following changes](following-changes.md)).
+A public hostname can serve a read-only view
+([deployment](deployment.md#public-read-only)). Still planned: usage
 reports and impact counts, gates and holds as leases, `propose_change`,
 roll-up, and vocabulary maps with `translate`. SKOS mapping
 references are already available; they are distinct from the planned

@@ -13,7 +13,8 @@ The local endpoint is `http://127.0.0.1:8000/mcp`; the LAN deployment is
 `TERMINOLOGY_ORIGINS` setting must include any non-loopback hostname used by
 clients (see [deployment](deployment.md)). Direct LAN access remains available
 from private peers naming the service's LAN hostname/IP. Proxied and public-host
-requests require a verified Cloudflare Access assertion.
+requests require a verified Cloudflare Access assertion, except signed-out
+reads when the public hostname is in read-only mode.
 
 ## Access applications
 
@@ -36,9 +37,12 @@ team admits only the owner, so recreating or merging applications needs no
 change here. An invalid assertion never falls back to LAN access. Public hostnames
 or requests carrying Cloudflare headers cannot take the LAN bypass.
 
-The existing editor routes `/`, `/sets`, `/graph`, scripts/styles and `/api`
-must be included in the admin Access application's protection as well as the
-`/admin` alias. OAuth discovery must remain reachable by MCP clients. The
+Without public read, the editor routes `/`, `/sets`, `/graph`, scripts/styles
+and `/api` must be included in the admin Access application's protection as
+well as the `/admin` alias. With [public read](deployment.md#public-read-only)
+on, those routes sit behind a Bypass policy and only writes need an
+identity. `/mcp` needs one in both cases, because the server refuses signed-out
+MCP requests even when public read is on. OAuth discovery must remain reachable by MCP clients. The
 origin returns JSON errors rather than generating its own login page; use
 Cloudflare Managed OAuth for client sign-in. Configuration alone does not test
 the user's OAuth consent/callback flow.
