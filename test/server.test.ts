@@ -27,7 +27,7 @@ test('HTTP API supports empty setup, edits, historical reads, validation, and lo
   const html = await request('/');
   assert.equal(html.status, 200);
   assert.match(await html.text(), /Taxonomy editor/);
-  for (const asset of ['/app.js', '/style.css']) assert.equal((await request(asset)).status, 200);
+  for (const asset of ['/app.js', '/style.css', '/favicon.svg']) assert.equal((await request(asset)).status, 200);
   assert.equal((await request('/api/schemes', 'POST', { id: 'subjects', label: 'Subjects', hierarchy: 'tree' })).status, 201);
   const added = await request('/api/terms', 'POST', { scheme: 'subjects', label: 'Biology' });
   assert.equal(added.status, 201);

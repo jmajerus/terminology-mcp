@@ -207,6 +207,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
         '/graph': ['graph.html', 'text/html; charset=utf-8'],
         '/graph.js': ['graph.js', 'text/javascript; charset=utf-8'],
         '/style.css': ['style.css', 'text/css; charset=utf-8'],
+        '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
       };
       const asset = assets[url.pathname];
       if (!asset || !['GET', 'HEAD'].includes(req.method ?? '')) throw new DomainError(404, 'Page not found.');
