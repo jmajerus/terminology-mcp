@@ -155,6 +155,7 @@ function draw(ids,relations,levels) {
   };
   glide = requestAnimationFrame(frame);
  }
+ // Repaints at the nodes' current positions and records them; it also serves as the simulation's tick listener.
  drag(svg,groups,nodes,() => { paint(n => n); for (const n of nodes) placed.set(n.id,{x:n.x,y:n.y}); });
 }
 // The force layout can be turned off to arrange concepts by hand, for example for a screenshot. The choice is
@@ -221,7 +222,7 @@ function zoomBy(factor,at) {
 // Dragging pins a node under the pointer while the simulation re-settles the rest. It stays where it's dropped until
 // the next refocus, and a drag doesn't count as a click.
 let dragged = false;
-function drag(svg,groups,nodes,paint) {
+function drag(svg,groups,nodes,repaint) {
  groups.forEach((g,i) => g.addEventListener('pointerdown',event => {
   if (event.button !== 0) return;
   const n = nodes[i], point = e => new DOMPoint(e.clientX,e.clientY).matrixTransform(svg.getScreenCTM().inverse()), origin = point(event);
@@ -230,9 +231,9 @@ function drag(svg,groups,nodes,paint) {
   const move = e => {
    const p = point(e);
    if (!moved && Math.hypot(p.x-origin.x,p.y-origin.y) < 4) return;
-   if (!moved) { moved = true; cancelAnimationFrame(glide); if (forceLayout()) simulation.on('tick',paint).alphaTarget(0.3).restart(); }
+   if (!moved) { moved = true; cancelAnimationFrame(glide); if (forceLayout()) simulation.on('tick',repaint).alphaTarget(0.3).restart(); }
    n.fx = p.x; n.fy = p.y;
-   if (!forceLayout()) { n.x = p.x; n.y = p.y; paint(); }
+   if (!forceLayout()) { n.x = p.x; n.y = p.y; repaint(); }
   };
   const up = () => {
    g.removeEventListener('pointermove',move); g.removeEventListener('pointerup',up); g.removeEventListener('pointercancel',up);
