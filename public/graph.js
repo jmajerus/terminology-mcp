@@ -1,4 +1,5 @@
 import './viewer.js';
+import { exportGraph } from './graph-export.js';
 
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
@@ -56,11 +57,7 @@ function render() {
   for (const id of frontier) for (const e of graph.relations) if (e.from === id && allowed.has(e.type) && !levels.has(e.to)) { levels.set(e.to,depth); next.push(e.to); }
   frontier = next;
  }
- const all = [...levels.keys()], visible = all.slice(0,150), keep = new Set(visible), positions = new Map([[selected,{x:0,y:0}]]);
- for (let depth = 1; depth <= Number($('#graph-depth').value); depth++) {
-  const ring = visible.filter(id => levels.get(id) === depth), radius = 165 + (depth - 1) * 80;
-  ring.forEach((id,i) => { const angle = 2*Math.PI*i/ring.length - Math.PI/2; positions.set(id,{x:radius*Math.cos(angle)*1.35,y:radius*Math.sin(angle)}); });
- }
+ const all = [...levels.keys()], visible = all.slice(0,150), keep = new Set(visible);
  const edges = new Map();
  for (const edge of graph.relations) if (allowed.has(edge.type) && keep.has(edge.from) && keep.has(edge.to)) {
   const e = edge.type === 'narrower' ? {from:edge.to,to:edge.from,type:'broader'} : edge;
@@ -68,8 +65,185 @@ function render() {
   edges.set(`${e.type}:${pair.join(':')}`,e);
  }
  $('#graph-size').textContent = `${graph.concepts.length} concepts in scheme · ${visible.length} shown${all.length > visible.length ? ` of ${all.length} in this neighbourhood; reduce depth to see labels clearly` : ''}`;
- $('#graph-map').innerHTML = `<defs><marker id="graph-arrow" markerWidth="9" markerHeight="9" refX="19" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9" fill="#829082"/></marker></defs>${[...edges.values()].map(e => { const a=positions.get(e.from), b=positions.get(e.to); return `<line class="graph-edge ${e.type}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" ${e.type === 'broader' ? 'marker-end="url(#graph-arrow)"' : ''}><title>${escape(node(e.from)?.label)} ${escape(e.type)} ${escape(node(e.to)?.label)}</title></line>`; }).join('')}${visible.map(id => { const p=positions.get(id), c=node(id); return `<g class="graph-node ${id === selected ? 'focus' : ''}" transform="translate(${p.x},${p.y})" tabindex="0" role="button" aria-label="${escape(c.label)}" data-focus="${escape(id)}"><title>${escape(c.label)}</title><circle r="${id === selected ? 18 : 11}"/><text y="${id === selected ? 36 : 29}" text-anchor="middle">${escape(c.label.length > 30 ? c.label.slice(0,29)+'…' : c.label)}</text></g>`; }).join('')}`;
+ draw(visible,[...edges.values()],levels);
 }
+// Force-directed layout: the focus stays at the centre, each depth is drawn toward its own ring, and links, repulsion
+// and label-sized collision untangle the rest. The layout is settled before drawing, then the view glides to it from
+// the previous positions; dragging a node re-settles the graph live around it.
+let simulation = null, placed = new Map(), view = null, fitted = null, glide = 0, drawn = null;
+const shortLabel = c => c.label.length > 30 ? c.label.slice(0,29)+'…' : c.label;
+function draw(ids,relations,levels) {
+ simulation?.stop(); cancelAnimationFrame(glide);
+ const svg = $('#graph-map'), reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+ const nodes = ids.map(id => ({id,depth:levels.get(id),width:shortLabel(node(id)).length*7+16}));
+ const byId = new Map(nodes.map(n => [n.id,n])), links = relations.map(e => ({source:e.from,target:e.to,type:e.type}));
+ // Start from a radial tree, each branch given a sector sized by the concepts under it, so the forces refine an
+ // untangled arrangement. Concepts drawn before keep their place, shifted so the new focus sits at the centre.
+ const shift = placed.get(selected) ?? {x:0,y:0}, children = new Map(nodes.map(n => [n.id,[]]));
+ for (const n of nodes.slice(1)) {
+  const parent = relations.map(e => e.from === n.id ? e.to : e.to === n.id ? e.from : null).find(id => byId.get(id)?.depth === n.depth-1);
+  children.get(parent ?? selected).push(n.id);
+ }
+ const leaves = id => children.get(id).length ? children.get(id).reduce((sum,child) => sum+leaves(child),0) : 1, angles = new Map();
+ const sector = (id,from,to) => {
+  angles.set(id,(from+to)/2); let at = from;
+  for (const child of children.get(id)) { const span = (to-from)*leaves(child)/leaves(id); sector(child,at,at+span); at += span; }
+ };
+ sector(selected,-Math.PI/2,Math.PI*1.5);
+ // With the force layout off, a concept new to the drawing fans out from its parent's actual place; the forces
+ // untangle better from the tree's sectors, so they keep those.
+ const parentOf = new Map([...children].flatMap(([parent,ids]) => ids.map(id => [id,parent]))), placedHere = new Set();
+ for (const n of nodes) {
+  const known = placed.get(n.id), parent = byId.get(parentOf.get(n.id)), a = angles.get(n.id) ?? 0;
+  if (known) { Object.assign(n,{x:known.x-shift.x,y:known.y-shift.y}); placedHere.add(n.id); }
+  else if (!forceLayout() && parent && parent.id !== selected && placedHere.has(parent.id)) {
+   const siblings = children.get(parent.id), j = siblings.indexOf(n.id), reach = 95+siblings.length*4;
+   const out = Math.atan2(parent.y,parent.x)+(j-(siblings.length-1)/2)*Math.min(0.35,2.4/siblings.length);
+   Object.assign(n,{x:parent.x+Math.cos(out)*reach,y:parent.y+Math.sin(out)*reach}); placedHere.add(n.id);
+  } else Object.assign(n,{x:Math.cos(a)*n.depth*125*1.3,y:Math.sin(a)*n.depth*125});
+ }
+ Object.assign(nodes[0],{fx:0,fy:0});
+ simulation = d3.forceSimulation(nodes)
+  .force('link',d3.forceLink(links).id(n => n.id).distance(l => l.type === 'broader' ? 75 : 100).strength(0.8))
+  .force('charge',d3.forceManyBody().strength(-200).distanceMax(500))
+  .force('ring',d3.forceRadial(n => n.depth*125,0,0).strength(n => n.depth ? 0.05 : 0))
+  .force('collide',d3.forceCollide(n => 14+n.width*0.27).strength(0.9))
+  .stop();
+ // With the force layout off, concepts already drawn are pinned in place and only new ones settle around them.
+ if (forceLayout()) for (let i = 0; i < 300; i++) simulation.tick();
+ else if (nodes.some(n => !placed.has(n.id))) {
+  const pinned = nodes.filter(n => placed.has(n.id) && n.id !== selected);
+  for (const n of pinned) { n.fx = n.x; n.fy = n.y; }
+  for (let i = 0; i < 300; i++) simulation.tick();
+  for (const n of pinned) { n.fx = null; n.fy = null; }
+ }
+ // The glide starts from the previous drawing in the new frame; new concepts emerge from the focus.
+ const start = new Map(nodes.map(n => { const p = placed.get(n.id); return [n.id,p ? {x:p.x-shift.x,y:p.y-shift.y} : {x:0,y:0}]; }));
+ const from = view && view.map((v,i) => i === 0 ? v-shift.x : i === 1 ? v-shift.y : v);
+ placed = new Map([...placed].map(([id,p]) => [id,{x:p.x-shift.x,y:p.y-shift.y}]));
+ for (const n of nodes) placed.set(n.id,{x:n.x,y:n.y});
+ svg.innerHTML = `<defs><marker id="graph-arrow" markerWidth="9" markerHeight="9" refX="19" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9" fill="#829082"/></marker></defs>${links.map(l => `<line class="graph-edge ${l.type}" ${l.type === 'broader' ? 'marker-end="url(#graph-arrow)"' : ''}><title>${escape(node(l.source.id)?.label)} ${escape(l.type)} ${escape(node(l.target.id)?.label)}</title></line>`).join('')}${nodes.map(n => `<g class="graph-node ${n.id === selected ? 'focus' : ''}" tabindex="0" role="button" aria-label="${escape(node(n.id).label)}" data-focus="${escape(n.id)}"><title>${escape(node(n.id).label)}</title><circle r="${n.id === selected ? 18 : 11}"/><text y="${n.id === selected ? 36 : 29}" text-anchor="middle">${escape(shortLabel(node(n.id)))}</text></g>`).join('')}`;
+ drawn = {nodes,links};
+ const lines = [...svg.querySelectorAll('.graph-edge')], groups = [...svg.querySelectorAll('.graph-node')];
+ const paint = at => {
+  links.forEach((l,i) => { const a = at(l.source), b = at(l.target); lines[i].setAttribute('x1',a.x); lines[i].setAttribute('y1',a.y); lines[i].setAttribute('x2',b.x); lines[i].setAttribute('y2',b.y); });
+  nodes.forEach((n,i) => { const p = at(n); groups[i].setAttribute('transform',`translate(${p.x.toFixed(1)},${p.y.toFixed(1)})`); });
+ };
+ // Labels sit on the outward side of each concept, along its branch rather than across it; the focus keeps its label below.
+ const side = () => nodes.forEach((n,i) => {
+  const text = groups[i].querySelector('text'), out = n.id === selected || Math.abs(n.x) < 30 ? 0 : Math.sign(n.x);
+  text.setAttribute('text-anchor',out > 0 ? 'start' : out < 0 ? 'end' : 'middle');
+  text.setAttribute('x',out*16); text.setAttribute('y',out ? 4 : n.id === selected ? 36 : 29);
+ });
+ side();
+ const fit = () => {
+  const xs = nodes.flatMap(n => Math.abs(n.x) < 30 || n.id === selected ? [n.x-n.width/2,n.x+n.width/2] : n.x > 0 ? [n.x-15,n.x+n.width+10] : [n.x-n.width-10,n.x+15]), ys = nodes.flatMap(n => [n.y-30,n.y+45]);
+  const x0 = Math.min(...xs)-30, x1 = Math.max(...xs)+30, y0 = Math.min(...ys)-20, y1 = Math.max(...ys)+20;
+  // The map grows taller for a round neighbourhood (up to square) and never draws text larger than its set size.
+  const w = Math.max(x1-x0,y1-y0,svg.clientWidth || 720), h = Math.max(y1-y0,w/1.6);
+  return [(x0+x1-w)/2,(y0+y1-h)/2,w,h];
+ };
+ const to = fitted = fit();
+ if (reduced || !from) { paint(n => n); setView(to); }
+ else {
+  const began = performance.now(), ease = t => 1-(1-t)**3;
+  const frame = now => {
+   const t = ease(Math.min(1,(now-began)/650)), mix = (a,b) => a+(b-a)*t;
+   paint(n => { const s0 = start.get(n.id); return {x:mix(s0.x,n.x),y:mix(s0.y,n.y)}; });
+   setView(from.map((v,i) => mix(v,to[i])));
+   if (t < 1) glide = requestAnimationFrame(frame);
+  };
+  glide = requestAnimationFrame(frame);
+ }
+ // Repaints at the nodes' current positions and records them; it also serves as the simulation's tick listener.
+ drag(svg,groups,nodes,() => { paint(n => n); for (const n of nodes) placed.set(n.id,{x:n.x,y:n.y}); });
+}
+// The force layout can be turned off to arrange concepts by hand, for example for a screenshot. The choice is
+// remembered in this browser.
+const forceLayout = () => $('#graph-force').checked;
+try { $('#graph-force').checked = localStorage.getItem('graph-force') !== 'off'; } catch {}
+$('#graph-force').onchange = () => {
+ try { localStorage.setItem('graph-force',forceLayout() ? 'on' : 'off'); } catch {}
+ if (forceLayout()) render(); else simulation?.stop();
+};
+// Export what's on screen: the image of the current view, or the concepts and relations shown with their positions.
+$('.graph-export-menu').addEventListener('click',async event => {
+ const format = event.target.closest('[data-export]')?.dataset.export;
+ if (!format || !drawn) return;
+ event.currentTarget.open = false;
+ const focus = node(selected), slug = value => value.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,60);
+ try {
+  await exportGraph(format,{svg:$('#graph-map'),title:`${focus.label} · ${$('#graph-scheme').selectedOptions[0]?.textContent ?? scheme} · changelog #${graph.version}`,
+   name:`${scheme}-${slug(focus.label) || 'graph'}`,
+   nodes:drawn.nodes.map(n => ({id:n.id,label:node(n.id).label,depth:n.depth,focus:n.id === selected,x:n.x,y:n.y})),
+   links:drawn.links.map(l => ({source:l.source.id,target:l.target.id,type:l.type}))});
+ } catch (e) { error(e.message); }
+});
+function setView(box) { view = box; $('#graph-map').setAttribute('viewBox',box.map(v => v.toFixed(1)).join(' ')); }
+// Zoom and pan: the wheel or a pinch zooms about the pointer, dragging the background pans, and the buttons zoom
+// about the centre or fit the neighbourhood again. Zooming in reads a dense neighbourhood at full size.
+const mapPoint = (x,y) => new DOMPoint(x,y).matrixTransform($('#graph-map').getScreenCTM().inverse());
+function zoomBy(factor,at) {
+ if (!view || !fitted) return;
+ cancelAnimationFrame(glide);
+ const [x,y,w,h] = view, scale = Math.min(Math.max(w*factor,fitted[2]/8),fitted[2]*1.5)/w, c = at ?? {x:x+w/2,y:y+h/2};
+ setView([c.x-(c.x-x)*scale,c.y-(c.y-y)*scale,w*scale,h*scale]);
+}
+{
+ const svg = $('#graph-map'), pointers = new Map();
+ svg.addEventListener('wheel',event => {
+  event.preventDefault();
+  zoomBy(Math.exp(event.deltaY*(event.deltaMode ? 0.05 : 0.0015)),mapPoint(event.clientX,event.clientY));
+ },{passive:false});
+ svg.addEventListener('pointerdown',event => {
+  if (event.target.closest('.graph-node') || (event.pointerType === 'mouse' && event.button !== 0) || !view) return;
+  pointers.set(event.pointerId,{x:event.clientX,y:event.clientY}); svg.setPointerCapture(event.pointerId); svg.classList.add('panning');
+ });
+ svg.addEventListener('pointermove',event => {
+  const prev = pointers.get(event.pointerId); if (!prev) return;
+  const next = {x:event.clientX,y:event.clientY};
+  if (pointers.size === 1) {
+   const a = mapPoint(prev.x,prev.y), b = mapPoint(next.x,next.y);
+   cancelAnimationFrame(glide); setView([view[0]-(b.x-a.x),view[1]-(b.y-a.y),view[2],view[3]]);
+  } else {
+   // Two fingers: zoom by how far they moved apart, about their midpoint.
+   const other = [...pointers].find(([id]) => id !== event.pointerId)[1], after = Math.hypot(next.x-other.x,next.y-other.y);
+   if (after) zoomBy(Math.hypot(prev.x-other.x,prev.y-other.y)/after,mapPoint((next.x+other.x)/2,(next.y+other.y)/2));
+  }
+  pointers.set(event.pointerId,next);
+ });
+ const release = event => { pointers.delete(event.pointerId); if (!pointers.size) svg.classList.remove('panning'); };
+ svg.addEventListener('pointerup',release); svg.addEventListener('pointercancel',release);
+ document.querySelector('.graph-zoom').addEventListener('click',event => {
+  const kind = event.target.closest('[data-zoom]')?.dataset.zoom;
+  if (kind === 'fit' && fitted) { cancelAnimationFrame(glide); setView(fitted); } else if (kind) zoomBy(kind === 'in' ? 1/1.4 : 1.4);
+ });
+}
+// Dragging pins a node under the pointer while the simulation re-settles the rest. It stays where it's dropped until
+// the next refocus, and a drag doesn't count as a click.
+let dragged = false;
+function drag(svg,groups,nodes,repaint) {
+ groups.forEach((g,i) => g.addEventListener('pointerdown',event => {
+  if (event.button !== 0) return;
+  const n = nodes[i], point = e => new DOMPoint(e.clientX,e.clientY).matrixTransform(svg.getScreenCTM().inverse()), origin = point(event);
+  let moved = false; dragged = false;
+  g.setPointerCapture(event.pointerId);
+  const move = e => {
+   const p = point(e);
+   if (!moved && Math.hypot(p.x-origin.x,p.y-origin.y) < 4) return;
+   if (!moved) { moved = true; cancelAnimationFrame(glide); if (forceLayout()) simulation.on('tick',repaint).alphaTarget(0.3).restart(); }
+   n.fx = p.x; n.fy = p.y;
+   if (!forceLayout()) { n.x = p.x; n.y = p.y; repaint(); }
+  };
+  const up = () => {
+   g.removeEventListener('pointermove',move); g.removeEventListener('pointerup',up); g.removeEventListener('pointercancel',up);
+   if (!moved) return;
+   dragged = true; if (forceLayout()) simulation.alphaTarget(0);
+  };
+  g.addEventListener('pointermove',move); g.addEventListener('pointerup',up); g.addEventListener('pointercancel',up);
+ }));
+}
+$('#graph-map').addEventListener('click',event => { if (dragged) { dragged = false; event.stopPropagation(); } },true);
 async function relation(to,type,enabled) {
  if (['broader','narrower'].includes(type)) { await previewHierarchy(to,type,enabled); return; }
  if (busy) return;

@@ -32,6 +32,53 @@ and reports truncation; the API and JSON export retain the complete graph.
 Disconnected concepts remain in the search list. Arrows point toward broader
 concepts; related links are blue and opposite links are dashed amber.
 
+The diagram uses a force-directed layout ([d3-force](https://d3js.org/d3-force)):
+
+- **Starting point:** the selected concept stays at the centre. Each branch
+  starts as a radial tree, with a sector sized by the concepts under it.
+- **The forces:** links, repulsion and label-sized collision then untangle
+  crossings and keep labels apart, while a weak pull holds each depth near its
+  own ring.
+- **Labels** sit on the outward side of each concept, along its branch.
+- **The view** fits the neighbourhood, growing taller for a round one, and
+  never draws text larger than its set size.
+- **Refocusing** glides from the previous layout to the new one, and concepts
+  seen before keep their relative place. With reduced motion requested, the
+  diagram is drawn at once.
+- **Dragging** a concept pins it under the pointer while the others re-settle
+  around it. It stays where it's dropped until the next refocus, and a drag
+  doesn't select the concept.
+- **Force layout** (on by default, remembered in the browser) can be turned
+  off to arrange concepts by hand, for example for a screenshot.
+  - While it's off, dragging moves only that concept, and nothing else shifts.
+  - Changing the depth or relationship types keeps every concept already
+    drawn where it is. New concepts settle around them, starting from their
+    parent's place.
+  - Turning it back on re-settles the layout from where things stand.
+- **Export view** saves what's on screen:
+  - **SVG** or **PNG** (at twice screen resolution): an image of the current
+    view, as zoomed. Use **Fit** first to include the whole neighbourhood.
+  - **GEXF** for Gephi, **GraphML** (yEd, Gephi, NetworkX), **GML**, or
+    **XGMML** for Cytoscape: the concepts and relations shown, for further
+    layout before rendering.
+
+  The graph formats carry each concept's position as arranged, its stable ID,
+  label and depth, and which concept was the focus. Relations keep their
+  type: broader relations are directed and point to the broader concept;
+  related and opposite relations are undirected. GEXF also carries colours
+  and sizes, and flips y because Gephi draws y upward. GML is ASCII, so other
+  characters are written as numeric entities. **Export graph JSON** in the
+  sidebar still exports the whole scheme.
+- **Zoom and pan:** the scroll wheel, or a pinch on a touch screen, zooms
+  about the pointer, from the fitted view up to 8× in and 1.5× out.
+  Dragging the background pans. The **+**, **−** and **Fit** buttons zoom
+  about the centre or fit the neighbourhood again, and refocusing refits.
+  Over the map, the wheel zooms rather than scrolling the page.
+
+The layout is deterministic: the same neighbourhood draws the same way. The
+page loads d3-force from the server itself (`/vendor/…`), as the content
+security policy allows scripts only from its own origin.
+
 The **Relationship** dropdown offers all four types. For **Broader**, the target
 is broader than the selected concept; for **Narrower**, the target is narrower.
 Those choices use **Preview relationship**, followed by **Apply change**. The

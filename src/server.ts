@@ -243,9 +243,13 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
         '/sets.js': ['sets.js', 'text/javascript; charset=utf-8'],
         '/graph': ['graph.html', 'text/html; charset=utf-8'],
         '/graph.js': ['graph.js', 'text/javascript; charset=utf-8'],
+        '/graph-export.js': ['graph-export.js', 'text/javascript; charset=utf-8'],
         '/style.css': ['style.css', 'text/css; charset=utf-8'],
         '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
         '/viewer.js': ['viewer.js', 'text/javascript; charset=utf-8'],
+        // d3-force and its dependencies, served from node_modules because the CSP allows only this origin's scripts.
+        ...Object.fromEntries(['d3-dispatch', 'd3-quadtree', 'd3-timer', 'd3-force'].map(name =>
+          [`/vendor/${name}.js`, [`../node_modules/${name}/dist/${name}.min.js`, 'text/javascript; charset=utf-8']])),
       };
       const asset = assets[url.pathname];
       if (!asset || !['GET', 'HEAD'].includes(req.method ?? '')) throw new DomainError(404, 'Page not found.');
