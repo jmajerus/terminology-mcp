@@ -31,9 +31,13 @@ types, or use Enter/Space on a diagram node.
 
 - **Depth** goes from 1 to 6, or **All**, which follows the relationships
   until nothing new is reached. That suits sparse but deep graphs.
-- **Size:** the diagram shows at most 300 concepts, nearest first, and
-  reports how many it left out. A 300-concept layout takes about a third of a
-  second; zoom in to read it.
+- **Concepts** caps how many are drawn (25 to 500; 300 by default), nearest
+  first, and the page reports how many were left out.
+  - Together with the depth, it prunes a neighbourhood from the outside in.
+  - Within the outermost depth drawn, which concepts make the cut follows the
+    order they were reached, not their importance.
+  - Laying out 300 concepts takes about 0.3 s on a desktop, and 500 about
+    0.5 s; zoom in to read them.
 - **Completeness:** the API and JSON export always carry the complete graph.
 Disconnected concepts remain in the search list. Arrows point toward broader
 concepts; related links are blue and opposite links are dashed amber.
