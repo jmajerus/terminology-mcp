@@ -1,6 +1,7 @@
 """Exercise the real installer in a temporary filesystem with stub host services."""
 import json
 import os
+import stat
 from pathlib import Path
 import subprocess
 import tarfile
@@ -11,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallerTests(unittest.TestCase):
-    def exercise(self, mode, first=False, existing_config=True):
+    def exercise(self, mode, first=False, existing_config=True, config_name="env", conflicting=False):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             app = base / 'opt/terminology-mcp'
@@ -29,7 +30,9 @@ class InstallerTests(unittest.TestCase):
                 active.touch()
             (data / 'terminology.sqlite').write_text('live database')
             if existing_config:
-                (etc / 'environment').write_text('EXISTING=value\nTERMINOLOGY_ORIGINS=http://old\n')
+                (etc / config_name).write_text('EXISTING=value\nTERMINOLOGY_ORIGINS=http://old\n')
+                if conflicting:
+                    (etc / ('environment' if config_name == 'env' else 'env')).write_text('DIFFERENT=preserve\n')
                 (units / 'terminology-mcp.service').write_text('old unit')
             release = app / 'releases/new'
             (base / 'proc/123/cwd').symlink_to(release)
@@ -76,7 +79,15 @@ esac''',
                 self.assertEqual((app / 'current').resolve(), release)
                 self.assertEqual(json.loads((data / 'deployed.json').read_text()), {'release': 'new'})
                 self.assertEqual((units / 'terminology-mcp.service').read_text(), 'new unit')
-                self.assertEqual((etc / 'environment').read_text(), 'EXISTING=value\nTERMINOLOGY_ORIGINS=http://new\n')
+                self.assertEqual((etc / 'env').read_text(), 'EXISTING=value\nTERMINOLOGY_ORIGINS=http://new\n')
+                self.assertFalse((etc / 'environment').exists())
+                if existing_config:
+                    self.assertEqual((release / 'rollback' / config_name).read_text(), 'EXISTING=value\nTERMINOLOGY_ORIGINS=http://old\n')
+                self.assertEqual(stat.S_IMODE(release.stat().st_mode), 0o755)
+                self.assertEqual(stat.S_IMODE((release / 'package.json').stat().st_mode), 0o644)
+                self.assertEqual(stat.S_IMODE((release / 'rollback').stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE(data.stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE((etc / 'env').stat().st_mode), 0o640)
             elif first:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(active.exists(), result.stderr)
@@ -85,22 +96,27 @@ esac''',
                 self.assertFalse((data / 'deployed.json').exists())
                 if existing_config:
                     self.assertEqual((units / 'terminology-mcp.service').read_text(), 'old unit')
-                    self.assertEqual((etc / 'environment').read_text(), 'EXISTING=value\nTERMINOLOGY_ORIGINS=http://old\n')
+                    self.assertEqual((etc / config_name).read_text(), 'EXISTING=value\nTERMINOLOGY_ORIGINS=http://old\n')
                 else:
                     self.assertFalse((units / 'terminology-mcp.service').exists())
+                    self.assertFalse((etc / 'env').exists())
                     self.assertFalse((etc / 'environment').exists())
             else:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual((app / 'current').resolve(), app / 'releases/old')
                 self.assertEqual(json.loads((data / 'deployed.json').read_text()), {'release': 'old'})
                 self.assertEqual((units / 'terminology-mcp.service').read_text(), 'old unit')
-                self.assertIn('TERMINOLOGY_ORIGINS=http://old', (etc / 'environment').read_text())
+                self.assertIn('TERMINOLOGY_ORIGINS=http://old', (etc / config_name).read_text())
             if not first:
                 self.assertTrue(enabled.exists(), result.stderr)
                 self.assertTrue(active.exists(), result.stderr)
             self.assertEqual((data / 'terminology.sqlite').read_text(), 'live database')
-            if mode != 'build':
+            if mode not in ['build', 'conflict']:
                 self.assertEqual((base / 'var/lib/terminology-mcp.backup-new/terminology.sqlite').read_text(), 'live database')
+            if mode not in ['success', 'build', 'conflict'] and existing_config and config_name == 'environment':
+                self.assertFalse((etc / 'env').exists())
+            if conflicting:
+                self.assertEqual((etc / 'environment').read_text(), 'DIFFERENT=preserve\n')
             self.assertFalse(archive.exists())
             return result.stderr
 
@@ -118,3 +134,15 @@ esac''',
 
     def test_failed_first_activation_preserves_preexisting_configuration(self):
         self.exercise('health', first=True)
+
+    def test_legacy_settings_migrate_to_env_and_original_is_backed_up(self):
+        self.exercise('success', config_name='environment')
+
+    def test_failed_legacy_migration_restores_original_name_and_removes_new_env(self):
+        self.exercise('health', config_name='environment')
+
+    def test_failed_first_migration_restores_legacy_config(self):
+        self.exercise('health', first=True, config_name='environment')
+
+    def test_conflicting_names_abort_without_changing_either_file_or_running_service(self):
+        self.assertIn('exist and differ', self.exercise('conflict', conflicting=True))

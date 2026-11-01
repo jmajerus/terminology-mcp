@@ -1,7 +1,7 @@
 # Debian LXC deployment over SSH
 
 SSH is used to install and update the application. The deployed editor is
-accessible directly on the LAN at `http://terminology-mcp.localdomain:3210`
+accessible directly on the LAN at `http://terminology-mcp.localdomain:8000`
 (or the configured deployment hostname), without an SSH tunnel. Cloudflare
 routing is not modified.
 
@@ -84,7 +84,7 @@ The selected source must include both `deploy/terminology-mcp.service` and
 even with `--skip-tests`. Merge the deployment controls before using
 **Switch to main** if main predates them.
 
-Status uses `http://<LAN_DEPLOY_SERVER hostname>:3210`. Set
+Status uses `http://<LAN_DEPLOY_SERVER hostname>:8000`. Set
 `TERMINOLOGY_STATUS_URL` in `.env` to override it (HTTP(S), no embedded
 credentials). For releases predating `/health`, it reads `/api/state` and
 uses SSH to read the deployment record. A host without a record needs one
@@ -103,7 +103,13 @@ archive. SSH host keys are remembered under ignored `data/deploy/known_hosts`.
 
 Release directories live under `/opt/terminology-mcp/releases/`, with
 `/opt/terminology-mcp/current` pointing to the running release. The service runs
-as the dedicated `terminology-mcp` account. Persistent SQLite data lives at
+as the dedicated `terminology-mcp` account. Application code is readable and
+directories are traversable by the `authoring` login, matching corpus-mcp and
+quote-mcp; use `cd /opt/terminology-mcp/current` to inspect the running version
+without finding its timestamped release directory or becoming root.
+The release's `rollback` directory remains root-only, and runtime data and
+environment settings retain their separate restricted permissions.
+Persistent SQLite data lives at
 `/var/lib/terminology-mcp/terminology.sqlite`; the first deployment starts empty.
 Subsequent deployments stop the service before making a database-directory
 backup. Earlier release directories and backups are retained.
@@ -116,16 +122,33 @@ record; `/health` returns that running release's identity and counts without
 vocabulary contents. Records contain only branch, commit, optional PR number,
 timestamp, release identifier, and whether the source was local.
 
-The service listens on `0.0.0.0:3210`. `/etc/terminology-mcp/environment`
+The service listens on `0.0.0.0:8000`. `/etc/terminology-mcp/env`
 contains the allowed browser origins for the full hostname, short hostname,
 and SSH connection's LAN IP. The application rejects other Host headers and
 cross-origin writes. The printed editor URL can be opened directly from the LAN.
-This is the LAN editor, without authentication; public routing remains a later
-deployment step.
+Direct LAN access remains available. Public/proxied requests require the
+Cloudflare Access JWT described in [MCP access](mcp.md).
+Set `ACCESS_TEAM_DOMAIN` and
+`TERMINOLOGY_PUBLIC_ORIGIN` in the server's env file before exposing its public
+hostname. Public routing and Managed OAuth are configured in Cloudflare.
+
+All three sibling services use `/etc/<service>/env`: `/etc/quote-mcp/env`,
+`/etc/corpus-mcp/env`, and `/etc/terminology-mcp/env`. Development checkouts
+continue to use `.env` at the repository root. Server files stay outside
+release directories so application deployments preserve their settings.
+Edit Terminology's settings with `sudoedit /etc/terminology-mcp/env`, then
+run `sudo systemctl restart terminology-mcp`.
+
+Deployments migrate Terminology's former `environment` file automatically,
+preserving its settings except for the deploy-managed allowed origins. The
+original is retained in the release's root-only rollback directory; the old
+live filename is removed after a healthy activation. Failed activation
+restores the original files and unit. If both live filenames exist and differ,
+deployment stops before cutover so settings cannot be silently discarded.
 
 Local development still defaults to loopback. For a manual LAN launch, set
 `HOST=0.0.0.0` and `TERMINOLOGY_ORIGINS` to a comma-separated list of exact HTTP(S)
-origins, including port (for example `http://terminology-mcp:3210`). Configured
+origins, including port (for example `http://terminology-mcp:8000`). Configured
 HTTPS origins also work behind a separately configured trusted reverse proxy;
 the application uses the configured scheme and does not trust forwarded headers.
 
