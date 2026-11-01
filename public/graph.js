@@ -1,3 +1,5 @@
+import './viewer.js';
+
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const types = ['broader','narrower','related','opposite'];
@@ -45,7 +47,7 @@ function render() {
  $('#graph-detail').innerHTML = `<span class="eyebrow">Concept</span><h1>${escape(concept.label)}</h1>${concept.scopeNote ? `<p>${escape(concept.scopeNote)}</p>` : ''}${concept.altLabels.length ? `<p class="help">Also: ${concept.altLabels.map(escape).join(', ')}</p>` : ''}<a href="/#${encodeURIComponent(selected)}">Edit concept ↗</a>`;
  $('#graph-links').innerHTML = types.map(type => {
   const edges = graph.relations.filter(e => e.from === selected && e.type === type).sort((a,b) => node(a.to).label.localeCompare(node(b.to).label));
-  return `<section class="graph-relation-group"><h2>${escape(type)} <span class="help">${edges.length}</span></h2>${edges.map(e => `<div><button type="button" class="text-button" data-focus="${escape(e.to)}">${escape(node(e.to)?.label)}</button><button type="button" class="text-button" data-remove="${escape(e.to)}" data-type="${type}" aria-label="Remove ${type} ${escape(node(e.to)?.label)}">×</button></div>`).join('') || '<p class="help">None</p>'}</section>`;
+  return `<section class="graph-relation-group"><h2>${escape(type)} <span class="help">${edges.length}</span></h2>${edges.map(e => `<div><button type="button" class="text-button" data-focus="${escape(e.to)}">${escape(node(e.to)?.label)}</button><button type="button" class="text-button" data-write data-remove="${escape(e.to)}" data-type="${type}" aria-label="Remove ${type} ${escape(node(e.to)?.label)}">×</button></div>`).join('') || '<p class="help">None</p>'}</section>`;
  }).join('');
  const allowed = new Set([...$('#graph-types').querySelectorAll(':checked')].map(c => c.value)), levels = new Map([[selected,0]]);
  let frontier = [selected];

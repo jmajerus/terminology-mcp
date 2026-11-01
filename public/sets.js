@@ -1,3 +1,5 @@
+import { viewer, lockForm } from './viewer.js';
+
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 let state, schemeId = new URLSearchParams(location.search).get('scheme') ?? '', selectedId = '', members = [], dirty = false, busy = false, generation = 0, preview = null, baseline = [];
@@ -44,7 +46,8 @@ async function selectSet(id) {
   selectedId = id; preview = null; dirty = false; members = []; baseline = [];
   $('#save-set').disabled = true; $('#set-error').textContent = ''; $('#save-state').textContent = id ? 'Saved' : 'New set · preview before saving';
   const set = state.sets.find(s => s.id === id);
-  form.hidden = !schemeId; $('#set-empty').hidden = !!schemeId;
+  // Visitors can read saved sets but not start a new one.
+  form.hidden = !schemeId || (!id && !viewer.canEdit); $('#set-empty').hidden = !form.hidden;
   form.reset();
   for (const name of ['label', 'slug', 'description', 'owner', 'kind']) field(name).value = set?.[name] ?? ({ owner: 'local-editor', kind: 'theme' }[name] ?? '');
   field('ordered').checked = set?.ordered ?? false;
@@ -56,7 +59,7 @@ async function selectSet(id) {
   members = [...set?.members ?? []];
   $('#delete-set').hidden = !id;
   $('#set-title').textContent = set?.label ?? 'New set'; $('#set-identity').textContent = set ? `${set.id} · ${set.owner}` : 'A stable ID is assigned when saved.';
-  $('#member-search').value = ''; renderList(); renderMembers();
+  $('#member-search').value = ''; renderList(); renderMembers(); lockForm(form);
   $('#set-expansion').innerHTML = ''; $('#expansion-version').textContent = 'Preview to see the expansion.';
   history.replaceState(null, '', `?scheme=${encodeURIComponent(schemeId)}${id ? '#' + id : ''}`);
   if (id) {

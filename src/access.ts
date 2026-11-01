@@ -5,12 +5,14 @@ import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 export interface RequestAccessConfig {
   teamDomain?: string;
   lanHosts: string[];
+  /** Admit requests without an Access identity as read-only visitors. */
+  publicRead?: boolean;
 }
 export class AccessError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 export function requestAccessConfig(env: NodeJS.ProcessEnv, lanHosts: string[]): RequestAccessConfig {
-  return { teamDomain: env.ACCESS_TEAM_DOMAIN, lanHosts };
+  return { teamDomain: env.ACCESS_TEAM_DOMAIN, lanHosts, publicRead: /^(1|true|yes)$/i.test(env.TERMINOLOGY_PUBLIC_READ ?? '') };
 }
 function privatePeer(address = '') {
   const a = address.toLowerCase().replace(/^::ffff:/, '');
@@ -37,7 +39,23 @@ export async function authorizeRequest(req: IncomingMessage, pathname: string, c
   const proxied = ['cf-ray', 'cf-connecting-ip', 'cdn-loop', 'cf-visitor', 'cf-access-jwt-assertion'].some(h => h in req.headers);
   const localHost = host === 'localhost' || privatePeer(host) || config.lanHosts.some(h => h.toLowerCase() === host);
   if (!proxied && localHost && privatePeer(req.socket.remoteAddress)) return { via: 'lan' as const };
-  if (typeof token !== 'string' || !token) throw new AccessError(401, 'Cloudflare Access authentication is required.');
+  if (token === undefined) {
+    // Under a Bypass policy Access forwards no assertion, but a visitor who signed in carries its cookie.
+    const cookie = config.publicRead ? accessCookie(req.headers.cookie) : undefined;
+    if (cookie) try { return await verifyToken(cookie, config, keys); } catch { /* A stale cookie leaves the visitor anonymous. */ }
+    if (config.publicRead) return { via: 'public' as const };
+    throw new AccessError(401, 'Cloudflare Access authentication is required.');
+  }
+  // A present but empty or repeated assertion is invalid, never a reason to fall back to the cookie.
+  return verifyToken(typeof token === 'string' ? token : '', config, keys);
+}
+function accessCookie(header = '') {
+  for (const part of header.split(';')) {
+    const [name, ...value] = part.trim().split('=');
+    if (name === 'CF_Authorization' && value.length) return value.join('=');
+  }
+}
+async function verifyToken(token: string, config: RequestAccessConfig, keys?: JWTVerifyGetKey) {
   // The audience (which Access application issued the token) is not checked: every application in the team
   // admits only the owner, and a pinned audience tag broke sign-in whenever an application was recreated.
   if (!config.teamDomain) throw new AccessError(503, 'Cloudflare Access is not configured.');
