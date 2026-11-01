@@ -181,6 +181,20 @@ proposals**. Schemes gained revisions and a maximum depth (`cc-subjects`: 2).
 Usage reports, gates, leases and `propose_change` are next. See
 [following changes](docs/following-changes.md).
 
+**quote-mcp as a subscriber (2026-11-01):** `human-work` follows
+`cc-subjects`. terminology-mcp becomes its master and quote-mcp a subscriber
+that keeps its integer concept ids and maps them to term ids. Three changes
+here make that possible:
+- A quote-mcp import keeps quote-mcp's slugs.
+- A scheme can make slugs unique across the whole scheme (`slugScope`).
+- A scheme can take proposals backed by evidence, such as the quote a
+  concept was coined from, instead of a reference-vocabulary source
+  (`proposalSource`). In a concept graph, `broader` is optional.
+
+The quote-mcp side is in its own dev-brief. Next: import `human-work` into
+the live store from a fresh export, then quote-mcp's usage counts as the
+first usage reports.
+
 ## What we borrow from FHIR
 
 FHIR's terminology module (CodeSystem, ValueSet, ConceptMap, and a handful

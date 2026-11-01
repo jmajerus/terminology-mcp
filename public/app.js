@@ -377,6 +377,8 @@ $('#scheme-settings').onclick = () => {
   if (!allowLeave()) return;
   $('#scheme-dialog-title').textContent = scheme().label;
   $('#scheme-max-depth').value = scheme().maxDepth ?? '';
+  $('#scheme-slug-scope').value = scheme().slugScope ?? 'siblings';
+  $('#scheme-proposal-source').value = scheme().proposalSource ?? 'required';
   $('#scheme-error').textContent = '';
   $('#scheme-dialog').showModal();
 };
@@ -386,10 +388,11 @@ $('#scheme-form').addEventListener('submit', async event => {
   const value = $('#scheme-max-depth').value;
   $('#save-scheme').disabled = true;
   try {
-    await api(`schemes/${encodeURIComponent(schemeId)}`, { method: 'PATCH', body: JSON.stringify({ maxDepth: value === '' ? null : Number(value), expectedVersion: state.version }) });
+    await api(`schemes/${encodeURIComponent(schemeId)}`, { method: 'PATCH', body: JSON.stringify({ maxDepth: value === '' ? null : Number(value),
+      slugScope: $('#scheme-slug-scope').value, proposalSource: $('#scheme-proposal-source').value, expectedVersion: state.version }) });
     $('#scheme-dialog').close();
     await refresh(selectedId);
-    notice(value === '' ? 'Removed the depth limit.' : `Terms in ${scheme().label} are now limited to depth ${value}.`);
+    notice(`Saved the settings of ${scheme().label}.`);
   } catch (error) { $('#scheme-error').textContent = error.message; }
   finally { $('#save-scheme').disabled = false; }
 });

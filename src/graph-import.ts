@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DomainError, importPlanSchema, iriSchema } from './model.js';
+import { DomainError, importPlanSchema, iriSchema, slugSchema } from './model.js';
 import type { Store } from './store.js';
 import type { ImportRequest } from './skos.js';
 import { analyseStructure } from './import-structure.js';
@@ -9,12 +9,13 @@ const nodeSchema = z.object({
   definition: z.string().nullable().optional(), scopeNote: z.string().optional(), status: z.string().optional(),
   source: z.string().nullable().optional(), sourceUri: iriSchema.optional(), aliases: z.array(z.string()).optional(),
   close_match: z.string().nullable().optional(), links: z.array(z.unknown()).optional(), notations: z.array(z.unknown()).optional(),
-  language: z.string().optional(),
+  language: z.string().optional(), formerSlugs: z.array(z.string()).optional(),
 });
 const documentSchema = z.object({
   format: z.enum(['quote-mcp-export/1', 'terminology-graph/1']),
   schemes: z.array(z.object({ id: z.union([z.string(), z.number()]), slug: z.string().optional(), label: z.string(),
-    description: z.string().optional(), sourceUri: iriSchema.optional(), hierarchy: z.string().optional(), notations: z.array(z.unknown()).optional() })).min(1).max(1000),
+    description: z.string().optional(), sourceUri: iriSchema.optional(), hierarchy: z.string().optional(), notations: z.array(z.unknown()).optional(),
+    slugScope: z.enum(['siblings', 'scheme']).optional(), proposalSource: z.enum(['required', 'optional']).optional() })).min(1).max(1000),
   concepts: z.array(nodeSchema).max(10000),
   relations: z.array(z.object({ from: z.string(), to: z.string(), type: z.enum(['broader', 'narrower', 'related', 'opposite', 'inverse']) })).max(100000),
 });
@@ -62,7 +63,11 @@ export function planGraph(_store: Store, data: string, request: ImportRequest) {
       if (iriSchema.safeParse(node.close_match).success) links.push({ uri: node.close_match, match: 'closeMatch' });
       else warnings.add('Non-IRI WordNet references omitted.');
     }
-    return { key, label: node.label, altLabels: node.altLabels ?? node.alt_labels ?? [], scopeNote: node.scopeNote ?? node.definition ?? '', status,
+    // The source's slugs are what its consumers key URLs and files on, so they're kept rather than minted again.
+    const slug = node.slug && slugSchema.safeParse(node.slug).success ? node.slug : undefined;
+    if (node.slug && !slug) warnings.add('Slugs that aren\'t lowercase words joined by hyphens were minted again from the label.');
+    const formerSlugs = (node.formerSlugs ?? []).filter(value => slugSchema.safeParse(value).success && value !== slug);
+    return { key, ...(slug ? { slug } : {}), formerSlugs, label: node.label, altLabels: node.altLabels ?? node.alt_labels ?? [], scopeNote: node.scopeNote ?? node.definition ?? '', status,
       sourceUri: key, language: node.language, aliases: [...new Set([...node.aliases ?? [],
         ...(quote && node.slug ? [`quote-mcp:${schemeKey}:${node.slug}`] : []), ...(node.source ? [node.source] : []),
         ...(!quote && typeof node.id === 'string' ? [node.id] : [])])],
@@ -87,8 +92,11 @@ export function planGraph(_store: Store, data: string, request: ImportRequest) {
     term.broader = [...new Set(term.broader)];
     term.relations = [...new Map(term.relations.map(edge => [`${edge.type}:${edge.target}`, edge])).values()];
   }
+  // quote-mcp keys concepts by slug across the scheme, and coins them from passages rather than copying a reference vocabulary.
+  const settings = quote ? { slugScope: 'scheme', proposalSource: 'optional' }
+    : { ...(scheme.slugScope ? { slugScope: scheme.slugScope } : {}), ...(scheme.proposalSource ? { proposalSource: scheme.proposalSource } : {}) };
   const plan = importPlanSchema.parse({ scheme: { id: request.schemeId, label: request.label || scheme.label,
-    description: scheme.description ?? '', hierarchy: 'graph', sourceUri: schemeUri, notations: scheme.notations ?? [] }, terms });
+    description: scheme.description ?? '', hierarchy: 'graph', sourceUri: schemeUri, notations: scheme.notations ?? [], ...settings }, terms });
   const analysis = analyseStructure(plan, request.hierarchy, scheme.hierarchy, quote);
   return { plan, analysis, warnings: [...warnings] };
 }

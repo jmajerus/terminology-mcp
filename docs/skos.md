@@ -88,7 +88,7 @@ a tree requires a separately reviewed transformation and is not performed here.
 | Source identity | Concept/scheme subject IRI | Preserved on export; term source IRI is also a lookup alias |
 | Retired replacements | `dct:isReplacedBy` | Distinct from equivalence mappings |
 | Status, aliases, hierarchy, admission test | `term:status`, `term:alias`, `term:hierarchy`, `term:admissionTest` | Application extensions |
-| Slugs and scheme depth rules | `term:slug`, `term:formerSlug`, `term:slugUniqueDepth`, `term:maxDepth` (integers) | Application extensions |
+| Slugs and scheme depth rules | `term:slug`, `term:formerSlug`, `term:slugUniqueDepth`, `term:maxDepth` (integers), `term:slugScope` (`siblings` or `scheme`), `term:proposalSource` (`required` or `optional`) | Application extensions |
 
 Here `dct:` is `http://purl.org/dc/terms/`, and `term:` is
 `urn:terminology-mcp:vocab:`. Unimported local concepts export with stable
