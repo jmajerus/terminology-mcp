@@ -243,6 +243,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
         '/sets.js': ['sets.js', 'text/javascript; charset=utf-8'],
         '/graph': ['graph.html', 'text/html; charset=utf-8'],
         '/graph.js': ['graph.js', 'text/javascript; charset=utf-8'],
+        '/graph-export.js': ['graph-export.js', 'text/javascript; charset=utf-8'],
         '/style.css': ['style.css', 'text/css; charset=utf-8'],
         '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
         '/viewer.js': ['viewer.js', 'text/javascript; charset=utf-8'],

@@ -55,6 +55,20 @@ The diagram uses a force-directed layout ([d3-force](https://d3js.org/d3-force))
     drawn where it is. New concepts settle around them, starting from their
     parent's place.
   - Turning it back on re-settles the layout from where things stand.
+- **Export view** saves what's on screen:
+  - **SVG** or **PNG** (at twice screen resolution): an image of the current
+    view, as zoomed. Use **Fit** first to include the whole neighbourhood.
+  - **GEXF** for Gephi, **GraphML** (yEd, Gephi, NetworkX), **GML**, or
+    **XGMML** for Cytoscape: the concepts and relations shown, for further
+    layout before rendering.
+
+  The graph formats carry each concept's position as arranged, its stable ID,
+  label and depth, and which concept was the focus. Relations keep their
+  type: broader relations are directed and point to the broader concept;
+  related and opposite relations are undirected. GEXF also carries colours
+  and sizes, and flips y because Gephi draws y upward. GML is ASCII, so other
+  characters are written as numeric entities. **Export graph JSON** in the
+  sidebar still exports the whole scheme.
 - **Zoom and pan:** the scroll wheel, or a pinch on a touch screen, zooms
   about the pointer, from the fitted view up to 8× in and 1.5× out.
   Dragging the background pans. The **+**, **−** and **Fit** buttons zoom

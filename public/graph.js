@@ -1,4 +1,5 @@
 import './viewer.js';
+import { exportGraph } from './graph-export.js';
 
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
@@ -69,7 +70,7 @@ function render() {
 // Force-directed layout: the focus stays at the centre, each depth is drawn toward its own ring, and links, repulsion
 // and label-sized collision untangle the rest. The layout is settled before drawing, then the view glides to it from
 // the previous positions; dragging a node re-settles the graph live around it.
-let simulation = null, placed = new Map(), view = null, fitted = null, glide = 0;
+let simulation = null, placed = new Map(), view = null, fitted = null, glide = 0, drawn = null;
 const shortLabel = c => c.label.length > 30 ? c.label.slice(0,29)+'…' : c.label;
 function draw(ids,relations,levels) {
  simulation?.stop(); cancelAnimationFrame(glide);
@@ -122,6 +123,7 @@ function draw(ids,relations,levels) {
  placed = new Map([...placed].map(([id,p]) => [id,{x:p.x-shift.x,y:p.y-shift.y}]));
  for (const n of nodes) placed.set(n.id,{x:n.x,y:n.y});
  svg.innerHTML = `<defs><marker id="graph-arrow" markerWidth="9" markerHeight="9" refX="19" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9" fill="#829082"/></marker></defs>${links.map(l => `<line class="graph-edge ${l.type}" ${l.type === 'broader' ? 'marker-end="url(#graph-arrow)"' : ''}><title>${escape(node(l.source.id)?.label)} ${escape(l.type)} ${escape(node(l.target.id)?.label)}</title></line>`).join('')}${nodes.map(n => `<g class="graph-node ${n.id === selected ? 'focus' : ''}" tabindex="0" role="button" aria-label="${escape(node(n.id).label)}" data-focus="${escape(n.id)}"><title>${escape(node(n.id).label)}</title><circle r="${n.id === selected ? 18 : 11}"/><text y="${n.id === selected ? 36 : 29}" text-anchor="middle">${escape(shortLabel(node(n.id)))}</text></g>`).join('')}`;
+ drawn = {nodes,links};
  const lines = [...svg.querySelectorAll('.graph-edge')], groups = [...svg.querySelectorAll('.graph-node')];
  const paint = at => {
   links.forEach((l,i) => { const a = at(l.source), b = at(l.target); lines[i].setAttribute('x1',a.x); lines[i].setAttribute('y1',a.y); lines[i].setAttribute('x2',b.x); lines[i].setAttribute('y2',b.y); });
@@ -163,6 +165,19 @@ $('#graph-force').onchange = () => {
  try { localStorage.setItem('graph-force',forceLayout() ? 'on' : 'off'); } catch {}
  if (forceLayout()) render(); else simulation?.stop();
 };
+// Export what's on screen: the image of the current view, or the concepts and relations shown with their positions.
+$('.graph-export-menu').addEventListener('click',async event => {
+ const format = event.target.closest('[data-export]')?.dataset.export;
+ if (!format || !drawn) return;
+ event.currentTarget.open = false;
+ const focus = node(selected), slug = value => value.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,60);
+ try {
+  await exportGraph(format,{svg:$('#graph-map'),title:`${focus.label} · ${$('#graph-scheme').selectedOptions[0]?.textContent ?? scheme} · changelog #${graph.version}`,
+   name:`${scheme}-${slug(focus.label) || 'graph'}`,
+   nodes:drawn.nodes.map(n => ({id:n.id,label:node(n.id).label,depth:n.depth,focus:n.id === selected,x:n.x,y:n.y})),
+   links:drawn.links.map(l => ({source:l.source.id,target:l.target.id,type:l.type}))});
+ } catch (e) { error(e.message); }
+});
 function setView(box) { view = box; $('#graph-map').setAttribute('viewBox',box.map(v => v.toFixed(1)).join(' ')); }
 // Zoom and pan: the wheel or a pinch zooms about the pointer, dragging the background pans, and the buttons zoom
 // about the centre or fit the neighbourhood again. Zooming in reads a dense neighbourhood at full size.

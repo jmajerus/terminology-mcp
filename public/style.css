@@ -79,3 +79,10 @@
 #graph-map { touch-action:none; cursor:grab; }
 #graph-map.panning { cursor:grabbing; }
 .graph-option { display:flex; align-items:center; gap:6px; font-size:12px; }
+.graph-export-menu { position:relative; }
+.graph-export-menu summary { list-style:none; cursor:pointer; }
+.graph-export-menu summary::-webkit-details-marker { display:none; }
+.graph-export-list { position:absolute; z-index:5; top:calc(100% + 6px); right:0; width:220px; background:#fff; border:1px solid var(--line); border-radius:6px; box-shadow:0 8px 30px #10271c22; padding:6px; display:flex; flex-direction:column; }
+.graph-export-list button { border:0; background:none; text-align:left; font-size:12px; padding:8px 10px; border-radius:4px; }
+.graph-export-list button:hover, .graph-export-list button:focus-visible { background:#eef2e7; }
+.graph-export-list .help { padding:4px 10px 2px; margin:0; }
