@@ -156,7 +156,8 @@ With public read on:
 - **Refused with 401:** writes (every non-`GET` request, including import
   and operation previews, so a visitor can't make the server fetch a SPARQL
   endpoint), `/mcp`, and `/api/subscribers`.
-- **Editor pages** hide their editing controls and show **Sign in to edit**.
+- **Editor pages** grey out their editing controls in place (with a "Sign in to
+  edit" tooltip), make fields read-only, and show **Sign in to edit**.
 - **Signed-in requests:** a request with a valid assertion header, or a
   valid `CF_Authorization` cookie, is signed in. `GET /api/viewer` reports
   which.

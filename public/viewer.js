@@ -27,3 +27,25 @@ export function lockForm(form) {
   for (const field of form.querySelectorAll('select')) field.disabled = true;
   for (const button of form.querySelectorAll('button:not([data-pick]):not([data-focus])')) button.disabled = true;
 }
+
+// Controls marked data-write stay in place, greyed out, including ones rendered or re-enabled later.
+const WRITE_CONTROLS = '[data-write]:is(button, input, select, textarea), [data-write] :is(button, input, select, textarea)';
+function greyOut(root) {
+  if (!(root instanceof Element)) return;
+  for (const control of [...(root.matches(WRITE_CONTROLS) ? [root] : []), ...root.querySelectorAll(WRITE_CONTROLS)]) {
+    if (!control.disabled) control.disabled = true;
+    control.title = 'Sign in to edit';
+  }
+  for (const link of [...(root.matches('a[data-write]') ? [root] : []), ...root.querySelectorAll('a[data-write]')]) {
+    link.setAttribute('aria-disabled', 'true'); link.tabIndex = -1; link.title = 'Sign in to edit';
+  }
+}
+if (!viewer.canEdit) {
+  greyOut(document.body);
+  new MutationObserver(mutations => {
+    for (const mutation of mutations) {
+      if (mutation.type === 'attributes') greyOut(mutation.target);
+      else for (const added of mutation.addedNodes) greyOut(added);
+    }
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled'] });
+}
