@@ -132,6 +132,44 @@ Set `ACCESS_TEAM_DOMAIN` and
 `TERMINOLOGY_PUBLIC_ORIGIN` in the server's env file before exposing its public
 hostname. Public routing and Managed OAuth are configured in Cloudflare.
 
+### Public read-only
+
+To let anyone browse the vocabulary while only you edit, set
+`TERMINOLOGY_PUBLIC_READ=1` in the env file and restart. Then, in Cloudflare
+Zero Trust (Access → Applications):
+
+1. Give the public hostname's application a **Bypass** policy for
+   **Everyone**, so visitors reach the editor without signing in. Access then
+   forwards no assertion for them.
+2. Add a self-hosted application for the same hostname with the path
+   `sign-in`, allowing only you. Opening **Sign in to edit** goes through
+   its login, sets the `CF_Authorization` cookie, and returns to the editor.
+3. Keep `/mcp` behind its own application, as before. A more specific path
+   takes precedence over the Bypass.
+
+With public read on:
+
+- **Visitors without a valid Access identity** get every page and `GET` API
+  read, including SKOS export and pinned historical reads.
+- **Email addresses** in JSON responses, such as proposers and change
+  authors, read "an editor" for them.
+- **Refused with 401:** writes (every non-`GET` request, including import
+  and operation previews, so a visitor can't make the server fetch a SPARQL
+  endpoint), `/mcp`, and `/api/subscribers`.
+- **Editor pages** hide their editing controls and show **Sign in to edit**.
+- **Signed-in requests:** a request with a valid assertion header, or a
+  valid `CF_Authorization` cookie, is signed in. `GET /api/viewer` reports
+  which.
+- **Bad tokens:** an expired or invalid cookie leaves the visitor anonymous;
+  an invalid assertion header is still refused.
+- **Audiences:** the token's audience isn't checked, so every Access
+  application in the team must still admit only you. An application that
+  lets other people sign in would give them editing here too.
+- **LAN:** direct LAN access is unaffected.
+
+Without `TERMINOLOGY_PUBLIC_READ`, every public request still needs an Access
+assertion.
+
 All three sibling services use `/etc/<service>/env`: `/etc/quote-mcp/env`,
 `/etc/corpus-mcp/env`, and `/etc/terminology-mcp/env`. Development checkouts
 continue to use `.env` at the repository root. Server files stay outside

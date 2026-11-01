@@ -36,9 +36,13 @@ function numberParam(url: URL, name: string): number | undefined {
     throw new DomainError(400, `${name} must be a nonnegative integer.`);
   return Number(raw);
 }
+// Responses to anonymous visitors, whose JSON hides email addresses (change authors and proposers).
+const redacted = new WeakSet<ServerResponse>();
+const EMAIL = /[^\s@<>"'(),;:]+@[^\s@<>"'(),;:]+\.[a-z]{2,}/gi;
 function json(res: ServerResponse, status: number, value: unknown) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(value));
+  res.end(redacted.has(res) ? JSON.stringify(value, (_key, item) => typeof item === 'string' ? item.replace(EMAIL, 'an editor') : item)
+    : JSON.stringify(value));
 }
 
 export function createApp(store: Store, options: { demo?: boolean; origins?: string[]; deploymentFile?: string;
@@ -56,6 +60,20 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       const identity = await authorizeRequest(req, url.pathname, access, options.accessKeys);
       // Over Access the verified identity names the author; LAN callers name themselves.
       const caller = identity.via === 'access' ? identity.email ?? identity.subject : undefined;
+      const visitor = identity.via === 'public';
+      if (visitor) redacted.add(res);
+      if (url.pathname === '/sign-in' && req.method === 'GET') {
+        // Access guards this path; reaching it signed out means that application is missing.
+        if (visitor) throw new DomainError(401, 'Signing in is not set up: protect /sign-in with a Cloudflare Access application.');
+        res.writeHead(303, { Location: '/', 'Cache-Control': 'no-store' }); res.end(); return;
+      }
+      if (url.pathname === '/api/viewer' && req.method === 'GET') {
+        json(res, 200, { canEdit: !visitor, via: identity.via, ...(caller ? { name: caller } : {}),
+          ...(visitor ? { signIn: '/sign-in' } : identity.via === 'access' ? { signOut: '/cdn-cgi/access/logout' } : {}) });
+        return;
+      }
+      if (visitor && (!['GET', 'HEAD'].includes(req.method ?? '') || url.pathname === '/mcp' || url.pathname.startsWith('/api/subscribers')))
+        throw new DomainError(401, 'This is a read-only view. Sign in to edit.', { signIn: '/sign-in' });
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         if (req.headers.origin && req.headers.origin !== origin)
           throw new DomainError(403, 'Cross-origin writes are not allowed.');
@@ -228,6 +246,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
         '/graph.js': ['graph.js', 'text/javascript; charset=utf-8'],
         '/style.css': ['style.css', 'text/css; charset=utf-8'],
         '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
+        '/viewer.js': ['viewer.js', 'text/javascript; charset=utf-8'],
       };
       const asset = assets[url.pathname];
       if (!asset || !['GET', 'HEAD'].includes(req.method ?? '')) throw new DomainError(404, 'Page not found.');

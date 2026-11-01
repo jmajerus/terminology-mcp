@@ -21,17 +21,17 @@
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
   <main class="workspace">
     <aside class="outline" aria-label="Taxonomy outline">
-      <div class="pane-heading"><span class="eyebrow">Your vocabularies</span><button id="new-scheme" class="text-button">+ Scheme</button></div>
+      <div class="pane-heading"><span class="eyebrow">Your vocabularies</span><button id="new-scheme" class="text-button" data-write>+ Scheme</button></div>
       <label class="sr-only" for="scheme">Scheme</label>
       <select id="scheme"></select>
       <div class="outline-meta"><span id="scheme-kind"></span><span id="term-count"></span></div>
       <div id="scheme-notations" class="alias-list"></div>
-      <div class="scheme-tools"><button id="import-scheme" class="text-button">Import SKOS…</button><a id="export-scheme" class="text-button" href="#">Export SKOS ↓</a></div>
-      <div class="scheme-tools"><button id="scheme-settings" class="text-button" hidden>Depth limit: none</button></div>
+      <div class="scheme-tools"><button id="import-scheme" class="text-button" data-write>Import SKOS…</button><a id="export-scheme" class="text-button" href="#">Export SKOS ↓</a></div>
+      <div class="scheme-tools" data-write><button id="scheme-settings" class="text-button" hidden>Depth limit: none</button></div>
       <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Filter terms…" autocomplete="off"><kbd>/</kbd></label>
       <p><a id="graph-view" class="text-button" href="/graph">Explore concept graph ↗</a></p><div class="tree-caption"><span>TERM</span><span>STATUS</span></div>
       <div id="tree" class="tree" aria-label="Terms"></div>
-      <div class="outline-footer"><button id="new-root" class="button full">+ Top-level term</button><p>Stable IDs. Room to grow.</p></div>
+      <div class="outline-footer"><button id="new-root" class="button full" data-write>+ Top-level term</button><p>Stable IDs. Room to grow.</p></div>
     </aside>
     <section id="detail" class="detail" aria-label="Term editor"><div class="empty"><span class="empty-symbol">t.</span><h1>Your vocabulary starts here</h1><p>Create a scheme to give your terms a home.</p></div></section>
     <aside class="history" aria-label="Change history">

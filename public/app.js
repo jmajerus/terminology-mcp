@@ -1,3 +1,5 @@
+import { viewer, lockForm } from './viewer.js';
+
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 let state = { schemes: [], terms: [], version: 0, demo: false };
@@ -49,7 +51,8 @@ function termOptions(terms, selected = '') {
 }
 
 async function refresh(preferredId) {
-  const [nextState, nextChanges, nextSubscribers] = await Promise.all([api('state'), api('changes'), api('subscribers')]);
+  const [nextState, nextChanges, nextSubscribers] = await Promise.all([api('state'), api('changes'),
+    viewer.canEdit ? api('subscribers') : { subscribers: [] }]);
   state = nextState;
   changes = nextChanges.changes;
   subscribers = nextSubscribers.subscribers;
@@ -146,7 +149,7 @@ function renderDetail() {
   const collectionToken = ++collectionInfoGeneration;
   const term = current();
   if (!term) {
-    $('#detail').innerHTML = `<div class="empty"><span class="empty-symbol">t.</span><h1>${schemeId ? 'Make room for an idea' : 'Your vocabulary starts here'}</h1><p>${escape(scheme()?.description || 'Create a scheme to give your terms a home.')}</p><button class="button primary" id="empty-create">${schemeId ? (scheme()?.hierarchy === 'graph' ? '+ Add a concept' : '+ Add a top-level term') : '+ Create a scheme'}</button></div>`;
+    $('#detail').innerHTML = `<div class="empty"><span class="empty-symbol">t.</span><h1>${schemeId ? 'Make room for an idea' : 'Your vocabulary starts here'}</h1><p>${escape(scheme()?.description || 'Create a scheme to give your terms a home.')}</p><button class="button primary" id="empty-create" data-write>${schemeId ? (scheme()?.hierarchy === 'graph' ? '+ Add a concept' : '+ Add a top-level term') : '+ Create a scheme'}</button></div>`;
     $('#empty-create').onclick = () => openCreate(schemeId ? 'term' : 'scheme');
     return;
   }
@@ -156,26 +159,26 @@ function renderDetail() {
     <div class="term-heading"><div class="breadcrumbs">${crumbs(term)}</div>
       <div class="title-line"><h1>${escape(term.label)}</h1><span class="status-pill ${escape(term.status)}">${escape(term.status)}</span></div>
       <div class="term-id">${escape(term.id)} · slug <code>${escape(term.slug)}</code>${term.formerSlugs?.length ? ` (formerly ${term.formerSlugs.map(escape).join(', ')})` : ''}<br>${term.path ? escape(term.path) : scheme()?.hierarchy === 'graph' ? 'Concept graph' : `${term.broader.length} broader terms · depth ${term.depth}`} · created #${term.created} · changed #${term.changed}</div>
-      <div class="term-actions"><button type="button" class="button small" id="new-child">+ Narrower term</button><button type="button" class="button small" id="show-history">View history ↗</button><span class="usage-note">Subscriber usage unknown</span></div>
-      ${term.proposal ? `<div class="proposal-banner">Proposed by <strong>${escape(term.proposal.proposer)}</strong> at #${term.created}${term.proposal.evidence ? ` · <code>${escape(JSON.stringify(term.proposal.evidence))}</code>` : ''}${term.status === 'provisional' ? '<br>Confirm it to make it active, or use Merge into… or Retire… below. <button type="button" class="button small primary" id="confirm-proposal">Confirm</button>' : ''}</div>` : ''}
-      ${term.status === 'retired' ? `<div class="retirement-banner">This term is retired. ${term.replacedBy.length ? 'Replaced by: ' + term.replacedBy.map(id => `<button type="button" class="text-button" data-pick="${escape(id)}">${escape(byId(id)?.label)}</button>`).join(', ') : 'No replacement specified.'} Old IDs and aliases still resolve here.</div>` : `<div class="term-actions breaking-actions">${['move', 'merge', 'split', 'retire', 'slug'].map(kind => `<button type="button" class="button small" data-operation="${kind}">${kind === 'slug' ? 'Change slug' : kind[0].toUpperCase() + kind.slice(1)}…</button>`).join('')}</div>`}
+      <div class="term-actions"><button type="button" class="button small" id="new-child" data-write>+ Narrower term</button><button type="button" class="button small" id="show-history">View history ↗</button><span class="usage-note">Subscriber usage unknown</span></div>
+      ${term.proposal ? `<div class="proposal-banner">Proposed by <strong>${escape(term.proposal.proposer)}</strong> at #${term.created}${term.proposal.evidence ? ` · <code>${escape(JSON.stringify(term.proposal.evidence))}</code>` : ''}${term.status === 'provisional' ? '<br>Confirm it to make it active, or use Merge into… or Retire… below. <button type="button" class="button small primary" id="confirm-proposal" data-write>Confirm</button>' : ''}</div>` : ''}
+      ${term.status === 'retired' ? `<div class="retirement-banner">This term is retired. ${term.replacedBy.length ? 'Replaced by: ' + term.replacedBy.map(id => `<button type="button" class="text-button" data-pick="${escape(id)}">${escape(byId(id)?.label)}</button>`).join(', ') : 'No replacement specified.'} Old IDs and aliases still resolve here.</div>` : `<div class="term-actions breaking-actions" data-write>${['move', 'merge', 'split', 'retire', 'slug'].map(kind => `<button type="button" class="button small" data-operation="${kind}">${kind === 'slug' ? 'Change slug' : kind[0].toUpperCase() + kind.slice(1)}…</button>`).join('')}</div>`}
     </div>
     ${connectionPanel(term)}<form id="term-form" class="term-body">
       <label class="field"><span class="field-label">Preferred label</span><input id="label" name="label" value="${escape(term.label)}" required maxlength="200"><span class="help">Renames keep the stable ID and all previous path aliases.</span></label>
       <label class="field"><span class="field-label">Scope note</span><textarea id="scope-note" name="scopeNote" rows="4" maxlength="20000" placeholder="What belongs here, and what goes elsewhere.">${escape(term.scopeNote)}</textarea><span class="help">Describe the concept’s boundaries. Scope note edits apply immediately.</span></label>
-      <div class="field"><span class="field-label">Notations <button type="button" class="text-button" id="add-notation">+ Notation</button></span><div id="notations" class="relations-list"></div><p class="help">Codes in a classification system. Exact text and datatype are preserved, including leading zeros.</p></div>
+      <div class="field"><span class="field-label">Notations <button type="button" class="text-button" id="add-notation" data-write>+ Notation</button></span><div id="notations" class="relations-list"></div><p class="help">Codes in a classification system. Exact text and datatype are preserved, including leading zeros.</p></div>
       <div class="two-columns"><label class="field"><span class="field-label">Alternative labels</span><textarea id="alt-labels" name="altLabels" rows="3" placeholder="One alternative label per line">${escape(term.altLabels.join('\n'))}</textarea><span class="help">Other names that help you find this term.</span></label>
       <label class="field"><span class="field-label">Status</span><select id="term-status" name="status"><option value="provisional" ${term.status === 'provisional' ? 'selected' : ''}>Provisional</option><option value="active" ${term.status === 'active' ? 'selected' : ''}>Active</option></select><span class="help">Provisional terms leave space for ideas still taking shape.</span></label></div>
       ${term.broader.length ? `<div class="field"><span class="field-label">Broader terms</span><div class="alias-list">${term.broader.map(id => `<button type="button" class="button small" data-pick="${escape(id)}">${escape(byId(id)?.label)}</button>`).join('')}</div></div>` : ''}
       <div class="section-line field"><span class="field-label">Relations</span><div id="relations" class="relations-list"></div>
-        <div class="relation-add"><select id="relation-type" aria-label="Relation type"><option value="related">Related</option><option value="opposite">Opposite</option></select><select id="relation-target" class="target" aria-label="Related term"></select><button type="button" class="button small" id="add-relation">+ Link</button></div>
+        <div class="relation-add" data-write><select id="relation-type" aria-label="Relation type"><option value="related">Related</option><option value="opposite">Opposite</option></select><select id="relation-target" class="target" aria-label="Related term"></select><button type="button" class="button small" id="add-relation">+ Link</button></div>
         <p class="help">Related connects terms across schemes. Opposite stays within this scheme.</p>
       </div>
-      <div class="section-line field"><span class="field-label">External references <button type="button" class="text-button" id="add-link">+ Reference</button></span><div id="links" class="relations-list"></div><p class="help">Link to an equivalent or closely matching concept in another vocabulary.</p></div>
+      <div class="section-line field"><span class="field-label">External references <button type="button" class="text-button" id="add-link" data-write>+ Reference</button></span><div id="links" class="relations-list"></div><p class="help">Link to an equivalent or closely matching concept in another vocabulary.</p></div>
       <div class="section-line field"><span class="field-label">Aliases</span><div class="alias-list">${term.aliases.map(alias => `<span class="alias">${escape(alias)}</span>`).join('') || '<span class="help">No aliases yet.</span>'}</div><p class="help">Historical names continue to resolve to this term.</p></div>
-      ${collectionPanel(term)}<label class="field"><span class="field-label">Change note <span class="help">optional</span></span><input id="reason" name="reason" maxlength="2000" placeholder="Why are you making this change?"></label>
+      ${collectionPanel(term)}<label class="field" data-write><span class="field-label">Change note <span class="help">optional</span></span><input id="reason" name="reason" maxlength="2000" placeholder="Why are you making this change?"></label>
       <p id="save-error" class="form-error" role="alert"></p>
-      <div class="save-bar"><span id="save-state" class="save-state">Saved at #${term.changed}</span><div class="save-buttons"><button type="button" class="button" id="discard" disabled>Discard</button><button type="submit" class="button primary" id="save-term" disabled>Save changes</button></div></div>
+      <div class="save-bar" data-write><span id="save-state" class="save-state">Saved at #${term.changed}</span><div class="save-buttons"><button type="button" class="button" id="discard" disabled>Discard</button><button type="submit" class="button primary" id="save-term" disabled>Save changes</button></div></div>
     </form>`;
   renderRelations();
   loadCalculatedCollections(term, collectionToken);
@@ -208,6 +211,7 @@ function renderDetail() {
     $('#term-form').querySelectorAll('input,textarea,select,button').forEach(control => { control.disabled = true; });
     $('#save-state').textContent = `Retired at #${term.changed} · read-only`;
   }
+  lockForm($('#term-form'));
 }
 function updateRelationTargets() {
   const type = $('#relation-type').value;
@@ -440,6 +444,7 @@ document.addEventListener('keydown', event => {
 window.addEventListener('beforeunload', event => { if (dirty) event.preventDefault(); });
 refresh().then(() => {
   const params = new URLSearchParams(location.search);
+  if (!viewer.canEdit) return;
   if (params.get('create') === 'term' && schemeId) openCreate('term');
   const importFormat = params.get('import');
   if (['turtle', 'sparql', 'graph-json'].includes(importFormat)) { $('#import-scheme').click(); $('#import-format').value = importFormat; $('#import-format').dispatchEvent(new Event('change')); }

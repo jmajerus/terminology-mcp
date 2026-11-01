@@ -51,7 +51,9 @@ demonstration terms, not an import from your other projects.
 MCP clients can connect to **http://127.0.0.1:8000/mcp** using Streamable
 HTTP. The same endpoint is available on the configured LAN hostname;
 see [MCP access](docs/mcp.md) for client setup and the fourteen tools (all
-read-only except `propose_term`).
+read-only except `propose_term`). A public hostname can be opened read-only
+to visitors while editing stays behind Cloudflare Access; see
+[deployment](docs/deployment.md#public-read-only).
 
 For an empty workspace for your own vocabulary, stop the demo and run:
 

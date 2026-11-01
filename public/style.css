@@ -62,3 +62,11 @@
 #import-analysis td ul { margin:0; }
 .side-panel{padding:0 22px 14px;border-bottom:1px solid var(--line);margin-bottom:6px}.side-panel h3{margin:0 0 8px}.subscriber{font-size:12px;line-height:1.6;padding:8px 0;border-top:1px solid #e6eadf}.subscriber:first-of-type{border-top:0}.subscriber.held .subscriber-hold{color:#866037}.proposal-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.proposal-row .help{margin:0}.proposal-banner{background:#eef4e6;border:1px solid #cfdcc0;border-radius:5px;padding:12px;margin-top:16px;font-size:12px;line-height:1.7}.proposal-banner code{font-family:var(--mono);font-size:11px;word-break:break-all}.proposal-banner .button{margin-left:6px}.pending-mark{font-size:10px;color:#866037;border:1px solid #e8d7b4;border-radius:9px;padding:0 6px;margin-left:auto}
 .source-results{display:grid;gap:2px;margin-top:6px;max-height:220px;overflow-y:auto}.source-option{display:flex;justify-content:space-between;align-items:baseline;gap:10px;text-align:left;background:none;border:1px solid transparent;border-radius:5px;padding:6px 8px;font:inherit;cursor:pointer}.source-option:hover,.source-option:focus-visible{background:#eef4e6;border-color:#cfdcc0}.source-option .help{margin:0;white-space:nowrap}.source-chosen{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;margin-top:8px;padding:10px;background:#eef4e6;border:1px solid #cfdcc0;border-radius:5px}.source-chosen select{grid-column:1/-1}.source-label{min-width:0;overflow-wrap:anywhere}.source-label .help{display:block;margin:0}
+
+/* Read-only visitors: hide controls that write, and show who is signed in. */
+.read-only [data-write] { display: none !important; }
+.viewer { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; color: #bdd0c1; font-size: 12px; white-space: nowrap; }
+.viewer .text-button { color: #edf4eb; text-decoration: underline; text-underline-offset: 3px; }
+.viewer ~ .version { margin-left: 0; }
+.read-only .term-body input[readonly], .read-only .term-body textarea[readonly] { background: transparent; }
+.read-only [readonly]::placeholder { color: transparent; }

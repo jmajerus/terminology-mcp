@@ -154,6 +154,12 @@ Concept Clusters' subjects tree is imported as `cc-subjects`. Server-side
 subscriber registration, usage, gates and proposals are next. See
 [following changes](docs/following-changes.md).
 
+**Public read-only update (2026-11-01):** with `TERMINOLOGY_PUBLIC_READ=1` and
+an Access Bypass policy, visitors browse the vocabulary read-only (emails
+redacted; writes, `/mcp` and subscribers refused), and **Sign in to edit**
+goes through Access. A sandboxed playground instance that anyone can edit,
+with caps and a nightly reset, is next.
+
 **Proposal provenance update (2026-11-01):** every proposal now names a
 `source` term in a reference vocabulary (by ID, alias, IRI or notation) and a
 `match`. The new term links to the source, its label defaults to the
