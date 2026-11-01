@@ -154,10 +154,11 @@ Concept Clusters' subjects tree is imported as `cc-subjects`. Server-side
 subscriber registration, usage, gates and proposals are next. See
 [following changes](docs/following-changes.md).
 
-**Public read-only update (2026-11-01):** with `TERMINOLOGY_PUBLIC_READ=1` and
-an Access Bypass policy, visitors browse the vocabulary read-only (emails
-redacted; writes, `/mcp` and subscribers refused), and **Sign in to edit**
-goes through Access. Editing controls stay in place, greyed out. Live at
+**Public read-only update (2026-11-01):** behind an Access Bypass policy,
+visitors browse the vocabulary read-only (emails
+redacted; writes, `/mcp` and subscribers refused) on a hostname of their own.
+Editing controls stay in place, greyed out, and **Sign in to edit** opens the
+same page on the owner's hostname, which stays behind Access with MCP. Live at
 [vocabulary.majerus.us](https://vocabulary.majerus.us); the repository is
 public. A sandboxed playground instance that anyone can edit,
 with caps and a nightly reset, is next.
@@ -258,8 +259,8 @@ should show for a deeper one).
   breaking changes.
 - **Exports**: SKOS Turtle per scheme (done; JSON-LD not yet); a snapshot
   file for consumers that can't reach the server at all (CC's public site,
-  CI). With public read on, consumers off the LAN can already read the API
-  without credentials.
+  CI). Consumers off the LAN can already read the API through the
+  read-only hostname, without credentials.
 - **Editor**: two pages, below, plus a concept-graph explorer.
 
 Same stack as corpus-mcp and quote-mcp: TypeScript, better-sqlite3, the MCP

@@ -14,11 +14,12 @@ export function allowedOrigins(values: string[] = []): Map<string, string> {
   return result;
 }
 
-export function requestOrigin(host: string | undefined, origins: Map<string, string>): string | null {
+export function requestOrigin(host: string | undefined, origins: Map<string, string>, scheme?: 'https:'): string | null {
   if (!host || /[\s/@?#\\]/.test(host)) return null;
   try {
     const url = new URL(`http://${host}`);
     if (url.host.toLowerCase() !== host.toLowerCase()) return null;
+    if (scheme) return `${scheme}//${url.host}`;
     return origins.get(url.host) ?? (loopback.has(url.hostname) ? url.origin : null);
   } catch { return null; }
 }

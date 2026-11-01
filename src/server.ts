@@ -13,7 +13,7 @@ import { graphSchemes, planGraph } from './graph-import.js';
 import { conceptGraph, graphEdges, graphTypes } from './graph.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpServer } from './mcp.js';
-import { AccessError, authorizeRequest, requestAccessConfig, type RequestAccessConfig } from './access.js';
+import { AccessError, authorizeRequest, proxiedRequest, requestAccessConfig, type RequestAccessConfig } from './access.js';
 import type { JWTVerifyGetKey } from 'jose';
 
 async function body(req: IncomingMessage, limit = 128 * 1024): Promise<unknown> {
@@ -46,14 +46,16 @@ function json(res: ServerResponse, status: number, value: unknown) {
 }
 
 export function createApp(store: Store, options: { demo?: boolean; origins?: string[]; deploymentFile?: string;
-  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey } = {}) {
+  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey; editUrl?: string } = {}) {
   const origins = allowedOrigins(options.origins);
   const access = options.access ?? requestAccessConfig({}, ['terminology-mcp', 'terminology-mcp.localdomain']);
   return createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     try {
-      const origin = requestOrigin(req.headers.host, origins);
+      // Cloudflare only routes the hostnames configured there, so a proxied request is served under its own (HTTPS)
+      // hostname; the allowlist guards direct LAN requests against DNS rebinding.
+      const origin = requestOrigin(req.headers.host, origins) ?? (proxiedRequest(req) ? requestOrigin(req.headers.host, new Map(), 'https:') : null);
       if (!origin) throw new DomainError(403, 'This host is not configured for the editor.');
       const url = new URL(req.url ?? '/', origin);
       if (url.origin !== origin) throw new DomainError(403, 'Request URL does not match its Host header.');
@@ -62,18 +64,15 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       const caller = identity.via === 'access' ? identity.email ?? identity.subject : undefined;
       const visitor = identity.via === 'public';
       if (visitor) redacted.add(res);
-      if (url.pathname === '/sign-in' && req.method === 'GET') {
-        // Access guards this path; reaching it signed out means that application is missing.
-        if (visitor) throw new DomainError(401, 'Signing in is not set up: protect /sign-in with a Cloudflare Access application.');
-        res.writeHead(303, { Location: '/', 'Cache-Control': 'no-store' }); res.end(); return;
-      }
+      // Visitors edit nowhere here; the owner edits on the hostname named by editUrl.
+      const edit = visitor && options.editUrl ? { edit: options.editUrl } : {};
       if (url.pathname === '/api/viewer' && req.method === 'GET') {
-        json(res, 200, { canEdit: !visitor, via: identity.via, ...(caller ? { name: caller } : {}),
-          ...(visitor ? { signIn: '/sign-in' } : identity.via === 'access' ? { signOut: '/cdn-cgi/access/logout' } : {}) });
+        json(res, 200, { canEdit: !visitor, via: identity.via, ...(caller ? { name: caller } : {}), ...edit,
+          ...(identity.via === 'access' ? { signOut: '/cdn-cgi/access/logout' } : {}) });
         return;
       }
       if (visitor && (!['GET', 'HEAD'].includes(req.method ?? '') || url.pathname === '/mcp' || url.pathname.startsWith('/api/subscribers')))
-        throw new DomainError(401, 'This is a read-only view. Sign in to edit.', { signIn: '/sign-in' });
+        throw new DomainError(401, 'This is a read-only view.', edit);
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         if (req.headers.origin && req.headers.origin !== origin)
           throw new DomainError(403, 'Cross-origin writes are not allowed.');

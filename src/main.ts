@@ -11,9 +11,11 @@ const host = process.env.HOST ?? '127.0.0.1';
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be between 1 and 65535.');
 const store = new Store(filename);
 if (demo) seedDemo(store);
-const server = createApp(store, { demo, deploymentFile: resolve('deployed.json'),
+const editUrl = process.env.TERMINOLOGY_EDIT_URL ? new URL(process.env.TERMINOLOGY_EDIT_URL).origin : undefined;
+const server = createApp(store, { demo, deploymentFile: resolve('deployed.json'), editUrl,
   access: requestAccessConfig(process.env, ['terminology-mcp', 'terminology-mcp.localdomain']),
-  // Both settings take comma-separated origins: the deploy-managed LAN ones, and the public hostnames.
+  // Comma-separated origins for direct requests: the deploy-managed LAN ones, and any optional extras. Requests
+  // through Cloudflare are served under their own hostname and need no entry.
   origins: [process.env.TERMINOLOGY_ORIGINS, process.env.TERMINOLOGY_PUBLIC_ORIGIN]
     .flatMap(list => list?.split(',').map(value => value.trim()).filter(Boolean) ?? []) });
 server.on('error', error => { console.error(error.message); store.close(); process.exitCode = 1; });
