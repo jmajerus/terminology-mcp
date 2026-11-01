@@ -32,6 +32,26 @@ and reports truncation; the API and JSON export retain the complete graph.
 Disconnected concepts remain in the search list. Arrows point toward broader
 concepts; related links are blue and opposite links are dashed amber.
 
+The diagram uses a force-directed layout ([d3-force](https://d3js.org/d3-force)):
+
+- **Starting point:** the selected concept stays at the centre. Each branch
+  starts as a radial tree, with a sector sized by the concepts under it.
+- **The forces:** links, repulsion and label-sized collision then untangle
+  crossings and keep labels apart, while a weak pull holds each depth near its
+  own ring.
+- **Labels** sit on the outward side of each concept, along its branch.
+- **The view** fits the neighbourhood, growing taller for a round one, and
+  never draws text larger than its set size.
+- **Refocusing** glides from the previous layout to the new one, and concepts
+  seen before keep their relative place. With reduced motion requested, the
+  diagram is drawn at once.
+- **Dragging** a concept pins it under the pointer while the others re-settle
+  around it. A drag doesn't select the concept.
+
+The layout is deterministic: the same neighbourhood draws the same way. The
+page loads d3-force from the server itself (`/vendor/…`), as the content
+security policy allows scripts only from its own origin.
+
 The **Relationship** dropdown offers all four types. For **Broader**, the target
 is broader than the selected concept; for **Narrower**, the target is narrower.
 Those choices use **Preview relationship**, followed by **Apply change**. The

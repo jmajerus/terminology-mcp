@@ -71,3 +71,5 @@
 .viewer ~ .version { margin-left: 0; }
 .read-only .term-body input[readonly], .read-only .term-body textarea[readonly] { background: transparent; }
 .read-only [readonly]::placeholder { color: transparent; }
+.graph-node:active { cursor:grabbing; }
+.graph-node { touch-action:none; }

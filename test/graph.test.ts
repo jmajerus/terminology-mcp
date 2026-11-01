@@ -122,6 +122,13 @@ test('HTTP exposes graph-shaped set reads and full connections including incomin
  const set=store.saveSet({scheme:'human-work',slug:'api',label:'API',members:[prison.id,concept('false-self').id]},store.version);
  const setGraph=await(await fetch(`${base}/api/sets/${set.id}/graph`)).json();assert.equal(setGraph.relations.length,2);
  for(const path of ['/graph','/graph.js'])assert.equal((await fetch(base+path)).status,200);
+ // The page's force layout loads d3-force and its dependencies from this origin.
+ const page=await(await fetch(base+'/graph')).text();
+ for(const name of ['d3-dispatch','d3-quadtree','d3-timer','d3-force']){
+  assert.ok(page.includes(`/vendor/${name}.js`));
+  const script=await fetch(`${base}/vendor/${name}.js`);assert.equal(script.status,200);assert.match(script.headers.get('content-type')??'',/javascript/);
+ }
+ assert.match(await(await fetch(base+'/vendor/d3-force.js')).text(),/forceSimulation/);
  assert.equal((await fetch(base+'/api/graph?types=unknown')).status,422);
 });
 
