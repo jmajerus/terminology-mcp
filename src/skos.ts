@@ -10,6 +10,11 @@ export const SKOS = 'http://www.w3.org/2004/02/skos/core#';
 const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 const DCT = 'http://purl.org/dc/terms/';
 const EX = 'urn:terminology-mcp:vocab:';
+const maxDepth = (values: string[]) => {
+  if (values.length > 1 || (values.length && !/^\d{1,3}$/.test(values[0])))
+    throw new DomainError(422, 'A scheme takes at most one maximum depth, a non-negative integer.');
+  return values.length ? { maxDepth: Number(values[0]) } : {};
+};
 const matches = ['exactMatch', 'closeMatch', 'broadMatch', 'narrowMatch', 'relatedMatch'] as const;
 export const importRequestSchema = z.object({
   format: z.enum(['turtle', 'sparql', 'graph-json']), data: z.string().max(5 * 1024 * 1024).optional(),
@@ -82,7 +87,7 @@ export function planSkos(store: Store, data: string, request: ImportRequest) {
   const supported = new Set([RDF + 'type', SKOS + 'inScheme', SKOS + 'prefLabel', SKOS + 'altLabel', SKOS + 'scopeNote',
     SKOS + 'definition', SKOS + 'broader', SKOS + 'narrower', SKOS + 'related', SKOS + 'topConceptOf', SKOS + 'notation',
     ...matches.map(match => SKOS + match), DCT + 'isReplacedBy', EX + 'status', EX + 'alias', EX + 'opposite', EX + 'slug', EX + 'formerSlug']);
-  const schemeSupported = new Set([RDF + 'type', SKOS + 'prefLabel', SKOS + 'hasTopConcept', SKOS + 'notation', DCT + 'description', EX + 'hierarchy', EX + 'admissionTest', EX + 'slugUniqueDepth']);
+  const schemeSupported = new Set([RDF + 'type', SKOS + 'prefLabel', SKOS + 'hasTopConcept', SKOS + 'notation', DCT + 'description', EX + 'hierarchy', EX + 'admissionTest', EX + 'slugUniqueDepth', EX + 'maxDepth']);
   const plainLiterals = (subject: RdfTerm, predicate: string, field: string) => objects(subject, predicate).map(value => {
     if (value.termType !== 'Literal') throw new DomainError(422, `${field} must be literals.`); return value.value;
   });
@@ -142,7 +147,7 @@ export function planSkos(store: Store, data: string, request: ImportRequest) {
     admissionTest: preferred(scheme, EX + 'admissionTest')?.value ?? '', notations: notations(scheme), sourceUri: scheme.value,
     slugUniqueDepths: plainLiterals(scheme, EX + 'slugUniqueDepth', 'Slug depths').map(value => {
       if (!/^\d{1,3}$/.test(value)) throw new DomainError(422, 'Slug depths must be non-negative integers.'); return Number(value);
-    }) }, terms,
+    }), ...maxDepth(plainLiterals(scheme, EX + 'maxDepth', 'Maximum depth')) }, terms,
     sets: readCollections(rdf, scheme, new Set(members.keys()), request.language, warnings) });
   const declarations = objects(scheme, EX + 'hierarchy');
   const declared = declarations.length === 1 && declarations[0].termType === 'Literal' ? declarations[0].value
@@ -172,6 +177,7 @@ export async function exportSkos(store: Store, schemeId: string, at?: number): P
   if (scheme.admissionTest) add(subject, EX + 'admissionTest', lit(scheme.admissionTest));
   add(subject, EX + 'hierarchy', lit(scheme.hierarchy));
   scheme.slugUniqueDepths.forEach(depth => add(subject, EX + 'slugUniqueDepth', lit(String(depth), nn('http://www.w3.org/2001/XMLSchema#integer'))));
+  if (scheme.maxDepth !== undefined) add(subject, EX + 'maxDepth', lit(String(scheme.maxDepth), nn('http://www.w3.org/2001/XMLSchema#integer')));
   addNotations(subject, scheme.notations);
   for (const term of terms) {
     const s = termIri(term.id);

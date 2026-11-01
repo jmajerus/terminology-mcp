@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, uniqueNotations, DomainError,
-  conceptSetSchema, pathLabel as slug, slugify, slugSchema, type ConceptSet, type Scheme, type Term, type TermView, type Change } from './model.js';
+  conceptSetSchema, pathLabel as slug, slugify, slugSchema, proposeTermSchema, schemeSettingsSchema, progressSchema,
+  type ConceptSet, type Scheme, type Term, type TermView, type Change, type Subscriber } from './model.js';
 
 const setReferences = (set: Pick<ConceptSet, 'members' | 'recipe'>) => [...set.members,
   ...set.recipe?.concepts ?? [], ...set.recipe?.narrower ?? [], ...set.recipe?.exclude ?? [], ...set.recipe?.around.map(rule => rule.term) ?? []];
@@ -31,8 +32,8 @@ export class Store {
   }
   private migrate() {
     const version = this.db.pragma('user_version', { simple: true }) as number;
-    if (version > 3) throw new Error('This database was created by a newer application version.');
-    if (version === 3) return;
+    if (version > 4) throw new Error('This database was created by a newer application version.');
+    if (version === 4) return;
     this.db.transaction(() => {
       if (version === 0) {
         this.db.exec(`
@@ -53,10 +54,17 @@ export class Store {
           body TEXT NOT NULL, PRIMARY KEY (set_id, n));
         CREATE INDEX set_revisions_version ON set_revisions(n);
         PRAGMA user_version = 2;`);
-      this.db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        PRAGMA user_version = 3;`);
-      this.db.prepare('INSERT OR IGNORE INTO meta VALUES (?, ?)').run('log', randomUUID());
-      this.backfillSlugs();
+      // Scheme settings can change from v4, so scheme reads become versioned like terms and sets.
+      this.db.exec(`CREATE TABLE scheme_revisions (scheme_id TEXT NOT NULL REFERENCES schemes(id), n INTEGER NOT NULL REFERENCES changes(n),
+          body TEXT NOT NULL, PRIMARY KEY (scheme_id, n));
+        INSERT INTO scheme_revisions SELECT id, created, body FROM schemes;
+        CREATE TABLE subscribers (id TEXT PRIMARY KEY, body TEXT NOT NULL);`);
+      if (version < 3) {
+        this.db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+        this.db.prepare('INSERT OR IGNORE INTO meta VALUES (?, ?)').run('log', randomUUID());
+        this.backfillSlugs();
+      }
+      this.db.exec('PRAGMA user_version = 4');
     })();
   }
   private backfillSlugs() {
@@ -99,7 +107,9 @@ export class Store {
     return at;
   }
   schemes(at?: number): Scheme[] {
-    return (this.db.prepare('SELECT body FROM schemes WHERE created <= ? ORDER BY id')
+    return (this.db.prepare(`SELECT r.body FROM scheme_revisions r
+      JOIN (SELECT scheme_id, MAX(n) AS n FROM scheme_revisions WHERE n <= ? GROUP BY scheme_id) latest
+      ON r.scheme_id = latest.scheme_id AND r.n = latest.n ORDER BY r.scheme_id`)
       .all(this.atVersion(at)) as { body: string }[]).map(row => ({ notations: [], slugUniqueDepths: [], ...JSON.parse(row.body) }));
   }
   sets(scheme?: string, at?: number): ConceptSet[] {
@@ -286,9 +296,27 @@ export class Store {
       const n = this.version + 1;
       const scheme = { ...data, notations: uniqueNotations(data.notations),
         slugUniqueDepths: [...new Set(data.slugUniqueDepths)].sort((a, b) => a - b), created: n };
-      this.db.prepare('INSERT INTO schemes VALUES (?, ?, ?)').run(scheme.id, n, JSON.stringify(scheme));
       this.log({ kind: 'scheme-added', terms: [], before: null, after: scheme, breaking: false, reason: '' });
+      this.db.prepare('INSERT INTO schemes VALUES (?, ?, ?)').run(scheme.id, n, JSON.stringify(scheme));
+      this.db.prepare('INSERT INTO scheme_revisions VALUES (?, ?, ?)').run(scheme.id, n, JSON.stringify(scheme));
       return scheme;
+    })();
+  }
+  /** Changes a scheme's settings. Only the maximum depth is editable; existing terms must already fit it. */
+  updateScheme(id: string, input: unknown): Scheme {
+    const data = schemeSettingsSchema.parse(input);
+    return this.db.transaction(() => {
+      this.expectVersion(data.expectedVersion);
+      const before = this.scheme(id);
+      const { maxDepth: _old, ...rest } = before;
+      const after: Scheme = data.maxDepth === null ? rest : { ...rest, maxDepth: data.maxDepth };
+      if (after.maxDepth === before.maxDepth) return before;
+      this.checkDepths(this.rawTerms(), new Map(this.schemes().map(scheme => [scheme.id, scheme.id === id ? after : scheme])));
+      const n = this.log({ kind: 'scheme-changed', terms: [], before, after, breaking: false,
+        reason: after.maxDepth === undefined ? 'Removed the maximum depth' : `Maximum depth ${after.maxDepth}` });
+      this.db.prepare('UPDATE schemes SET body = ? WHERE id = ?').run(JSON.stringify(after), id);
+      this.db.prepare('INSERT INTO scheme_revisions VALUES (?, ?, ?)').run(id, n, JSON.stringify(after));
+      return after;
     })();
   }
   private rawTerms(at?: number): Term[] {
@@ -350,15 +378,21 @@ export class Store {
     return { version, term: matches[0], current: matches[0].slug === value };
   }
   changes(since = 0, term?: string, scheme?: string): Change[] {
-    this.atVersion(since);
-    if (scheme && !this.schemes().some(item => item.id === scheme)) throw new DomainError(404, 'Scheme not found.');
-    const inScheme = (change: Change) => [change.before, change.after, ...change.beforeTerms ?? [], ...change.afterTerms ?? [],
-      ...change.beforeSets ?? [], ...change.afterSets ?? []].some(item => item && ('scheme' in item ? item.scheme === scheme : item.id === scheme));
-    return (this.db.prepare('SELECT body FROM changes WHERE n > ? ORDER BY n').all(since) as { body: string }[])
-      .map(row => JSON.parse(row.body) as Change).filter(change => (!term || change.terms.includes(term)) && (!scheme || inScheme(change)));
+    return this.changesIn(since, scheme ? [scheme] : [], term);
   }
-  private log(data: Omit<Change, 'n' | 'at' | 'author'>): number {
-    const change: Change = { ...data, n: this.version + 1, at: new Date().toISOString(), author: 'local-editor' };
+  /** Changes after `since` touching any of `schemes` (all changes when empty). */
+  private changesIn(since: number, schemes: string[], term?: string): Change[] {
+    this.atVersion(since);
+    const known = new Set(this.schemes().map(item => item.id));
+    if (schemes.some(id => !known.has(id))) throw new DomainError(404, 'Scheme not found.');
+    const wanted = new Set(schemes);
+    const inScheme = (change: Change) => [change.before, change.after, ...change.beforeTerms ?? [], ...change.afterTerms ?? [],
+      ...change.beforeSets ?? [], ...change.afterSets ?? []].some(item => item && wanted.has('scheme' in item ? item.scheme : item.id));
+    return (this.db.prepare('SELECT body FROM changes WHERE n > ? ORDER BY n').all(since) as { body: string }[])
+      .map(row => JSON.parse(row.body) as Change).filter(change => (!term || change.terms.includes(term)) && (!wanted.size || inScheme(change)));
+  }
+  private log(data: Omit<Change, 'n' | 'at' | 'author'> & { author?: string }): number {
+    const change: Change = { author: 'local-editor', ...data, n: this.version + 1, at: new Date().toISOString() };
     this.db.prepare('INSERT INTO changes(n, body) VALUES (?, ?)').run(change.n, JSON.stringify(change));
     return change.n;
   }
@@ -425,7 +459,18 @@ export class Store {
     };
     checkCycles(term => term.broader, 'Hierarchy');
     checkCycles(term => term.replacedBy, 'Replacement chain');
+    this.checkDepths(terms, schemes);
     this.validateSlugs(terms);
+  }
+  /** Rejects active and provisional terms deeper than their scheme's maximum depth (top terms are depth 0). */
+  private checkDepths(terms: Term[], schemes: Map<string, Scheme>) {
+    if (![...schemes.values()].some(scheme => scheme.maxDepth !== undefined)) return;
+    const views = this.views(terms);
+    for (const term of views) {
+      const limit = schemes.get(term.scheme)?.maxDepth;
+      if (limit !== undefined && term.status !== 'retired' && term.depth > limit)
+        throw new DomainError(422, `“${term.label}” would be at depth ${term.depth}, but ${schemes.get(term.scheme)!.label} allows terms only to depth ${limit} (top terms are depth 0).`);
+    }
   }
   private slugScopes(terms: Term[]): Map<string, string[]> {
     // Slugs are unique among siblings, and scheme-wide at the scheme's listed depths. Retired terms keep their scope.
@@ -507,6 +552,100 @@ export class Store {
       this.persist(term, n);
       return this.lookup(term.id);
     })();
+  }
+  /**
+   * Creates a provisional term on behalf of a consumer or agent. A retry with the same proposer and requestId
+   * returns the original term; a sibling (or scheme-wide peer) with the same slug or path label is a 409.
+   */
+  propose(input: unknown, identity?: string) {
+    const data = proposeTermSchema.parse(input);
+    const proposer = identity ?? data.proposer;
+    if (!proposer) throw new DomainError(422, 'Name the proposer.');
+    return this.db.transaction(() => {
+      const terms = this.rawTerms();
+      const prior = data.requestId && terms.find(term => term.proposal?.proposer === proposer && term.proposal.requestId === data.requestId);
+      if (prior) return { ...this.proposalResult(prior), replayed: true };
+      this.scheme(data.scheme);
+      const parent = this.resolveRef(data.scheme, data.broader);
+      if (parent.status === 'retired') throw new DomainError(422, 'Propose terms under an active or provisional term.');
+      const n = this.version + 1;
+      const term: Term = { scheme: data.scheme, label: data.label, altLabels: [...new Set(data.altLabels)], scopeNote: data.scopeNote,
+        broader: [parent.id], notations: [], relations: [], links: [], aliases: [], status: 'provisional', replacedBy: [],
+        slug: data.slug ?? slugify(data.label), formerSlugs: [], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n,
+        proposal: { proposer, ...(data.evidence ? { evidence: data.evidence } : {}), ...(data.requestId ? { requestId: data.requestId } : {}) } };
+      const scopes = this.slugScopes([...terms, term]), mine = new Set(scopes.get(term.id));
+      const clashes = terms.filter(other => other.scheme === term.scheme && (
+        (other.broader.includes(parent.id) && slug(other.label) === slug(term.label)) ||
+        ([other.slug, ...other.formerSlugs].includes(term.slug) && scopes.get(other.id)!.some(scope => mine.has(scope)))))
+        .sort((a, b) => Number(a.status === 'retired') - Number(b.status === 'retired'));
+      if (clashes.length) {
+        const existing = clashes[0], retired = existing.status === 'retired';
+        throw new DomainError(409, retired
+          ? `A retired term, “${existing.label}”, already uses that slug or label here. Use its replacement or propose a different slug.`
+          : `“${existing.label}” already uses that slug or label here. Use it, or propose a different slug.`,
+        { reason: retired ? 'retired' : 'duplicate', existing: { id: existing.id, slug: existing.slug, label: existing.label,
+          status: existing.status, replacedBy: existing.replacedBy } });
+      }
+      this.validateTerm(term);
+      const alias = this.pathAlias(term);
+      if (alias) term.aliases = [alias];
+      this.log({ kind: 'added', terms: [term.id], before: null, after: term, breaking: false, reason: `Proposed by ${proposer}`,
+        author: proposer, proposal: term.proposal });
+      this.persist(term, n);
+      return { ...this.proposalResult(term), replayed: false };
+    })();
+  }
+  private proposalResult(term: Term) {
+    const view = this.lookup(term.id);
+    return { id: view.id, slug: view.slug, status: view.status, change: term.created, version: this.version, term: view };
+  }
+  /** Resolves a term reference within a scheme: a stable ID, an alias, or a current or former slug. */
+  private resolveRef(scheme: string, ref: string): TermView {
+    let term: TermView;
+    try { term = this.lookup(ref); }
+    catch (error) {
+      if (!(error instanceof DomainError) || error.status !== 404) throw error;
+      term = this.slugLookup(scheme, ref).term;
+    }
+    if (term.scheme !== scheme) throw new DomainError(422, 'The broader term must be in the same scheme.');
+    return term;
+  }
+  /** Records how far a subscriber has applied the changelog. The first report registers it. */
+  reportProgress(id: string, input: unknown) {
+    if (!/^[a-z][a-z0-9-]{0,59}$/.test(id)) throw new DomainError(422, 'Subscriber IDs use lowercase letters, digits and hyphens.');
+    const data = progressSchema.parse(input);
+    return this.db.transaction(() => {
+      if (data.log !== this.logId)
+        throw new DomainError(409, 'This store has a different log ID. Bootstrap again from /api/state.', { log: this.logId });
+      if (data.through > this.version) throw new DomainError(400, 'Progress cannot be beyond the current changelog number.');
+      if (data.blocked && (data.blocked.at <= data.through || data.blocked.at > this.version))
+        throw new DomainError(422, 'A blocking change must be after the reported progress and no later than the head.');
+      const known = new Set(this.schemes().map(scheme => scheme.id));
+      if (data.schemes?.some(scheme => !known.has(scheme))) throw new DomainError(404, 'Scheme not found.');
+      const row = this.db.prepare('SELECT body FROM subscribers WHERE id = ?').get(id) as { body: string } | undefined;
+      const prior = row ? JSON.parse(row.body) as Subscriber : undefined;
+      if (prior && data.through < prior.through && !data.reset)
+        throw new DomainError(409, 'Progress cannot move backwards. Send reset: true after bootstrapping again.', { through: prior.through });
+      const now = new Date().toISOString();
+      const subscriber: Subscriber = { id, label: data.label ?? prior?.label ?? id, schemes: data.schemes ?? prior?.schemes ?? [],
+        log: data.log, through: data.through, blocked: data.blocked ? { ...data.blocked } : null, lastSeen: now, registered: prior?.registered ?? now };
+      this.db.prepare('INSERT INTO subscribers VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET body = excluded.body').run(id, JSON.stringify(subscriber));
+      return this.subscriberView(subscriber);
+    })();
+  }
+  subscribers() {
+    return (this.db.prepare('SELECT body FROM subscribers ORDER BY id').all() as { body: string }[])
+      .map(row => this.subscriberView(JSON.parse(row.body) as Subscriber));
+  }
+  subscriber(id: string) {
+    const row = this.db.prepare('SELECT body FROM subscribers WHERE id = ?').get(id) as { body: string } | undefined;
+    if (!row) throw new DomainError(404, 'Subscriber not found.');
+    return this.subscriberView(JSON.parse(row.body) as Subscriber);
+  }
+  private subscriberView(subscriber: Subscriber) {
+    const pending = this.changesIn(Math.min(subscriber.through, this.version), subscriber.schemes.filter(id => this.schemes().some(s => s.id === id)));
+    return { ...subscriber, head: this.version, pending: pending.length, pendingBreaking: pending.filter(change => change.breaking).length,
+      pendingTerms: [...new Set(pending.flatMap(change => change.terms))] };
   }
   editTerm(id: string, input: unknown): TermView {
     const data = editTermSchema.parse(input);

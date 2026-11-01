@@ -53,7 +53,9 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       if (!origin) throw new DomainError(403, 'This host is not configured for the editor.');
       const url = new URL(req.url ?? '/', origin);
       if (url.origin !== origin) throw new DomainError(403, 'Request URL does not match its Host header.');
-      await authorizeRequest(req, url.pathname, access, options.accessKeys);
+      const identity = await authorizeRequest(req, url.pathname, access, options.accessKeys);
+      // Over Access the verified identity names the author; LAN callers name themselves.
+      const caller = identity.via === 'access' ? identity.email ?? identity.subject : undefined;
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         if (req.headers.origin && req.headers.origin !== origin)
           throw new DomainError(403, 'Cross-origin writes are not allowed.');
@@ -67,7 +69,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 405, { error: 'MCP uses stateless Streamable HTTP POST requests.' }); return;
         }
         const input = await body(req);
-        const mcp = createMcpServer(store);
+        const mcp = createMcpServer(store, { caller });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on('close', () => { void mcp.close().catch(error => console.error('MCP cleanup failed:', error)); });
         try { await mcp.connect(transport); await transport.handleRequest(req, res, input); }
@@ -179,6 +181,24 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           };
           json(res, 200, isPreview ? store.preview(run) : run()); return;
         }
+        if (req.method === 'POST' && url.pathname === '/api/proposals') {
+          const result = store.propose(await body(req), caller);
+          json(res, result.replayed ? 200 : 201, result); return;
+        }
+        const schemeMatch = url.pathname.match(/^\/api\/schemes\/([^/]+)$/);
+        if (schemeMatch && req.method === 'PATCH') {
+          json(res, 200, { scheme: store.updateScheme(decodeURIComponent(schemeMatch[1]), await body(req)), version: store.version }); return;
+        }
+        if (req.method === 'GET' && url.pathname === '/api/subscribers') {
+          json(res, 200, { log: store.logId, version: store.version, subscribers: store.subscribers() }); return;
+        }
+        const subscriberMatch = url.pathname.match(/^\/api\/subscribers\/([^/]+)(\/progress)?$/);
+        if (subscriberMatch && req.method === 'GET' && !subscriberMatch[2]) {
+          json(res, 200, store.subscriber(decodeURIComponent(subscriberMatch[1]))); return;
+        }
+        if (subscriberMatch && req.method === 'POST' && subscriberMatch[2]) {
+          json(res, 200, store.reportProgress(decodeURIComponent(subscriberMatch[1]), await body(req))); return;
+        }
         if (req.method === 'POST' && url.pathname === '/api/terms') {
           json(res, 201, { term: store.addTerm(await body(req)), version: store.version });
           return;
@@ -221,7 +241,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       } else if (error instanceof ZodError) {
         json(res, 422, { error: error.issues.map(issue => `${issue.path.join('.') || 'Input'}: ${issue.message}`).join('; ') });
       } else if (error instanceof DomainError) {
-        json(res, error.status, { error: error.message });
+        json(res, error.status, { error: error.message, ...error.details });
       } else {
         console.error(error);
         json(res, 500, { error: 'An unexpected error occurred. See the server log.' });

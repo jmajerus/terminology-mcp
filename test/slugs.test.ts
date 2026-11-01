@@ -151,7 +151,7 @@ test('older stores get slugs and a log id on open, including history and change 
     for (const row of db.prepare(`SELECT rowid AS row, body FROM ${table}`).all() as { row: number; body: string }[])
       db.prepare(`UPDATE ${table} SET body = ? WHERE rowid = ?`).run(strip(row.body), row.row);
   assert.equal((db.prepare("SELECT COUNT(*) AS n FROM changes WHERE body LIKE '%\"slug\"%'").get() as { n: number }).n, 0);
-  db.exec('DROP TABLE meta; PRAGMA user_version = 2;'); db.close();
+  db.exec('DROP TABLE meta; DROP TABLE scheme_revisions; DROP TABLE subscribers; PRAGMA user_version = 2;'); db.close();
   const reopened = new Store(filename); t.after(() => reopened.close());
   assert.match(reopened.logId, /^[0-9a-f-]{36}$/);
   assert.deepEqual(reopened.terms('subjects').map(term => term.slug).sort(), ['cafe', 'cafe-2', 'old-name', 'other', 'root', 'root-2']);

@@ -22,15 +22,17 @@ async function run(work: () => unknown | Promise<unknown>): Promise<CallToolResu
     return { content: [{ type: 'text', text }], structuredContent: value };
   } catch (error) {
     if (!(error instanceof DomainError)) console.error('MCP tool failed:', error);
-    return { isError: true, content: [{ type: 'text', text: error instanceof DomainError ? error.message : 'An unexpected error occurred. See the server log.' }] };
+    const text = !(error instanceof DomainError) ? 'An unexpected error occurred. See the server log.'
+      : error.details ? `${error.message}\n${JSON.stringify(error.details)}` : error.message;
+    return { isError: true, content: [{ type: 'text', text }] };
   }
 }
 
 /** Each HTTP request owns a server/transport; every tool captures one changelog version. */
-export function createMcpServer(store: Store): McpServer {
+export function createMcpServer(store: Store, options: { caller?: string } = {}): McpServer {
   const server = new McpServer({ name: 'terminology-mcp', version: '0.1.0' }, { instructions:
     'Read the master terminology vocabulary. Start with list_schemes or search_terms, then use stable IDs for lookup, graphs and concept sets. '
-    + 'All tools are read-only. Results carry a changelog version; pass at to keep multi-call reads consistent. '
+    + 'Every tool except propose_term is read-only; propose_term adds a provisional term for the owner to review. Results carry a changelog version; pass at to keep multi-call reads consistent. '
     + 'Broader/narrower form an acyclic hierarchy; related/opposite are symmetric network edges and do not imply subsumption. '
     + 'Retired terms retain their IDs, aliases and replacements. Tree paths are aliases; graph/poly terms have no single path. '
     + 'Page through search/list/expansion results using nextOffset, retaining version. Editing and import application use the web editor.' });
@@ -134,6 +136,17 @@ export function createMcpServer(store: Store): McpServer {
     return { log: store.logId, version: v, includeSnapshots: args.includeSnapshots, items,
       nextSince: more ? selected.at(-1)!.n : null, through: more ? selected.at(-1)!.n : v };
   }));
+  server.registerTool('list_subscribers', { description: 'List consumers that follow the changelog: how far each has applied it (through), what is still pending for its schemes (including breaking changes), and any change it is held at, with a code and reason.',
+    inputSchema: z.object({}).strict(), annotations }, () => run(() => ({ log: store.logId, version: store.version, subscribers: store.subscribers() })));
+  server.registerTool('propose_term', { description: 'Propose a new term under an existing broader term (stable ID, alias or slug). It is created at once as provisional with a server-minted slug, and the owner confirms, merges or retires it in the editor. Pass a slug to request a specific one. An existing term with the same slug or label in that place is refused with its id, slug and status; a retired match says so. Reuse requestId on retries to get the original term back instead of a duplicate.',
+    inputSchema: z.object({ scheme: z.string().min(1).max(200), label: z.string().min(1).max(200), broader: ref,
+      scopeNote: z.string().max(20000).optional(), altLabels: z.array(z.string().min(1).max(200)).max(100).optional(),
+      slug: z.string().min(1).max(80).optional(),
+      proposer: z.string().min(1).max(200).optional().describe('Who is proposing, e.g. "concept-clusters:authoring". Required on the LAN; Access callers are named by their verified identity.'),
+      evidence: z.record(z.string(), z.unknown()).optional().describe('Why the term is needed, e.g. {"puzzleId": "…"}. At most 4 KiB of JSON.'),
+      requestId: z.string().min(1).max(200).optional() }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
+  args => run(() => store.propose(args, options.caller)));
   server.registerTool('export_skos', { description: 'Export a scheme and its collections as SKOS Turtle at a version, including notations, mappings and collection definitions. Limited to 1 MiB; use the REST export for larger vocabularies.',
     inputSchema: z.object({ scheme: z.string().min(1).max(200), at }).strict(), annotations }, args => run(async () => {
     const v = version(args.at); return { version: v, mediaType: 'text/turtle', data: await exportSkos(store, args.scheme, v) };

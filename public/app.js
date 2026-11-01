@@ -2,6 +2,7 @@ const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 let state = { schemes: [], terms: [], version: 0, demo: false };
 let changes = [];
+let subscribers = [];
 let schemeId = new URLSearchParams(location.search).get('scheme') ?? '';
 let selectedId = location.hash.slice(1);
 let dirty = false;
@@ -47,9 +48,10 @@ function termOptions(terms, selected = '') {
 }
 
 async function refresh(preferredId) {
-  const [nextState, nextChanges] = await Promise.all([api('state'), api('changes')]);
+  const [nextState, nextChanges, nextSubscribers] = await Promise.all([api('state'), api('changes'), api('subscribers')]);
   state = nextState;
   changes = nextChanges.changes;
+  subscribers = nextSubscribers.subscribers;
   if (preferredId) selectedId = preferredId;
   const selected = current();
   if (selected) schemeId = selected.scheme;
@@ -64,7 +66,22 @@ async function refresh(preferredId) {
   $('#export-scheme').hidden = !schemeId;
   $('#export-scheme').href = `/api/schemes/${encodeURIComponent(schemeId)}/skos`;
   resetDirty();
-  renderTree(); renderDetail(); renderChanges();
+  renderTree(); renderDetail(); renderChanges(); renderSubscribers();
+}
+function ago(time) {
+  const minutes = Math.round((Date.now() - new Date(time)) / 60000);
+  return minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago` : minutes < 2880 ? `${Math.round(minutes / 60)} h ago` : new Date(time).toLocaleDateString();
+}
+function pendingFor(id) { return subscribers.filter(item => item.pendingTerms.includes(id)).map(item => item.label); }
+function renderSubscribers() {
+  $('#subscribers').hidden = !subscribers.length;
+  $('#subscribers').innerHTML = `<h3 class="eyebrow">Subscribers</h3>` + subscribers.map(item => `<div class="subscriber ${item.blocked ? 'held' : ''}">
+    <div><strong>${escape(item.label)}</strong> · through #${item.through} · ${item.pending ? `${item.pending} pending${item.pendingBreaking ? ` (${item.pendingBreaking} breaking)` : ''}` : 'up to date'}</div>
+    ${item.blocked ? `<div class="subscriber-hold"><button type="button" class="text-button" data-revision="${item.blocked.at}">Held at #${item.blocked.at}</button>${item.blocked.code ? ` · ${escape(item.blocked.code)}` : ''}${item.blocked.reason ? `: ${escape(item.blocked.reason)}` : ''}</div>` : ''}
+    <span class="help">${escape(item.schemes.join(', ') || 'all schemes')} · last report ${escape(ago(item.lastSeen))}</span></div>`).join('');
+  const open = state.terms.filter(term => term.scheme === schemeId && term.status === 'provisional' && term.proposal);
+  $('#proposals').hidden = !open.length;
+  $('#proposals').innerHTML = `<h3 class="eyebrow">Open proposals · ${open.length}</h3>` + open.map(term => `<div class="proposal-row"><button type="button" class="relation-pick" data-pick="${escape(term.id)}">${escape(term.label)}</button><span class="help">${escape(term.proposal.proposer)} · #${term.created}</span></div>`).join('');
 }
 
 function renderTree() {
@@ -75,6 +92,8 @@ function renderTree() {
     if (!childMap.has(parent)) childMap.set(parent, []);
     childMap.get(parent).push(term);
   }
+  $('#scheme-settings').hidden = !schemeId;
+  $('#scheme-settings').textContent = `Depth limit: ${scheme()?.maxDepth === undefined ? 'none' : `${scheme().maxDepth} (${scheme().maxDepth + 1} levels)`}`;
   $('#scheme-kind').textContent = scheme()?.hierarchy === 'graph' ? 'CONCEPT GRAPH' : scheme()?.hierarchy === 'poly' ? 'POLYHIERARCHY' : schemeId ? 'TREE SCHEME' : 'NO SCHEMES';
   $('#scheme-notations').innerHTML = (scheme()?.notations ?? []).map(notation => `<span class="alias" title="${escape(notation.datatype)}">${escape(notation.value)}</span>`).join('');
   $('#term-count').textContent = `${terms.length} ${terms.length === 1 ? 'term' : 'terms'}`;
@@ -106,6 +125,7 @@ function renderTree() {
     rows.push(`<div class="tree-item ${term.id === selectedId ? 'selected' : ''} ${term.status === 'retired' ? 'retired' : ''}" style="padding-left:${7 + level * 16}px">
       <button type="button" class="tree-toggle" data-toggle="${escape(term.id)}" aria-label="${open ? 'Collapse' : 'Expand'} ${escape(term.label)}" ${children.length && !shared ? `aria-expanded="${open}"` : 'disabled'}>${shared ? '↗' : children.length ? open ? '▾' : '▸' : '·'}</button>
       <button type="button" class="tree-pick" data-pick="${escape(term.id)}" ${term.id === selectedId ? 'aria-current="true"' : ''}>${escape(term.label)}</button>
+      ${pendingFor(term.id).length ? `<span class="pending-mark" title="Not yet applied by ${escape(pendingFor(term.id).join(', '))}">pending</span>` : ''}
       ${shared ? '<span class="help" data-shared-reference title="Shared concept; its children appear at its first occurrence">shared</span>' : ''}
       <span class="status-dot ${escape(term.status)}" title="${escape(term.status)}"><span class="sr-only">${escape(term.status)}</span></span></div>`);
     if (open && !shared) children.forEach(child => walk(child, level + 1));
@@ -136,6 +156,7 @@ function renderDetail() {
       <div class="title-line"><h1>${escape(term.label)}</h1><span class="status-pill ${escape(term.status)}">${escape(term.status)}</span></div>
       <div class="term-id">${escape(term.id)} · slug <code>${escape(term.slug)}</code>${term.formerSlugs?.length ? ` (formerly ${term.formerSlugs.map(escape).join(', ')})` : ''}<br>${term.path ? escape(term.path) : scheme()?.hierarchy === 'graph' ? 'Concept graph' : `${term.broader.length} broader terms · depth ${term.depth}`} · created #${term.created} · changed #${term.changed}</div>
       <div class="term-actions"><button type="button" class="button small" id="new-child">+ Narrower term</button><button type="button" class="button small" id="show-history">View history ↗</button><span class="usage-note">Subscriber usage unknown</span></div>
+      ${term.proposal ? `<div class="proposal-banner">Proposed by <strong>${escape(term.proposal.proposer)}</strong> at #${term.created}${term.proposal.evidence ? ` · <code>${escape(JSON.stringify(term.proposal.evidence))}</code>` : ''}${term.status === 'provisional' ? '<br>Confirm it to make it active, or use Merge into… or Retire… below. <button type="button" class="button small primary" id="confirm-proposal">Confirm</button>' : ''}</div>` : ''}
       ${term.status === 'retired' ? `<div class="retirement-banner">This term is retired. ${term.replacedBy.length ? 'Replaced by: ' + term.replacedBy.map(id => `<button type="button" class="text-button" data-pick="${escape(id)}">${escape(byId(id)?.label)}</button>`).join(', ') : 'No replacement specified.'} Old IDs and aliases still resolve here.</div>` : `<div class="term-actions breaking-actions">${['move', 'merge', 'split', 'retire', 'slug'].map(kind => `<button type="button" class="button small" data-operation="${kind}">${kind === 'slug' ? 'Change slug' : kind[0].toUpperCase() + kind.slice(1)}…</button>`).join('')}</div>`}
     </div>
     ${connectionPanel(term)}<form id="term-form" class="term-body">
@@ -165,6 +186,11 @@ function renderDetail() {
   $('#term-form').addEventListener('change', markDirty);
   $('#term-form').addEventListener('submit', saveTerm);
   $('#new-child').onclick = () => openCreate('term', term.id);
+  if (scheme()?.maxDepth !== undefined && term.depth >= scheme().maxDepth) {
+    $('#new-child').disabled = true;
+    $('#new-child').title = `${scheme().label} allows terms only to depth ${scheme().maxDepth}.`;
+  }
+  if ($('#confirm-proposal')) $('#confirm-proposal').onclick = () => { $('#term-status').value = 'active'; markDirty(); $('#term-form').requestSubmit(); };
   $('#show-history').onclick = () => { $('#history-selected').checked = true; renderChanges(); $('.history').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   $('#discard').onclick = () => { if (allowLeave()) { resetDirty(); renderDetail(); } };
   $('#relation-type').onchange = updateRelationTargets;
@@ -266,8 +292,8 @@ function renderChanges() {
   $('#change-count').textContent = entries.length;
   $('#changes').innerHTML = entries.toReversed().map(change => {
     const date = new Date(change.at);
-    const summary = change.kind === 'added' ? 'A new term in the vocabulary.' : change.kind === 'scheme-added' ? 'A new home for terms.' : change.kind === 'labelled' ? `Previously “${change.before?.label}”. Stable ID preserved.` : change.kind === 'noted' ? 'Scope note updated.' : change.kind.startsWith('set-') ? 'Concept set membership or definition changed.' : 'Term details updated.';
-    return `<article class="change-card"><div class="change-top"><span>#${change.n}</span><time datetime="${escape(change.at)}" title="${escape(date.toLocaleString())}">${escape(date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))} · ${escape(date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))}</time></div><span class="change-kind ${change.breaking ? 'breaking' : ''}">${escape(change.kind.replaceAll('-', ' '))}${change.breaking ? ' · breaking' : ''}</span><div class="change-label">${escape(change.after.label)}</div><div class="change-summary">${escape(change.reason || summary)}</div><button class="change-view" data-revision="${change.n}">Inspect change ↗</button></article>`;
+    const summary = change.kind === 'added' ? 'A new term in the vocabulary.' : change.kind === 'scheme-added' ? 'A new home for terms.' : change.kind === 'labelled' ? `Previously “${change.before?.label}”. Stable ID preserved.` : change.kind === 'noted' ? 'Scope note updated.' : change.kind.startsWith('set-') ? 'Concept set membership or definition changed.' : change.kind === 'scheme-changed' ? 'Scheme settings changed.' : change.kind === 'slugged' ? `Slug “${change.before?.slug}” is now “${change.after.slug}”; the old one still resolves.` : 'Term details updated.';
+    return `<article class="change-card"><div class="change-top"><span>#${change.n}</span><time datetime="${escape(change.at)}" title="${escape(date.toLocaleString())}">${escape(date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))} · ${escape(date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))}</time></div><span class="change-kind ${change.breaking ? 'breaking' : ''}">${escape(change.kind.replaceAll('-', ' '))}${change.breaking ? ' · breaking' : ''}</span><div class="change-label">${escape(change.after.label)}</div><div class="change-summary">${escape(change.reason || summary)}${change.author && change.author !== 'local-editor' && !change.reason.includes(change.author) ? ` · by ${escape(change.author)}` : ''}</div><button class="change-view" data-revision="${change.n}">Inspect change ↗</button></article>`;
   }).join('') || '<p class="tree-empty">No changes recorded yet.</p>';
 }
 function showRevision(n) {
@@ -282,7 +308,7 @@ function openCreate(mode, parent = null) {
   createMode = mode; parentId = parent;
   $('#create-title').textContent = mode === 'scheme' ? 'New scheme' : parent ? 'New narrower term' : scheme()?.hierarchy === 'graph' ? 'New concept' : 'New top-level term';
   $('#create-error').textContent = '';
-  const schemeFields = `<label class="field"><span class="field-label">Scheme ID</span><input name="id" required pattern="[a-z]([a-z0-9]|-){0,59}" maxlength="60" placeholder="e.g. subjects"><span class="help">Lowercase letters, numbers, and hyphens. This ID stays fixed.</span></label><label class="field"><span class="field-label">Hierarchy</span><select name="hierarchy"><option value="tree">Tree · one broader term</option><option value="poly">Polyhierarchy · multiple broader terms</option><option value="graph">Concept graph · associative network</option></select></label><label class="field"><span class="field-label">Description</span><textarea name="description" rows="2" maxlength="10000"></textarea></label>`;
+  const schemeFields = `<label class="field"><span class="field-label">Scheme ID</span><input name="id" required pattern="[a-z]([a-z0-9]|-){0,59}" maxlength="60" placeholder="e.g. subjects"><span class="help">Lowercase letters, numbers, and hyphens. This ID stays fixed.</span></label><label class="field"><span class="field-label">Hierarchy</span><select name="hierarchy"><option value="tree">Tree · one broader term</option><option value="poly">Polyhierarchy · multiple broader terms</option><option value="graph">Concept graph · associative network</option></select></label><label class="field"><span class="field-label">Maximum depth <span class="help">optional</span></span><input name="maxDepth" type="number" min="0" max="500" placeholder="No limit"><span class="help">Top terms are depth 0. Leave empty for no limit.</span></label><label class="field"><span class="field-label">Description</span><textarea name="description" rows="2" maxlength="10000"></textarea></label>`;
   const termFields = `<label class="field"><span class="field-label">Broader terms</span><select name="broader" ${scheme()?.hierarchy !== 'tree' ? 'multiple size="5"' : ''}><option value="" ${!parent ? 'selected' : ''}>Top level</option>${termOptions(state.terms.filter(term => term.scheme === schemeId), parent)}</select>${scheme()?.hierarchy !== 'tree' ? '<span class="help">Use Ctrl or Command to select more than one parent.</span>' : ''}</label><label class="field"><span class="field-label">Scope note</span><textarea name="scopeNote" rows="3" maxlength="20000" placeholder="What belongs here?"></textarea></label><label class="field"><span class="field-label">Status</span><select name="status"><option value="provisional">Provisional</option><option value="active">Active</option></select></label>`;
   $('#create-fields').innerHTML = `<label class="field"><span class="field-label">${mode === 'scheme' ? 'Scheme name' : 'Preferred label'}</span><input name="label" required maxlength="200" autocomplete="off"></label>${mode === 'scheme' ? schemeFields : termFields}`;
   $('#create-dialog').showModal();
@@ -292,6 +318,7 @@ $('#create-form').addEventListener('submit', async event => {
   const form = new FormData(event.currentTarget);
   const data = Object.fromEntries(form);
   if (createMode === 'term') { data.scheme = schemeId; data.broader = form.getAll('broader').filter(Boolean); }
+  if (createMode === 'scheme') { if (data.maxDepth === '') delete data.maxDepth; else data.maxDepth = Number(data.maxDepth); }
   $('#submit-create').disabled = true;
   try {
     const result = await api(createMode === 'scheme' ? 'schemes' : 'terms', { method: 'POST', body: JSON.stringify(data) });
@@ -310,6 +337,26 @@ $('#apply-confirm').onclick = () => finishConfirm(true);
 $('#confirm-dialog').addEventListener('cancel', event => { event.preventDefault(); finishConfirm(false); });
 $('#close-revision').onclick = () => $('#revision-dialog').close();
 $('#new-scheme').onclick = () => openCreate('scheme');
+$('#scheme-settings').onclick = () => {
+  if (!allowLeave()) return;
+  $('#scheme-dialog-title').textContent = scheme().label;
+  $('#scheme-max-depth').value = scheme().maxDepth ?? '';
+  $('#scheme-error').textContent = '';
+  $('#scheme-dialog').showModal();
+};
+$('#cancel-scheme').onclick = () => $('#scheme-dialog').close();
+$('#scheme-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const value = $('#scheme-max-depth').value;
+  $('#save-scheme').disabled = true;
+  try {
+    await api(`schemes/${encodeURIComponent(schemeId)}`, { method: 'PATCH', body: JSON.stringify({ maxDepth: value === '' ? null : Number(value), expectedVersion: state.version }) });
+    $('#scheme-dialog').close();
+    await refresh(selectedId);
+    notice(value === '' ? 'Removed the depth limit.' : `Terms in ${scheme().label} are now limited to depth ${value}.`);
+  } catch (error) { $('#scheme-error').textContent = error.message; }
+  finally { $('#save-scheme').disabled = false; }
+});
 $('#new-root').onclick = () => openCreate('term');
 $('#search').addEventListener('input', renderTree);
 $('#history-selected').onchange = renderChanges;

@@ -60,16 +60,35 @@ export const schemeSchema = z.object({
   admissionTest: z.string().trim().max(10000).default(''),
   notations: z.array(notationSchema).max(100).default([]),
   slugUniqueDepths: z.array(z.number().int().min(0).max(500)).max(20).default([]),
+  maxDepth: z.number().int().min(0).max(500).optional(),
   sourceUri: iriSchema.optional(),
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
 }).strict();
 export type Scheme = z.infer<typeof schemeSchema> & { created: number };
 export type CreateTerm = z.infer<typeof createTermSchema>;
 export type EditTerm = z.infer<typeof editTermSchema>;
+const evidenceSchema = z.record(z.string(), z.unknown()).refine(value => JSON.stringify(value).length <= 4096, 'Evidence is limited to 4 KiB of JSON.');
+export type Proposal = { proposer: string; evidence?: Record<string, unknown>; requestId?: string };
 export type Term = Omit<CreateTerm, 'status' | 'slug'> & {
   status: 'provisional' | 'active' | 'retired'; replacedBy: string[]; slug: string; formerSlugs: string[];
-  id: string; created: number; changed: number;
+  id: string; created: number; changed: number; proposal?: Proposal;
 };
+export const proposeTermSchema = z.object({
+  scheme: id, label: text, broader: z.string().min(1).max(2000),
+  altLabels: fields.altLabels, scopeNote: fields.scopeNote, slug: slugSchema.optional(),
+  proposer: text.optional(), evidence: evidenceSchema.optional(), requestId: z.string().trim().min(1).max(200).optional(),
+}).strict();
+export const schemeSettingsSchema = z.object({
+  maxDepth: z.number().int().min(0).max(500).nullable(), expectedVersion: z.number().int().nonnegative(),
+}).strict();
+const marker = z.string().trim().max(2000);
+export const progressSchema = z.object({
+  log: z.string().min(1).max(200), through: z.number().int().nonnegative(),
+  schemes: z.array(id).max(50).optional(), label: text.optional(), reset: z.boolean().default(false),
+  blocked: z.object({ at: z.number().int().positive(), code: z.string().trim().max(60).optional(), reason: marker.default('') }).strict().optional(),
+}).strict();
+export type Subscriber = { id: string; label: string; schemes: string[]; log: string; through: number;
+  blocked: { at: number; code?: string; reason: string } | null; lastSeen: string; registered: string };
 export type TermView = Term & { path: string | null; depth: number; narrower: string[] };
 export const setRecipeSchema = z.object({
   concepts: z.array(z.string().min(1).max(2000)).max(10000).default([]), narrower: z.array(z.string().min(1).max(2000)).max(1000).default([]),
@@ -87,11 +106,12 @@ export const conceptSetSchema = z.object({
 }).strict();
 export type ConceptSet = z.infer<typeof conceptSetSchema> & { id: string; created: number; changed: number; deleted?: boolean };
 export type Change = {
-  n: number; kind: 'scheme-added' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'slugged' | 'imported' | 'set-added' | 'set-changed' | 'set-deleted';
-  terms: string[]; before: Term | ConceptSet | null; after: Term | Scheme | ConceptSet;
+  n: number; kind: 'scheme-added' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'slugged' | 'imported' | 'scheme-changed' | 'set-added' | 'set-changed' | 'set-deleted';
+  terms: string[]; before: Term | Scheme | ConceptSet | null; after: Term | Scheme | ConceptSet;
   breaking: boolean; author: string; reason: string; at: string;
   beforeTerms?: Term[]; afterTerms?: Term[];
   beforeSets?: ConceptSet[]; afterSets?: ConceptSet[];
+  proposal?: Proposal;
 };
 const operationBase = { expectedVersion: z.number().int().nonnegative(), reason: z.string().trim().max(2000).default('') };
 export const operationSchema = z.discriminatedUnion('kind', [
@@ -120,5 +140,5 @@ export const importPlanSchema = z.object({
 }).strict();
 export type ImportPlan = z.infer<typeof importPlanSchema>;
 export class DomainError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  constructor(public status: number, message: string, public details?: Record<string, unknown>) { super(message); }
 }
