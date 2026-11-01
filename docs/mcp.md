@@ -83,7 +83,7 @@ arguments. Unknown versions, schemes and sets produce explicit errors.
 | `get_term_collections` | Same-scheme collections with direct, inherited, calculated and included flags. Includes collections the term is outside. |
 | `validate_term` | Check existence, retirement and optional expanded-set membership; return replacements for retired terms. Provisional terms count as valid. |
 | `subsumes` | Compare two terms through transitive broader links, including every parent. Related/opposite and mappings do not imply subsumption. |
-| `get_changes` | Read change summaries after `since`, optionally filtered by stable term ID. Request full revision bodies with `includeSnapshots: true`. |
+| `get_changes` | Read change summaries after `since`, optionally filtered by stable term ID or by `scheme`. Request full revision bodies with `includeSnapshots: true`. |
 | `export_skos` | Export a scheme and its collections as Turtle, preserving notations, mappings and collection definitions. |
 
 Search uses case-insensitive NFKC-normalized substring matching, without
@@ -119,7 +119,8 @@ to `get_graph` as `around` to explore its typed neighbourhood.
 For changelog catch-up, call `get_changes` with your saved `since` cursor.
 Keep its `version` as `at` and continue with `nextSince` until null. Once
 complete, record `version` as your new cursor, including when a term filter
-matched no changes. This is a read cursor only; subscriber registration,
+matched no changes. Save the returned `log` with it: a different `log` means
+the store was rebuilt, so bootstrap again instead of resuming. This is a read cursor only; subscriber registration,
 notifications, usage intake and proposals remain planned.
 
 Change summaries contain the change number, kind, affected term/set IDs,

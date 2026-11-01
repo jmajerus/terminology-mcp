@@ -131,6 +131,11 @@ test('MCP changes catch up without gaps while later writes are excluded from the
   assert.equal(empty.nextSince, null); assert.equal(empty.through, before);
   const filtered=await call<{items:Change[]}>('get_changes',{term:a.id,at:before});assert.ok(filtered.items.every(c=>c.terms.includes(a.id)));
   await error('get_changes',{since:store.version,at:before},/since cannot exceed/);
+  const scoped = await call<{log: string; items: Change[]}>('get_changes', {scheme: 'external', at: before, limit: 200});
+  assert.equal(scoped.log, store.logId);
+  assert.deepEqual(scoped.items.map(c => c.n), store.changes(0, undefined, 'external').filter(c => c.n <= before).map(c => c.n));
+  assert.ok(scoped.items.length > 0 && !scoped.items.some(c => c.n === 2));
+  await error('get_changes', {scheme: 'missing'}, /Scheme not found/);
   const skos=await call<{version:number;mediaType:string;data:string}>('export_skos',{scheme:'network',at:before});
   assert.equal(skos.version,before);assert.equal(skos.mediaType,'text/turtle');assert.match(skos.data,/OrderedCollection/);assert.match(skos.data,/notation/);assert.doesNotMatch(skos.data,/Later/);
   await error('get_term',{ref:'missing'},/Term not found/);

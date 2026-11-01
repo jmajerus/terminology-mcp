@@ -118,12 +118,12 @@ export function createMcpServer(store: Store): McpServer {
     return { version: v, a: a.id, b: b.id, relationship: a.id === b.id ? 'equivalent'
       : ancestor(a.id, b.id) ? 'subsumes' : ancestor(b.id, a.id) ? 'subsumed-by' : 'not-subsumed' };
   }));
-  server.registerTool('get_changes', { description: 'Page through change summaries after since and through at (inclusive). Set includeSnapshots=true for full before/after bodies (subject to output limit). Reuse version as at and nextSince as since for a consistent catch-up. Optional term is a stable term ID. A null nextSince means this snapshot is complete; save version as your cursor.',
+  server.registerTool('get_changes', { description: 'Page through change summaries after since and through at (inclusive). Set includeSnapshots=true for full before/after bodies (subject to output limit). Reuse version as at and nextSince as since for a consistent catch-up. Optional term is a stable term ID; optional scheme keeps changes touching that scheme. A null nextSince means this snapshot is complete; save version as your cursor.',
     inputSchema: z.object({ since: z.number().int().nonnegative().default(0), term: z.string().min(1).max(200).optional(),
-      includeSnapshots: z.boolean().default(false), at, limit: page.limit }).strict(), annotations }, args => run(() => {
+      scheme: z.string().min(1).max(60).optional(), includeSnapshots: z.boolean().default(false), at, limit: page.limit }).strict(), annotations }, args => run(() => {
     const v = version(args.at);
     if (args.since > v) throw new DomainError(400, 'since cannot exceed the selected version.');
-    const changes = store.changes(args.since, args.term).filter(change => change.n <= v), selected = changes.slice(0, args.limit);
+    const changes = store.changes(args.since, args.term, args.scheme).filter(change => change.n <= v), selected = changes.slice(0, args.limit);
     const items = args.includeSnapshots ? selected : selected.map(change => ({
       n: change.n, kind: change.kind, terms: change.terms, breaking: change.breaking, author: change.author, reason: change.reason, at: change.at,
       subject: { id: change.after.id, label: change.after.label },
@@ -131,7 +131,7 @@ export function createMcpServer(store: Store): McpServer {
         .filter(item => item?.id.startsWith('s_')).map(item => item!.id))],
     }));
     const more = changes.length > selected.length;
-    return { version: v, includeSnapshots: args.includeSnapshots, items,
+    return { log: store.logId, version: v, includeSnapshots: args.includeSnapshots, items,
       nextSince: more ? selected.at(-1)!.n : null, through: more ? selected.at(-1)!.n : v };
   }));
   server.registerTool('export_skos', { description: 'Export a scheme and its collections as SKOS Turtle at a version, including notations, mappings and collection definitions. Limited to 1 MiB; use the REST export for larger vocabularies.',

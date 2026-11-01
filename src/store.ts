@@ -351,6 +351,7 @@ export class Store {
   }
   changes(since = 0, term?: string, scheme?: string): Change[] {
     this.atVersion(since);
+    if (scheme && !this.schemes().some(item => item.id === scheme)) throw new DomainError(404, 'Scheme not found.');
     const inScheme = (change: Change) => [change.before, change.after, ...change.beforeTerms ?? [], ...change.afterTerms ?? [],
       ...change.beforeSets ?? [], ...change.afterSets ?? []].some(item => item && ('scheme' in item ? item.scheme === scheme : item.id === scheme));
     return (this.db.prepare('SELECT body FROM changes WHERE n > ? ORDER BY n').all(since) as { body: string }[])
