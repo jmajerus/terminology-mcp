@@ -46,7 +46,13 @@ The diagram uses a force-directed layout ([d3-force](https://d3js.org/d3-force))
   seen before keep their relative place. With reduced motion requested, the
   diagram is drawn at once.
 - **Dragging** a concept pins it under the pointer while the others re-settle
-  around it. A drag doesn't select the concept.
+  around it. It stays where it's dropped until the next refocus, and a drag
+  doesn't select the concept.
+- **Zoom and pan:** the scroll wheel, or a pinch on a touch screen, zooms
+  about the pointer, from the fitted view up to 8× in and 1.5× out.
+  Dragging the background pans. The **+**, **−** and **Fit** buttons zoom
+  about the centre or fit the neighbourhood again, and refocusing refits.
+  Over the map, the wheel zooms rather than scrolling the page.
 
 The layout is deterministic: the same neighbourhood draws the same way. The
 page loads d3-force from the server itself (`/vendor/…`), as the content

@@ -69,7 +69,7 @@ function render() {
 // Force-directed layout: the focus stays at the centre, each depth is drawn toward its own ring, and links, repulsion
 // and label-sized collision untangle the rest. The layout is settled before drawing, then the view glides to it from
 // the previous positions; dragging a node re-settles the graph live around it.
-let simulation = null, placed = new Map(), view = null, glide = 0;
+let simulation = null, placed = new Map(), view = null, fitted = null, glide = 0;
 const shortLabel = c => c.label.length > 30 ? c.label.slice(0,29)+'…' : c.label;
 function draw(ids,relations,levels) {
  simulation?.stop(); cancelAnimationFrame(glide);
@@ -126,7 +126,7 @@ function draw(ids,relations,levels) {
   const w = Math.max(x1-x0,y1-y0,svg.clientWidth || 720), h = Math.max(y1-y0,w/1.6);
   return [(x0+x1-w)/2,(y0+y1-h)/2,w,h];
  };
- const to = fit(), setView = box => { view = box; svg.setAttribute('viewBox',box.map(v => v.toFixed(1)).join(' ')); };
+ const to = fitted = fit();
  if (reduced || !from) { paint(n => n); setView(to); }
  else {
   const began = performance.now(), ease = t => 1-(1-t)**3;
@@ -140,7 +140,48 @@ function draw(ids,relations,levels) {
  }
  drag(svg,groups,nodes,() => { paint(n => n); for (const n of nodes) placed.set(n.id,{x:n.x,y:n.y}); });
 }
-// Dragging pins a node under the pointer while the simulation re-settles the rest; a drag doesn't count as a click.
+function setView(box) { view = box; $('#graph-map').setAttribute('viewBox',box.map(v => v.toFixed(1)).join(' ')); }
+// Zoom and pan: the wheel or a pinch zooms about the pointer, dragging the background pans, and the buttons zoom
+// about the centre or fit the neighbourhood again. Zooming in reads a dense neighbourhood at full size.
+const mapPoint = (x,y) => new DOMPoint(x,y).matrixTransform($('#graph-map').getScreenCTM().inverse());
+function zoomBy(factor,at) {
+ if (!view || !fitted) return;
+ cancelAnimationFrame(glide);
+ const [x,y,w,h] = view, scale = Math.min(Math.max(w*factor,fitted[2]/8),fitted[2]*1.5)/w, c = at ?? {x:x+w/2,y:y+h/2};
+ setView([c.x-(c.x-x)*scale,c.y-(c.y-y)*scale,w*scale,h*scale]);
+}
+{
+ const svg = $('#graph-map'), pointers = new Map();
+ svg.addEventListener('wheel',event => {
+  event.preventDefault();
+  zoomBy(Math.exp(event.deltaY*(event.deltaMode ? 0.05 : 0.0015)),mapPoint(event.clientX,event.clientY));
+ },{passive:false});
+ svg.addEventListener('pointerdown',event => {
+  if (event.target.closest('.graph-node') || (event.pointerType === 'mouse' && event.button !== 0) || !view) return;
+  pointers.set(event.pointerId,{x:event.clientX,y:event.clientY}); svg.setPointerCapture(event.pointerId); svg.classList.add('panning');
+ });
+ svg.addEventListener('pointermove',event => {
+  const prev = pointers.get(event.pointerId); if (!prev) return;
+  const next = {x:event.clientX,y:event.clientY};
+  if (pointers.size === 1) {
+   const a = mapPoint(prev.x,prev.y), b = mapPoint(next.x,next.y);
+   cancelAnimationFrame(glide); setView([view[0]-(b.x-a.x),view[1]-(b.y-a.y),view[2],view[3]]);
+  } else {
+   // Two fingers: zoom by how far they moved apart, about their midpoint.
+   const other = [...pointers].find(([id]) => id !== event.pointerId)[1], after = Math.hypot(next.x-other.x,next.y-other.y);
+   if (after) zoomBy(Math.hypot(prev.x-other.x,prev.y-other.y)/after,mapPoint((next.x+other.x)/2,(next.y+other.y)/2));
+  }
+  pointers.set(event.pointerId,next);
+ });
+ const release = event => { pointers.delete(event.pointerId); if (!pointers.size) svg.classList.remove('panning'); };
+ svg.addEventListener('pointerup',release); svg.addEventListener('pointercancel',release);
+ document.querySelector('.graph-zoom').addEventListener('click',event => {
+  const kind = event.target.closest('[data-zoom]')?.dataset.zoom;
+  if (kind === 'fit' && fitted) { cancelAnimationFrame(glide); setView(fitted); } else if (kind) zoomBy(kind === 'in' ? 1/1.4 : 1.4);
+ });
+}
+// Dragging pins a node under the pointer while the simulation re-settles the rest. It stays where it's dropped until
+// the next refocus, and a drag doesn't count as a click.
 let dragged = false;
 function drag(svg,groups,nodes,paint) {
  groups.forEach((g,i) => g.addEventListener('pointerdown',event => {
@@ -158,7 +199,6 @@ function drag(svg,groups,nodes,paint) {
    g.removeEventListener('pointermove',move); g.removeEventListener('pointerup',up); g.removeEventListener('pointercancel',up);
    if (!moved) return;
    dragged = true; simulation.alphaTarget(0);
-   if (n.id !== selected) { n.fx = null; n.fy = null; }
   };
   g.addEventListener('pointermove',move); g.addEventListener('pointerup',up); g.addEventListener('pointercancel',up);
  }));
