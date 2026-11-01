@@ -121,7 +121,8 @@ Keep its `version` as `at` and continue with `nextSince` until null. Once
 complete, record `version` as your new cursor, including when a term filter
 matched no changes. Save the returned `log` with it: a different `log` means
 the store was rebuilt, so bootstrap again instead of resuming. This is a read cursor only; subscriber registration,
-notifications, usage intake and proposals remain planned.
+notifications, usage intake and proposals remain planned. See
+[following changes](following-changes.md) for applying what the log returns.
 
 Change summaries contain the change number, kind, affected term/set IDs,
 subject ID/label, breaking flag, author, reason and timestamp. This keeps

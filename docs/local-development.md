@@ -16,10 +16,12 @@ version-pinned paging and the available operations.
 - `src/main.ts`: process startup, database selection, and shutdown.
 - `src/seed.ts`: optional demo fixture, imported atomically on an empty store.
 - `src/skos.ts`, `src/sparql.ts`: SKOS mapping, RDF serialization, and read-only source queries.
+- `src/mcp.ts`: the read-only MCP tools served at `/mcp`.
+- `src/access.ts`: Cloudflare Access assertion checks for proxied and public requests.
 - `public/`: framework-free browser UI, served by the same process as the API.
 
-The store owns the domain rules. Future MCP tools and consumer endpoints can
-call it without depending on the browser. No frontend build or CDN is needed.
+The store owns the domain rules. The HTTP API, the MCP tools and the editor
+all call it, so none of them depends on the browser. No frontend build or CDN is needed.
 `npm run dev` watches the TypeScript server; refresh the browser after frontend
 changes. `npm run build` emits server JavaScript into `dist/`; run that build
 with `node dist/main.js` from the repository, retaining `public/` alongside it.
@@ -172,11 +174,12 @@ existing codes, while an explicit empty array clears them. It cannot change
 scheme, parents, IDs, source IRI, or aliases. The browser
 sends all editable fields on each save.
 
-This API has no authentication. Development defaults to loopback. The Debian
-LAN service explicitly sets `HOST` and `TERMINOLOGY_ORIGINS`; Host and origin
-checks still reject unknown hosts and cross-origin writes. See
-[deployment](deployment.md). Access authentication and public consumer access
-remain later deployment work.
+Requests from loopback or the configured LAN hostnames need no credentials.
+Development defaults to loopback. The Debian LAN service explicitly sets
+`HOST` and `TERMINOLOGY_ORIGINS`; Host and origin checks reject unknown hosts
+and cross-origin writes. Proxied and public-host requests need a verified
+Cloudflare Access assertion when `ACCESS_TEAM_DOMAIN` is set; see
+[deployment](deployment.md) and [MCP access](mcp.md).
 
 ## Verification
 
@@ -198,9 +201,14 @@ Screenshots and failure traces are written under ignored `test-results/`.
 
 ## Next slices
 
-Concept sets, recipes, versioned expansion and SKOS collections are implemented;
-see [concept sets](concept-sets.md) for storage, APIs and structural-change rules.
-Subscriber usage and gates, MCP, consumer
-seed importers, full vocabulary maps/translation, and live consumer connectivity
-remain planned. SKOS mapping references are already available; they are distinct
-from the planned consumer maps. The demo does not read or modify sibling repositories.
+Implemented beyond this page: [concept sets](concept-sets.md) (recipes,
+versioned expansion, SKOS collections), [concept graphs](concept-graphs.md),
+read-only [MCP tools](mcp.md), and the changelog feed consumers follow
+([following changes](following-changes.md)). Concept Clusters' subjects tree
+is imported as `cc-subjects`.
+
+Still planned: subscriber registration with server-side cursors, usage
+reports and impact counts, gates and holds, proposals from consumers and
+agents, roll-up, and vocabulary maps with `translate`. SKOS mapping
+references are already available; they are distinct from the planned
+consumer maps. The demo does not read or modify sibling repositories.

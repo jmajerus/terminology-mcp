@@ -12,20 +12,26 @@ It borrows its model from FHIR terminology servers: code systems become
 **maps**, and the operations (`lookup`, `expand`, `validate`, `subsumes`,
 `translate`) keep their meaning. SKOS is the export format.
 
-**Status: taxonomy editor, SKOS interchange and read-only MCP implemented.** SQLite
-stores the vocabulary; consumer integrations are still planned. What exists:
+**Status: taxonomy editor, concept sets and graphs, SKOS interchange, read-only
+MCP and a consumer changelog feed implemented.** SQLite stores the vocabulary,
+deployed on the LAN behind Cloudflare Access for proxied requests. Concept
+Clusters' subjects tree is imported as `cc-subjects`, and Concept Clusters is
+the first consumer to follow its changelog. Subscriber registration, usage
+reports, gates and proposals are still planned. What exists:
 
 | | |
 |---|---|
 | [PLAN.md](PLAN.md) | The plan of record: how it came out of corpus-mcp's stages 1 and 2, the FHIR mapping, resources, surfaces, the editor, order of work, decisions, and open questions |
 | [design/mockups/](design/mockups/) | Mockups of the editor's two pages, taxonomy and concept sets |
-| [src/](src/) | TypeScript store, versioned reads, local HTTP API, and demo fixture |
-| [public/](public/) | Browser editor: outline, term details, and changelog |
+| [src/](src/) | TypeScript store, versioned reads, local HTTP API, MCP tools, Access checks, and demo fixture |
+| [public/](public/) | Browser editor: taxonomy outline and term details, concept sets, and the concept-graph explorer |
 | [docs/local-development.md](docs/local-development.md) | Storage design, API, verification, and current limits |
 | [docs/oxigraph-feasibility.md](docs/oxigraph-feasibility.md) | Runnable Oxigraph experiment, measured results, and storage recommendation |
 | [docs/skos.md](docs/skos.md) | File/SPARQL scheme import, SKOS field mappings, export, and local Oxigraph integration test |
 | [docs/concept-sets.md](docs/concept-sets.md) | Explicit, ordered, nested and recipe sets; versioned expansion and SKOS collection interchange |
 | [docs/concept-graphs.md](docs/concept-graphs.md) | Create and import concept networks; graph explorer, typed edges, quote-mcp compatibility and graph APIs |
+| [docs/following-changes.md](docs/following-changes.md) | For consumers: bootstrap a scheme, follow the changelog with a cursor and log id, change kinds, slugs |
+| [docs/deployment.md](docs/deployment.md) | Deploying to the Debian LXC host, status checks, Access settings and rollback |
 | [docs/mcp.md](docs/mcp.md) | Connect agents to the LAN MCP endpoint; term search/lookup, graphs, collections, validation, subsumption, SKOS and changelog tools |
 
 ## Run locally
@@ -53,7 +59,8 @@ npm start
 
 This uses `data/terminology.sqlite`. Create a scheme, add terms, and edit
 labels, alternative labels, scope notes, status, relations, and external
-references. Saves survive restarts. Renames preserve old path aliases and
+references. Each term gets a stable slug from its first label; **Change slug…**
+alters it as a logged, breaking change. Saves survive restarts. Renames preserve old path aliases and
 show a review dialog; the changelog records each applied change. The UI
 also checks for conflicting edits from another tab.
 
@@ -76,8 +83,8 @@ related and opposite concepts. New schemes can use a flat graph structure;
 **Import graph…** accepts quote-mcp exports and native graph JSON, with preview
 and atomic apply. See [concept graphs](docs/concept-graphs.md).
 
-Set `TERMINOLOGY_DB` to choose a database path or `PORT` to change the port.
-The server binds to `127.0.0.1`. No external services or credentials are needed.
+Set `TERMINOLOGY_DB` to choose a database path, `PORT` to change the port,
+or `HOST` to change the bind address. The server binds to `127.0.0.1` by default. No external services or credentials are needed.
 
 For a Debian LXC host accessed through SSH, see [deployment](docs/deployment.md).
 VS Code recommends the same Task Buttons and Status Probe extensions used by
@@ -104,7 +111,12 @@ before interpreting its exit code or enabling a different backend.
 The separate `npm run test:oxigraph-import` test verifies the actual application
 import/export against Oxigraph using disposable source graphs and a test database.
 
-## What it will do
+## What it does, and what's next
+
+Done: holding the vocabularies, concept sets, the editor, SKOS export and
+import, the MCP read tools, and the changelog consumers follow. Still to
+come: subscriber impact, holds and gates, proposals, roll-up, maps and
+`translate`, and a snapshot for consumers off the LAN.
 
 - **Hold the vocabularies.** Schemes of terms with opaque ids, labels,
   alternative labels, scope notes, status, links to Wikidata or LCSH, and
@@ -113,7 +125,8 @@ import/export against Oxigraph using disposable source graphs and a test databas
 - **Define concept sets.** A list, or a recipe worked out on each read
   (include around, narrower of, exclude), for themes, map views, and each
   consumer's profile of the depth it shows.
-- **Publish changes.** Additions go out at once. Renames, moves, merges,
+- **Publish changes.** Every change is numbered in one changelog that
+  consumers follow from their own cursor. Planned: renames, moves, merges,
   splits, and retirements show their impact on each subscriber first, and
   subscribers can hold delivery or answer a gate.
 - **Serve consumers and agents.** A REST API, an MCP server, SKOS exports,

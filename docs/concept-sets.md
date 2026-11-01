@@ -2,8 +2,8 @@
 
 Open **Concept sets** in the top navigation (`/sets`). Each set belongs to one
 scheme and has a stable `s_…` ID, a scheme-unique slug, name, description, owner,
-and kind (theme, profile, or map view). Owner is descriptive metadata; access
-control and consumer subscriptions remain future work.
+and kind (theme, profile, or map view). Owner is descriptive metadata; per-owner
+permissions and consumer subscriptions remain future work.
 
 ## Editing and expansion
 
