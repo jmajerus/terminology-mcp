@@ -105,7 +105,8 @@ test('proposals create provisional terms with a slug, and refuse duplicates with
     { proposer: 'concept-clusters:authoring', evidence: { draftId: 'd-17' }, requestId: 'r-1', source: { id: glaciers.id,
       scheme: 'loc-classification', uri: glaciers.sourceUri, label: 'Glaciers. Glaciology', match: 'closeMatch' } }]);
   assert.deepEqual(created.body.term.links, [{ uri: glaciers.sourceUri, match: 'closeMatch' }]);
-  assert.deepEqual(store.lookup(created.body.id).aliases, ['cc-subjects:sciences/geography/glaciology']);
+  assert.deepEqual(created.body.term.source, change.proposal?.source);
+  assert.deepEqual(store.lookup(created.body.term.id).aliases, ['cc-subjects:sciences/geography/glaciology']);
 
   const replay = await send('POST', '/api/proposals', { ...proposal, label: 'Ignored on replay' });
   assert.deepEqual([replay.status, replay.body.id, replay.body.replayed], [200, created.body.id, true]);
@@ -208,6 +209,23 @@ test('proposals copy a source from another scheme, and refuse a second close mat
     `urn:terminology-mcp:term:${twin.id}`);
   store.operate(twin.id, { kind: 'retire', replacements: [], expectedVersion: store.version });
   assert.equal((await propose({ label: 'Ponds', source: twin.id })).status, 422);
+});
+
+test('editor-created terms record the source they were copied from', async t => {
+  const { store, category } = subjects(t);
+  const { karst } = reference(store);
+  const { send } = await serve(t, store);
+  const created = await send('POST', '/api/terms', { scheme: 'cc-subjects', label: 'Karst Hydrology', broader: [category.id],
+    source: { ref: karst.id, match: 'broadMatch' } });
+  assert.equal(created.status, 201);
+  const source = { id: karst.id, scheme: 'loc-classification', uri: karst.sourceUri, label: 'Karst', match: 'broadMatch' };
+  assert.deepEqual([created.body.term.source, created.body.term.links], [source, [{ uri: karst.sourceUri, match: 'broadMatch' }]]);
+  assert.deepEqual((store.changes(store.version - 1)[0].after as { source: unknown }).source, source);
+  const edited = store.editTerm(created.body.term.id, { label: 'Karst Waters', expectedChanged: store.lookup(created.body.term.id).changed });
+  assert.deepEqual(edited.source, source);
+  // Without a source an editor term is unchanged; a same-scheme source is refused.
+  assert.equal(store.addTerm({ scheme: 'cc-subjects', label: 'Lakes', broader: [category.id] }).source, undefined);
+  assert.equal((await send('POST', '/api/terms', { scheme: 'cc-subjects', label: 'Ponds', source: { ref: category.id } })).status, 422);
 });
 
 test('MCP propose_term and list_subscribers', async t => {

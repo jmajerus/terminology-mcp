@@ -144,7 +144,8 @@ alias, else `urn:terminology-mcp:term:<id>`) with that match. The change is
 an ordinary `added`, with `author` set to the proposer and a `proposal`
 field holding the proposer, evidence and
 `source: {id, scheme, uri, label, match}`, so a subscriber applies it like any
-other addition.
+other addition. The term itself keeps the same record as `source`. A term a
+person copies from another vocabulary in the editor gets one too.
 
 - **Retries:** the same proposer and `requestId` return the original term
   (200, `replayed: true`) instead of a duplicate.

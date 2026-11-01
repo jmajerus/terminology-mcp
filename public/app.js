@@ -348,7 +348,7 @@ $('#create-form').addEventListener('submit', async event => {
   if (createMode === 'term') {
     data.scheme = schemeId; data.broader = form.getAll('broader').filter(Boolean);
     if (!data.slug) delete data.slug;
-    if (createSource) data.links = [{ uri: termIri(createSource), match: $('#source-match').value }];
+    if (createSource) data.source = { ref: createSource.id, match: $('#source-match').value };
   }
   if (createMode === 'scheme') { if (data.maxDepth === '') delete data.maxDepth; else data.maxDepth = Number(data.maxDepth); }
   $('#submit-create').disabled = true;

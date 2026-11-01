@@ -47,6 +47,9 @@ export const createTermSchema = z.object({
   slug: slugSchema.optional(),
   sourceUri: iriSchema.optional(),
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
+  // The term in another scheme it was copied from; resolved like a proposal's source.
+  source: z.object({ ref: z.string().trim().min(1).max(2000), scheme: id.optional(),
+    match: linkSchema.shape.match.default('closeMatch') }).strict().optional(),
 }).strict();
 export const editTermSchema = z.object({
   ...fields, notations: z.array(notationSchema).max(100).optional(), expectedChanged: z.number().int().positive(),
@@ -69,14 +72,14 @@ export type CreateTerm = z.infer<typeof createTermSchema>;
 export type EditTerm = z.infer<typeof editTermSchema>;
 const evidenceSchema = z.record(z.string(), z.unknown()).refine(value => JSON.stringify(value).length <= 4096, 'Evidence is limited to 4 KiB of JSON.');
 export type Match = z.infer<typeof linkSchema>['match'];
-export type ProposalSource = { id: string; scheme: string; uri: string; label: string; match: Match };
-export type Proposal = { proposer: string; evidence?: Record<string, unknown>; requestId?: string; source?: ProposalSource };
+export type TermSource = { id: string; scheme: string; uri: string; label: string; match: Match };
+export type Proposal = { proposer: string; evidence?: Record<string, unknown>; requestId?: string; source?: TermSource };
 /** A term's public IRI: its source IRI, else an http(s) alias, else its URN. */
 export const termIri = (term: { id: string; sourceUri?: string; aliases: string[] }) =>
   term.sourceUri ?? term.aliases.find(alias => /^https?:\/\//.test(alias)) ?? `urn:terminology-mcp:term:${term.id}`;
-export type Term = Omit<CreateTerm, 'status' | 'slug'> & {
+export type Term = Omit<CreateTerm, 'status' | 'slug' | 'source'> & {
   status: 'provisional' | 'active' | 'retired'; replacedBy: string[]; slug: string; formerSlugs: string[];
-  id: string; created: number; changed: number; proposal?: Proposal;
+  id: string; created: number; changed: number; source?: TermSource; proposal?: Proposal;
 };
 export const proposeTermSchema = z.object({
   scheme: id, label: text.optional(), broader: z.string().min(1).max(2000),
@@ -137,7 +140,7 @@ export const importPlanSchema = z.object({
   sets: z.array(conceptSetSchema.omit({ scheme: true }).extend({ key: iriSchema,
     members: z.array(iriSchema).max(10000).default([]),
   }).strict()).max(1000).default([]),
-  terms: z.array(createTermSchema.omit({ scheme: true }).extend({
+  terms: z.array(createTermSchema.omit({ scheme: true, source: true }).extend({
     key: iriSchema, broader: z.array(iriSchema).default([]),
     relations: z.array(z.object({ type: z.enum(['related', 'opposite']), target: iriSchema }).strict()).default([]),
     status: z.enum(['provisional', 'active', 'retired']).default('active'),

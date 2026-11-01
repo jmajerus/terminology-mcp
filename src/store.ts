@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, uniqueNotations, DomainError,
   conceptSetSchema, pathLabel as slug, slugify, slugSchema, proposeTermSchema, schemeSettingsSchema, progressSchema, termIri,
-  type ConceptSet, type Scheme, type Term, type TermView, type Change, type Subscriber } from './model.js';
+  type ConceptSet, type Scheme, type Term, type TermView, type Change, type Subscriber, type TermSource } from './model.js';
 
 const setReferences = (set: Pick<ConceptSet, 'members' | 'recipe'>) => [...set.members,
   ...set.recipe?.concepts ?? [], ...set.recipe?.narrower ?? [], ...set.recipe?.exclude ?? [], ...set.recipe?.around.map(rule => rule.term) ?? []];
@@ -540,10 +540,13 @@ export class Store {
     return `${term.scheme}:${parentPath}${slug(term.label)}`;
   }
   addTerm(input: unknown): TermView {
-    const data = createTermSchema.parse(input);
+    const { source: ref, ...data } = createTermSchema.parse(input);
     return this.db.transaction(() => {
       const n = this.version + 1;
-      const term: Term = { ...data, slug: data.slug ?? '', formerSlugs: [], notations: uniqueNotations(data.notations), replacedBy: [], altLabels: [...new Set(data.altLabels)], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n };
+      const source = ref && this.termSource(data.scheme, ref.ref, ref.scheme, ref.match);
+      if (source && !data.links.some(link => link.uri === source.uri && link.match === source.match))
+        data.links = [...data.links, { uri: source.uri, match: source.match }];
+      const term: Term = { ...data, ...(source ? { source } : {}), slug: data.slug ?? '', formerSlugs: [], notations: uniqueNotations(data.notations), replacedBy: [], altLabels: [...new Set(data.altLabels)], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n };
       this.mintSlugs([...this.rawTerms(), term]);
       this.validateTerm(term);
       const alias = this.pathAlias(term);
@@ -570,13 +573,12 @@ export class Store {
       if (parent.status === 'retired') throw new DomainError(422, 'Propose terms under an active or provisional term.');
       if (!data.source) throw new DomainError(422, 'Pass source: search a reference vocabulary first (search_terms with scheme '
         + 'loc-classification, or excludeScheme set to the target scheme). If nothing fits even broadly, leave the addition to a person in the editor.');
-      const origin = this.resolveSource(data.scheme, data.source, data.sourceScheme);
-      const label = data.label ?? origin.label;
+      const source = this.termSource(data.scheme, data.source, data.sourceScheme, data.match);
+      const label = data.label ?? source.label;
       if (label.length > 200) throw new DomainError(422, 'The source label is longer than 200 characters. Pass a shorter label.');
-      const source = { id: origin.id, scheme: origin.scheme, uri: termIri(origin), label: origin.label, match: data.match };
       const n = this.version + 1;
       const term: Term = { scheme: data.scheme, label, altLabels: [...new Set(data.altLabels)], scopeNote: data.scopeNote,
-        broader: [parent.id], notations: [], relations: [], links: [{ uri: source.uri, match: source.match }], aliases: [], status: 'provisional', replacedBy: [],
+        broader: [parent.id], notations: [], relations: [], links: [{ uri: source.uri, match: source.match }], aliases: [], status: 'provisional', replacedBy: [], source,
         slug: data.slug ?? slugify(label), formerSlugs: [], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n,
         proposal: { proposer, ...(data.evidence ? { evidence: data.evidence } : {}), ...(data.requestId ? { requestId: data.requestId } : {}), source } };
       const scopes = this.slugScopes([...terms, term]), mine = new Set(scopes.get(term.id));
@@ -612,8 +614,12 @@ export class Store {
     const view = this.lookup(term.id);
     return { id: view.id, slug: view.slug, status: view.status, change: term.created, version: this.version, term: view };
   }
+  private termSource(target: string, ref: string, scheme: string | undefined, match: TermSource['match']): TermSource {
+    const origin = this.resolveSource(target, ref, scheme);
+    return { id: origin.id, scheme: origin.scheme, uri: termIri(origin), label: origin.label, match };
+  }
   /**
-   * Resolves a proposal's source in another scheme by stable ID, alias, IRI, then notation; the first kind of
+   * Resolves a term's source in another scheme by stable ID, alias, IRI, then notation; the first kind of
    * reference that matches decides. Several matches are ambiguous.
    */
   private resolveSource(target: string, ref: string, scheme?: string): TermView {
