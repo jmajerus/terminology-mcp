@@ -151,7 +151,7 @@ vocabularies. We take its *model and operations*, not its wire format.
 
 | FHIR | Here | Notes |
 |---|---|---|
-| CodeSystem | **Scheme** | A named vocabulary: `subjects` (the topic tree CC and corpus-mcp share), `human-work` (quote-mcp's concepts). A scheme declares its hierarchy: `tree` (one broader term; paths exist) or `poly` (several broader terms; no paths). |
+| CodeSystem | **Scheme** | A named vocabulary: `cc-subjects` (the topic tree CC and corpus-mcp share), `human-work` (quote-mcp's concepts). A scheme declares its hierarchy: `tree` (one broader term; paths exist) or `poly` (several broader terms; no paths). |
 | concept `code` | term **id** | Opaque and stable (`t_8k2q…`). Never reused, never changed. |
 | `display` | `label` | The preferred label. |
 | `definition` | `scopeNote` | What belongs here and what doesn't. Not player copy. |
@@ -187,7 +187,7 @@ should show for a deeper one).
   `links[]`, `replacedBy[]`, `created`/`changed` (changelog numbers).
   Derived: `path` (tree schemes), `depth`, `narrower[]`, usage counts.
 - **Scheme**: `id`, `label`, `description`, `hierarchy`, top terms,
-  admission test text. The top terms of `subjects` are CC's domains.
+  admission test text. The top terms of `cc-subjects` are CC's domains.
 - **Concept set**: `id`, `slug`, `label`, `description`, `owner`
   (a subscriber or the editor), `kind` (`theme`, `profile`, `map-view`),
   and either `members[]` or a recipe. Every set is in one scheme.
@@ -269,14 +269,14 @@ whole tree and the changelog instead.
 ## Decided
 
 - *Cross-scheme relations, as a trial* (2026-10-29). A `human-work`
-  concept may be `related` to a `subjects` term, and the reverse; it is
+  concept may be `related` to a `cc-subjects` term, and the reverse; it is
   what connects the graph. Typed relations other than `related` stay
   within a scheme for now. The cost: retiring or merging a term must
   carry its relations from other schemes, and its impact must count
   them, so the editor shows them on the term like any other relation.
   Review after the seed import: keep it if the links get used, otherwise
   drop the cross-scheme ones (each is a logged `unrelated` change).
-- *CC's domains are the top terms of `subjects`* (2026-10-29), not a
+- *CC's domains are the top terms of `cc-subjects`* (2026-10-29), not a
   scheme of their own: they are the subject tree's top level, and CC
   hard-codes them only because nothing held them. Seed them from CC's
   `puzzles/domains.js` (13 today), keeping the ids as CC aliases
@@ -296,19 +296,25 @@ whole tree and the changelog instead.
   flattened* (2026-10-31). The Concept Clusters side is in its
   [subjects-from-terminology-mcp](https://github.com/jmajerus/concept-clusters/blob/main/docs/dev-briefs/subjects-from-terminology-mcp.md)
   dev-brief.
-  - **Seed:** import `subjects` with **Import SKOS…** from
+  - **Seed:** done. The tree was imported with **Import SKOS…** from
     `http://oxigraph.localdomain:7878/query`, named graph
-    `urn:concept-clusters:graph:subjects`, scheme
-    `urn:concept-clusters:scheme:subjects`. It holds 13 domains, 56
-    categories and 117 subcategories as a declared tree with `cc-*`
-    aliases. Concept Clusters' sync keeps it current until this server
-    takes over.
-  - **Depth:** `subjects` stays three levels deep, matching what Concept
+    `urn:concept-clusters:graph:subjects`, as the scheme `cc-subjects`
+    (tree, `slugUniqueDepths` [0, 1]). It holds 13 domains, 56 categories
+    and 117 subcategories with `cc-*` aliases and Concept Clusters' slugs.
+    This server is now the master: a re-import answers 409, so a domain,
+    category or subcategory is added here, by hand, and Concept Clusters
+    picks it up from the changelog.
+  - **Feed:** Concept Clusters bootstraps from
+    `/api/state?scheme=cc-subjects` and follows
+    `/api/changes?since=N&scheme=cc-subjects`, keeping the `log` id beside
+    its cursor. Slugs, the scheme filter and the log id are implemented.
+  - **Depth:** `cc-subjects` stays three levels deep, matching what Concept
     Clusters shows.
   - **LCC:** the classification is a shelving scheme, and its depth means
-    different things in different branches. A `subjects` term links to the
+    different things in different branches. A `cc-subjects` term links to the
     LCC class that fits, at any depth, with `closeMatch` or `broadMatch`.
-    A new subcategory is promoted from one LCC class at a time.
+    A new subcategory is promoted from one LCC class at a time (see
+    [linking to LCC](docs/local-development.md#linking-cc-subjects-to-lcc)).
   - **Proposals:** a proposed term is `provisional` and usable by Concept
     Clusters at once, on published puzzles too. The owner confirms,
     merges or retires it from the changes tray.

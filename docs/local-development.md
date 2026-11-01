@@ -41,7 +41,7 @@ creation version. Future scheme edits will need scheme revisions too.
 
 Term IDs are `t_` followed by a random UUID rendered as 32 hexadecimal
 characters. They never depend on labels or positions. Tree aliases are
-scheme-qualified paths, for example `subjects:politics/public-opinion`.
+scheme-qualified paths, for example `cc-subjects:politics/public-opinion`.
 A rename keeps all existing aliases and adds the newly derived paths for
 the term and its descendants. Descendant revisions share the rename's
 changelog number. Reusing a historical path for a different term is rejected.
@@ -137,6 +137,26 @@ that collide are refused. The `slug` operation changes a slug as a breaking
 same scopes, and still resolves through the slug lookup. A `parent` given
 as a slug matches every term with that slug, so a slug repeated across
 depths still narrows correctly.
+
+### Linking cc-subjects to LCC
+
+A `cc-subjects` term points at the Library of Congress class that fits it,
+at any depth, through an external reference:
+
+1. Open the class in `loc-classification` and copy its id.loc.gov IRI from
+   **Aliases**.
+2. Open the `cc-subjects` term, and under **External references** choose
+   **+ Reference**.
+3. Pick **Close match**, or **broad match** when the class is wider than
+   the term. Keep **Exact match**, the default, for true equivalents only.
+4. Paste the IRI and save.
+
+To promote a class to a new subcategory, select the category, choose
+**+ Narrower term**, and create it. If its minted slug isn't the one
+Concept Clusters uses, change it with **Change slug…**, then link it as
+above. The subjects graph can't be imported again (409, "source scheme is
+already imported"), so domains, categories and subcategories are added here
+by hand.
 
 A change's `breaking` flag means it may break some consumer (renames break
 label-keyed ones), not that every subscriber must stop; each subscriber

@@ -109,7 +109,7 @@ import/export against Oxigraph using disposable source graphs and a test databas
 - **Hold the vocabularies.** Schemes of terms with opaque ids, labels,
   alternative labels, scope notes, status, links to Wikidata or LCSH, and
   broader, narrower, and typed associative relations, including `related`
-  across schemes. The top terms of `subjects` are CC's domains.
+  across schemes. The top terms of `cc-subjects` are CC's domains.
 - **Define concept sets.** A list, or a recipe worked out on each read
   (include around, narrower of, exclude), for themes, map views, and each
   consumer's profile of the depth it shows.

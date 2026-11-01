@@ -113,7 +113,7 @@ are separate resources from concepts and do not become taxonomy parents.
 
 ## API and persistence
 
-- `GET /api/sets?scheme=subjects&at=N`: list sets.
+- `GET /api/sets?scheme=cc-subjects&at=N`: list sets.
 - `GET /api/sets/:id?at=N`: read a definition.
 - `GET /api/sets/:id/expand?at=N`: definition, terms, warnings, and version.
 - `POST /api/sets/preview`: preview creation without writing.
