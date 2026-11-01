@@ -72,3 +72,18 @@ test('HTTP routes enforce Access before reads or writes while local health and M
   const result=await send('/mcp',admin,init);assert.equal(result.status,200);assert.ok((await result.json()).result.capabilities.tools);
   assert.equal((await fetch(base+'/health')).status,200);
 });
+
+test('Access callers are named by their verified identity when proposing', async t => {
+  const store = new Store(':memory:');
+  store.addScheme({ id: 'subjects', label: 'Subjects', hierarchy: 'tree' });
+  store.addTerm({ scheme: 'subjects', label: 'Sciences' });
+  const server = createApp(store, { origins: ['http://public.example'], access: config, accessKeys: keys });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); store.close(); });
+  const response = await fetch('http://127.0.0.1:' + (server.address() as AddressInfo).port + '/api/proposals', { method: 'POST',
+    headers: { Host: 'public.example', 'cf-ray': 'test', 'Content-Type': 'application/json', 'cf-access-jwt-assertion': await token() },
+    body: JSON.stringify({ scheme: 'subjects', label: 'Geography', broader: 'sciences', proposer: 'someone-else' }) });
+  assert.equal(response.status, 201);
+  assert.equal(store.changes(store.version - 1)[0].author, 'owner@example.com');
+  assert.equal(store.lookup((await response.json()).id).proposal?.proposer, 'owner@example.com');
+});

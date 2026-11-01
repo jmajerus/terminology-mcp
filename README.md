@@ -13,11 +13,12 @@ It borrows its model from FHIR terminology servers: code systems become
 `translate`) keep their meaning. SKOS is the export format.
 
 **Status: taxonomy editor, concept sets and graphs, SKOS interchange, read-only
-MCP and a consumer changelog feed implemented.** SQLite stores the vocabulary,
+MCP with term proposals, and a consumer changelog feed with progress reports
+implemented.** SQLite stores the vocabulary,
 deployed on the LAN behind Cloudflare Access for proxied requests. Concept
 Clusters' subjects tree is imported as `cc-subjects`, and Concept Clusters is
-the first consumer to follow its changelog. Subscriber registration, usage
-reports, gates and proposals are still planned. What exists:
+the first consumer to follow its changelog. Usage reports, gates and
+`propose_change` are still planned. What exists:
 
 | | |
 |---|---|
@@ -30,7 +31,7 @@ reports, gates and proposals are still planned. What exists:
 | [docs/skos.md](docs/skos.md) | File/SPARQL scheme import, SKOS field mappings, export, and local Oxigraph integration test |
 | [docs/concept-sets.md](docs/concept-sets.md) | Explicit, ordered, nested and recipe sets; versioned expansion and SKOS collection interchange |
 | [docs/concept-graphs.md](docs/concept-graphs.md) | Create and import concept networks; graph explorer, typed edges, quote-mcp compatibility and graph APIs |
-| [docs/following-changes.md](docs/following-changes.md) | For consumers: bootstrap a scheme, follow the changelog with a cursor and log id, change kinds, slugs |
+| [docs/following-changes.md](docs/following-changes.md) | For consumers: bootstrap a scheme, follow the changelog, report progress and holds, propose terms, change kinds, slugs |
 | [docs/deployment.md](docs/deployment.md) | Deploying to the Debian LXC host, status checks, Access settings and rollback |
 | [docs/mcp.md](docs/mcp.md) | Connect agents to the LAN MCP endpoint; term search/lookup, graphs, collections, validation, subsumption, SKOS and changelog tools |
 
@@ -49,7 +50,8 @@ demonstration terms, not an import from your other projects.
 
 MCP clients can connect to **http://127.0.0.1:8000/mcp** using Streamable
 HTTP. The same endpoint is available on the configured LAN hostname;
-see [MCP access](docs/mcp.md) for client setup and the twelve read-only tools.
+see [MCP access](docs/mcp.md) for client setup and the fourteen tools (all
+read-only except `propose_term`).
 
 For an empty workspace for your own vocabulary, stop the demo and run:
 
@@ -114,9 +116,10 @@ import/export against Oxigraph using disposable source graphs and a test databas
 ## What it does, and what's next
 
 Done: holding the vocabularies, concept sets, the editor, SKOS export and
-import, the MCP read tools, and the changelog consumers follow. Still to
-come: subscriber impact, holds and gates, proposals, roll-up, maps and
-`translate`, and a snapshot for consumers off the LAN.
+import, the MCP tools, the changelog consumers follow with their reported
+progress, and term proposals. Still to come: usage-based impact, gates and
+leases, `propose_change`, roll-up, maps and `translate`, and a snapshot for
+consumers off the LAN.
 
 - **Hold the vocabularies.** Schemes of terms with opaque ids, labels,
   alternative labels, scope notes, status, links to Wikidata or LCSH, and

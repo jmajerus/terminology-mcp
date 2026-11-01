@@ -27,6 +27,7 @@
       <div class="outline-meta"><span id="scheme-kind"></span><span id="term-count"></span></div>
       <div id="scheme-notations" class="alias-list"></div>
       <div class="scheme-tools"><button id="import-scheme" class="text-button">Import SKOS…</button><a id="export-scheme" class="text-button" href="#">Export SKOS ↓</a></div>
+      <div class="scheme-tools"><button id="scheme-settings" class="text-button" hidden>Depth limit: none</button></div>
       <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Filter terms…" autocomplete="off"><kbd>/</kbd></label>
       <p><a id="graph-view" class="text-button" href="/graph">Explore concept graph ↗</a></p><div class="tree-caption"><span>TERM</span><span>STATUS</span></div>
       <div id="tree" class="tree" aria-label="Terms"></div>
@@ -35,6 +36,8 @@
     <section id="detail" class="detail" aria-label="Term editor"><div class="empty"><span class="empty-symbol">t.</span><h1>Your vocabulary starts here</h1><p>Create a scheme to give your terms a home.</p></div></section>
     <aside class="history" aria-label="Change history">
       <div class="history-heading"><span class="eyebrow">Workspace activity</span><h2>Changelog <span id="change-count"></span></h2><p>Every saved change has a place.</p></div>
+      <section id="subscribers" class="side-panel" aria-label="Subscribers" hidden></section>
+      <section id="proposals" class="side-panel" aria-label="Open proposals" hidden></section>
       <label class="history-filter"><input id="history-selected" type="checkbox"> Selected term only</label>
       <div id="changes" class="changes"></div>
       <div class="history-footer"><span class="dot"></span> Saved locally in SQLite</div>
@@ -52,6 +55,14 @@
     <div class="dialog-heading"><span class="eyebrow">Review change</span><h2 id="confirm-title"></h2></div>
     <p id="confirm-message"></p><p class="help">Subscriber usage is unknown. This change applies locally and will be marked as breaking in the changelog.</p>
     <div class="dialog-actions"><button id="cancel-confirm" class="button">Cancel</button><button id="apply-confirm" class="button primary">Apply change</button></div>
+  </dialog>
+  <dialog id="scheme-dialog">
+    <form id="scheme-form">
+      <div class="dialog-heading"><span class="eyebrow">Scheme settings</span><h2 id="scheme-dialog-title"></h2></div>
+      <label class="field"><span class="field-label">Maximum depth</span><input id="scheme-max-depth" type="number" min="0" max="500" placeholder="No limit"><span class="help">Top terms are depth 0, so 2 allows three levels. Leave empty for no limit. Active and provisional terms must already fit; retired terms keep their place.</span></label>
+      <p id="scheme-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" class="button" id="cancel-scheme">Cancel</button><button type="submit" class="button primary" id="save-scheme">Save</button></div>
+    </form>
   </dialog>
   <dialog id="revision-dialog"><div id="revision-content"></div><div class="dialog-actions"><button id="close-revision" class="button">Close</button></div></dialog>
   <dialog id="operation-dialog" class="wide-dialog">

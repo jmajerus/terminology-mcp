@@ -2,9 +2,9 @@
 
 How a consumer such as Concept Clusters keeps a local copy of a scheme
 current. It reads a snapshot once, then follows the numbered changelog.
-Nothing has to be registered on the server: the consumer keeps its own
-cursor. Subscriber registration, usage reports and gates are planned (see
-[PLAN.md](../PLAN.md)); everything below works today.
+The consumer keeps its own cursor and reports its progress back, so the editor
+shows how far each one has got. Usage reports, gates and leases are planned
+(see [PLAN.md](../PLAN.md)); everything below works today.
 
 ## Bootstrap
 
@@ -13,8 +13,9 @@ GET /api/state?scheme=cc-subjects
 ```
 
 The response holds `log`, `version`, `head`, the scheme, its terms (with
-derived `path`, `depth` and `narrower`) and its concept sets. Store the terms
-keyed by `id`, and save `log` and `version` together as the cursor. An
+derived `path`, `depth` and `narrower`, and always a `status`) and its concept
+sets. Store the terms keyed by `id`, and save `log` and `version` together as
+the cursor, then report `through` = `version`. An
 unknown scheme answers 404.
 
 ## Catch up
@@ -59,6 +60,7 @@ correct; the kind says why it changed.
 | `split` | The source retired into two or more new terms | yes |
 | `retired` | The term retired, optionally with replacements | yes |
 | `slugged` | The slug changed; the old one moved to `formerSlugs` | yes |
+| `scheme-changed` | A scheme setting (its maximum depth) changed | no |
 | `set-added` | A concept set was created | no |
 | `set-changed` | A set's definition changed | when its label, order or recipe changed, or a member was removed |
 | `set-deleted` | A set was deleted | yes |
@@ -71,6 +73,76 @@ or `slugged`. Decide per kind.
 Retired terms stay in the log and in reads, with `status: "retired"` and
 `replacedBy`. Re-point local references to the replacements rather than
 deleting them.
+
+## Reporting progress
+
+```
+POST /api/subscribers/concept-clusters/progress
+{"log": "…", "through": 512, "label": "Concept Clusters", "schemes": ["cc-subjects"]}
+```
+
+The first report registers the subscriber; its id is lowercase letters,
+digits and hyphens. `through` is the last change fully applied. `schemes` and
+`label` are kept from the last report that sent them, and `pending` counts
+only changes in those schemes. A report doesn't advance the changelog.
+
+When the subscriber stops at a change it won't apply on its own, it says so:
+
+```
+{"log": "…", "through": 512, "blocked": {"at": 513, "code": "slug-change", "reason": "Slug in 40 player URLs"}}
+```
+
+`code` is free text for grouping (Concept Clusters sends `slug-change`,
+`subcategory-move`, `depth-change`, `split` or `retire-ambiguous`). A later
+report without `blocked` clears it. The editor's **Subscribers** panel shows
+each hold, and the outline marks the terms a subscriber hasn't applied yet.
+
+Refusals:
+- a `log` that isn't the store's is 409, with the current `log`;
+- `through` beyond the head is 400;
+- `through` below the last report is 409, unless the body has `reset: true`
+  (after the subscriber wiped its own cursor and bootstrapped again);
+- `blocked.at` must be after `through` and no later than the head.
+
+Report when a tick advances the cursor or changes the hold, plus a heartbeat
+every few minutes so `lastSeen` means the subscriber is alive.
+`GET /api/subscribers` (or the MCP `list_subscribers` tool) returns every
+subscriber with `through`, `head`, `pending`, `pendingBreaking`,
+`pendingTerms`, `blocked` and `lastSeen`.
+
+## Proposing terms
+
+```
+POST /api/proposals
+{"scheme": "cc-subjects", "label": "Glaciology", "broader": "geography",
+ "proposer": "concept-clusters:authoring", "evidence": {"draftId": "d-17"}, "requestId": "d-17"}
+```
+
+A proposal is created at once as a `provisional` term, so it can be used
+straight away. The answer (201) carries `id`, `slug`, `status`, `change` (its
+change number) and the full `term`. `broader` is a stable ID, an alias or a
+slug in that scheme. The slug is minted from the label, or taken from `slug`
+if given. The change is an ordinary `added`, with `author` set to the
+proposer and a `proposal` field holding the proposer and evidence, so a
+subscriber applies it like any other addition.
+
+- **Retries:** the same proposer and `requestId` return the original term
+  (200, `replayed: true`) instead of a duplicate.
+- **Duplicates:** a sibling with the same label, or a term whose slug or
+  former slug clashes in the new term's slug scopes (siblings, and the
+  scheme-wide depths in `slugUniqueDepths`), is a 409 with `reason`
+  (`duplicate`, or `retired` for a retired match) and
+  `existing: {id, slug, label, status, replacedBy}`. Use the existing term,
+  or propose a different `slug`.
+- **Depth:** a proposal deeper than the scheme's maximum depth is 422.
+  `cc-subjects` allows depth 2, so subcategories can't have narrower terms.
+- **Who:** on the LAN the caller names the `proposer`. Through Cloudflare
+  Access the verified email names it instead.
+
+The MCP `propose_term` tool takes the same fields. The owner reviews open
+proposals in the editor's **Open proposals** list: **Confirm** makes the
+term active (an `updated` change), and **Merge into…** or **Retire…** handle
+the rest.
 
 ## Slugs and aliases
 

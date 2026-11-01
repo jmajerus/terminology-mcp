@@ -3,8 +3,9 @@
 The running editor also serves **`POST /mcp`** using the official MCP SDK's
 stateless Streamable HTTP transport (JSON responses). It shares the editor's
 store, versions, configured hosts and origin protection. There is no separate
-database or service to initialize. These tools read data; they do not edit,
-import, fetch external sources or apply proposals.
+database or service to initialize. Every tool but `propose_term` only reads.
+`propose_term` adds a provisional term for the owner to review; no tool edits,
+imports, fetches external sources, or confirms proposals.
 
 Start with `npm run demo` for sample data or `npm start` for your workspace.
 The local endpoint is `http://127.0.0.1:8000/mcp`; the LAN deployment is
@@ -66,7 +67,8 @@ tool calls as POSTs. HTTP clients must accept both `application/json` and
 
 ## Tools
 
-All tools advertise read-only, non-destructive, idempotent annotations.
+The read tools advertise read-only, non-destructive, idempotent annotations;
+`propose_term` advertises a non-destructive write.
 Successful results include JSON in both `content` and `structuredContent`.
 Tool failures use `isError: true`; schema validation rejects unsupported
 arguments. Unknown versions, schemes and sets produce explicit errors.
@@ -85,6 +87,8 @@ arguments. Unknown versions, schemes and sets produce explicit errors.
 | `subsumes` | Compare two terms through transitive broader links, including every parent. Related/opposite and mappings do not imply subsumption. |
 | `get_changes` | Read change summaries after `since`, optionally filtered by stable term ID or by `scheme`. Request full revision bodies with `includeSnapshots: true`. |
 | `export_skos` | Export a scheme and its collections as Turtle, preserving notations, mappings and collection definitions. |
+| `list_subscribers` | Each consumer's reported progress through the changelog, what is pending for its schemes (and how much of it is breaking), and any change it is held at. |
+| `propose_term` | Add a provisional term under an existing broader term (ID, alias or slug), with a server-minted slug. See [proposals](following-changes.md#proposing-terms). |
 
 Search uses case-insensitive NFKC-normalized substring matching, without
 fuzzy matching or full-text syntax. It includes active and provisional terms
@@ -146,5 +150,6 @@ continue through the editor and its existing validation/preview controls.
 uses the official SDK client to initialize, discover and call the tools.
 It covers paging across concurrent edits, historical reads, multi-parent
 and cross-scheme relationships, collection order/membership, retirement,
-SKOS, output limits and HTTP host/origin protections. The suite also runs
+SKOS, output limits and HTTP host/origin protections. `test/subscribers.test.ts`
+covers `propose_term` and `list_subscribers`. The suite also runs
 with `npm test`.

@@ -154,6 +154,17 @@ Concept Clusters' subjects tree is imported as `cc-subjects`. Server-side
 subscriber registration, usage, gates and proposals are next. See
 [following changes](docs/following-changes.md).
 
+**Subscriber milestone update (2026-11-01):** subscribers report their
+progress (`through`) and holds (`blocked`, with a code and reason) to
+`/api/subscribers/:id/progress`; the editor shows each one's pending and
+breaking changes and marks pending terms. Consumers and agents propose terms
+through `POST /api/proposals` and the MCP `propose_term` tool: a proposal is a
+provisional term with a minted slug, refused with the existing term when it
+duplicates one, and confirmed, merged or retired by the owner from **Open
+proposals**. Schemes gained revisions and a maximum depth (`cc-subjects`: 2).
+Usage reports, gates, leases and `propose_change` are next. See
+[following changes](docs/following-changes.md).
+
 ## What we borrow from FHIR
 
 FHIR's terminology module (CodeSystem, ValueSet, ConceptMap, and a handful
@@ -212,16 +223,17 @@ should show for a deeper one).
   `updated`), `terms`, before/after with snapshots of every affected term
   and set, `breaking`, `author`, `reason`, `at`. Proposals (planned) are
   changes with no `n` yet.
-- **Subscriber** (planned; today each consumer keeps its own cursor): `id`, `cursor`, `usage` (term id → counts by kind),
+- **Subscriber**: `id`, `label`, `schemes`, `through` (its cursor), `blocked`
+  (a hold with `code` and `reason`), `lastSeen`; still planned: `usage` (term id → counts by kind),
   `gates` (change kinds it answers), `hold` (a lease, when set).
 
 ## Surfaces
 
 - **REST** (`/api/…`), for consumers and the editor: lookup, expand,
-  `changes?since=N` and slug lookup today; validate, subsumes, translate,
-  rollup, usage intake, proposals and gate answers to come. Read endpoints
+  `changes?since=N`, slug lookup, proposals and subscriber progress today;
+  validate, subsumes, translate, rollup, usage intake and gate answers to come. Read endpoints
   are cacheable by version.
-- **MCP**, for agents: the read operations (done) plus `propose_term` and
+- **MCP**, for agents: the read operations and `propose_term` (done) plus
   `propose_change` (planned). Agents propose; only the editor applies
   breaking changes.
 - **Exports**: SKOS Turtle per scheme (done; JSON-LD not yet); a snapshot
@@ -278,9 +290,11 @@ whole tree and the changelog instead.
 3. Editor page 1 (taxonomy) with free edits and the four breaking verbs,
    applying directly (no subscribers yet). *Done*, with **Change slug…**.
 4. Editor page 2 (concept sets). *Done*, plus the concept-graph page.
-5. Subscribers: cursors, usage intake, impact on pending changes. *Started*:
-   the scheme-filtered feed with a log id works with consumer-held cursors.
-6. MCP surface and proposals. *Read tools done*; proposals to come.
+5. Subscribers: cursors, usage intake, impact on pending changes. *Cursors
+   done*: consumers report progress and holds, and the editor shows what is
+   pending for each. Usage intake and impact counts to come.
+6. MCP surface and proposals. *Read tools and `propose_term` done*;
+   `propose_change` to come.
 7. Gates and holds.
 8. Exports (SKOS, consumer snapshot); maps and `translate` once CC's
    stage 2 mapping exists. *SKOS done*; the rest to come.

@@ -67,7 +67,9 @@ test('legacy term and scheme bodies without notations remain readable and editab
   const term = store.addTerm({ scheme: 'old', label: 'Old term' });
   store.db.exec(`UPDATE terms SET body = json_remove(body, '$.notations');
     UPDATE term_revisions SET body = json_remove(body, '$.notations');
-    UPDATE schemes SET body = json_remove(body, '$.notations');`);
+    UPDATE schemes SET body = json_remove(body, '$.notations');
+    UPDATE scheme_revisions SET body = json_remove(body, '$.notations');`);
+  assert.equal((store.db.prepare('SELECT body FROM scheme_revisions').get() as { body: string }).body.includes('notations'), false);
   assert.deepEqual(store.schemes()[0].notations, []);
   assert.deepEqual(store.lookup(term.id).notations, []);
   store.editTerm(term.id, { label: term.label, scopeNote: 'Edited', expectedChanged: term.changed });

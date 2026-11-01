@@ -4,7 +4,8 @@ The local taxonomy workspace implements schemes, terms, structural editing,
 SKOS interchange, and history. The main plan in [PLAN.md](../PLAN.md) describes
 the larger server and remains the roadmap.
 
-The same HTTP service provides twelve read-only MCP tools at `/mcp` using
+The same HTTP service provides fourteen MCP tools at `/mcp`, all read-only
+except `propose_term`, using
 stateless Streamable HTTP. See [MCP access](mcp.md) for client configuration,
 version-pinned paging and the available operations.
 
@@ -16,7 +17,7 @@ version-pinned paging and the available operations.
 - `src/main.ts`: process startup, database selection, and shutdown.
 - `src/seed.ts`: optional demo fixture, imported atomically on an empty store.
 - `src/skos.ts`, `src/sparql.ts`: SKOS mapping, RDF serialization, and read-only source queries.
-- `src/mcp.ts`: the read-only MCP tools served at `/mcp`.
+- `src/mcp.ts`: the MCP tools served at `/mcp`.
 - `src/access.ts`: Cloudflare Access assertion checks for proxied and public requests.
 - `public/`: framework-free browser UI, served by the same process as the API.
 
@@ -38,8 +39,14 @@ aliases, and its numbered changelog entry in **one transaction**. A failed
 validation or alias collision rolls back the entire operation. A no-op save
 does not advance the changelog. Revisions are full term snapshots rather
 than event replay; historical reads select the last revision at or before N.
-Schemes are immutable after creation in this milestone and filtered by their
-creation version. Future scheme edits will need scheme revisions too.
+Schemes have revisions too. Only the maximum depth can change after creation:
+**Depth limit** in the outline (or `PATCH /api/schemes/:id`) logs a
+`scheme-changed` change, and every active or provisional term must already fit
+the new limit. Retired terms are exempt: they are read-only and keep the place
+they retired from. Once set, adding, moving or importing a term deeper than
+the limit is refused, and
+**+ Narrower term** is disabled at the limit. Top terms are depth 0, so
+`cc-subjects` uses 2 for domains, categories and subcategories.
 
 Term IDs are `t_` followed by a random UUID rendered as 32 hexadecimal
 characters. They never depend on labels or positions. Tree aliases are
@@ -113,7 +120,11 @@ conflicts 409, and missing resources 404, with `{ "error": "…" }` bodies.
 | GET | `/api/terms/:id-or-alias?at=N` | Lookup by stable ID or URL-encoded alias |
 | GET | `/api/changes?since=N&term=ID&scheme=ID` | Ordered changes after N; optional affected-term and scheme filters (unknown scheme: 404) |
 | GET | `/api/schemes/:id/slugs/:slug?parent=REF&depth=D&at=N` | Resolve a current or former slug; `parent` (ID, alias or slug) or `depth` narrows it |
-| POST | `/api/schemes` | Create `{id, label, hierarchy, description?, admissionTest?, slugUniqueDepths?}` |
+| POST | `/api/schemes` | Create `{id, label, hierarchy, description?, admissionTest?, slugUniqueDepths?, maxDepth?}` |
+| PATCH | `/api/schemes/:id` | Change settings `{maxDepth, expectedVersion}`; `maxDepth: null` removes the limit |
+| POST | `/api/proposals` | Propose a provisional term `{scheme, label, broader, proposer, scopeNote?, altLabels?, slug?, evidence?, requestId?}` |
+| POST | `/api/subscribers/:id/progress` | Report `{log, through, schemes?, label?, blocked?, reset?}` |
+| GET | `/api/subscribers`, `/api/subscribers/:id` | Each subscriber's progress, pending changes and hold |
 | POST | `/api/terms` | Create `{scheme, label, broader?, altLabels?, scopeNote?, status?, relations?, links?, aliases?, slug?}` |
 | PATCH | `/api/terms/:id` | Save all editable fields and `expectedChanged`, with optional `reason` |
 | POST | `/api/terms/:id/operations/preview` | Preview move/merge/split/retire/slug, using `expectedVersion` |
@@ -203,12 +214,13 @@ Screenshots and failure traces are written under ignored `test-results/`.
 
 Implemented beyond this page: [concept sets](concept-sets.md) (recipes,
 versioned expansion, SKOS collections), [concept graphs](concept-graphs.md),
-read-only [MCP tools](mcp.md), and the changelog feed consumers follow
+[MCP tools](mcp.md), and the changelog feed consumers follow
 ([following changes](following-changes.md)). Concept Clusters' subjects tree
 is imported as `cc-subjects`.
 
-Still planned: subscriber registration with server-side cursors, usage
-reports and impact counts, gates and holds, proposals from consumers and
-agents, roll-up, and vocabulary maps with `translate`. SKOS mapping
+Subscribers report their progress and holds, and consumers and agents propose
+terms ([following changes](following-changes.md)). Still planned: usage
+reports and impact counts, gates and holds as leases, `propose_change`,
+roll-up, and vocabulary maps with `translate`. SKOS mapping
 references are already available; they are distinct from the planned
 consumer maps. The demo does not read or modify sibling repositories.

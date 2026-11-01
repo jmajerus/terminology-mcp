@@ -137,7 +137,7 @@ test('v1 databases migrate without changing terms or history; sets persist after
   store.addScheme({ id: 'test', label: 'Test', hierarchy: 'tree' });
   const term = store.addTerm({ scheme: 'test', label: 'Existing' }); const version = store.version;
   store.close();
-  const db = new Database(filename); db.exec('DROP TABLE set_revisions; DROP TABLE concept_sets; PRAGMA user_version = 1;'); db.close();
+  const db = new Database(filename); db.exec('DROP TABLE scheme_revisions; DROP TABLE subscribers; DROP TABLE set_revisions; DROP TABLE concept_sets; PRAGMA user_version = 1;'); db.close();
   store = new Store(filename);
   assert.equal(store.version, version); assert.equal(store.lookup(term.id).label, 'Existing');
   const set = store.saveSet({ scheme: 'test', slug: 'persisted', label: 'Persisted', members: [term.id] }, store.version);
