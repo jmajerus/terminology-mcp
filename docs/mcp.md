@@ -25,7 +25,7 @@ ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com
 ```
 
 Terminology also needs `TERMINOLOGY_PUBLIC_ORIGIN=https://terminology-mcp.example.com`
-for its public hostname. This persists across deployments separately from the
+for its public hostname (a comma-separated list for more than one). This persists across deployments separately from the
 deploy-managed LAN origins.
 
 Cloudflare Managed OAuth authenticates MCP clients at the edge and forwards a

@@ -13,8 +13,9 @@ const store = new Store(filename);
 if (demo) seedDemo(store);
 const server = createApp(store, { demo, deploymentFile: resolve('deployed.json'),
   access: requestAccessConfig(process.env, ['terminology-mcp', 'terminology-mcp.localdomain']),
-  origins: [...(process.env.TERMINOLOGY_ORIGINS?.split(',').map(value => value.trim()).filter(Boolean) ?? []),
-    ...(process.env.TERMINOLOGY_PUBLIC_ORIGIN ? [process.env.TERMINOLOGY_PUBLIC_ORIGIN] : [])] });
+  // Both settings take comma-separated origins: the deploy-managed LAN ones, and the public hostnames.
+  origins: [process.env.TERMINOLOGY_ORIGINS, process.env.TERMINOLOGY_PUBLIC_ORIGIN]
+    .flatMap(list => list?.split(',').map(value => value.trim()).filter(Boolean) ?? []) });
 server.on('error', error => { console.error(error.message); store.close(); process.exitCode = 1; });
 server.listen(port, host, () => {
   console.log(`Terminology editor listening on ${host}:${port}`);

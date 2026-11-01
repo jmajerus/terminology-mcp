@@ -130,22 +130,36 @@ Direct LAN access remains available. Public/proxied requests require the
 Cloudflare Access JWT described in [MCP access](mcp.md).
 Set `ACCESS_TEAM_DOMAIN` and
 `TERMINOLOGY_PUBLIC_ORIGIN` in the server's env file before exposing its public
-hostname. Public routing and Managed OAuth are configured in Cloudflare.
+hostname. `TERMINOLOGY_PUBLIC_ORIGIN` takes a comma-separated list when more
+than one public hostname reaches the server. Public routing and Managed OAuth are configured in Cloudflare.
 
 ### Public read-only
 
-To let anyone browse the vocabulary while only you edit, set
-`TERMINOLOGY_PUBLIC_READ=1` in the env file and restart. Then, in Cloudflare
-Zero Trust (Access → Applications):
+To let anyone browse the vocabulary while only you edit, give visitors a
+hostname of their own and leave the owner's hostname (with MCP and its
+Managed OAuth) as it is. The live setup:
 
-1. Give the public hostname's application a **Bypass** policy for
-   **Everyone**, so visitors reach the editor without signing in. Access then
-   forwards no assertion for them.
-2. Add a self-hosted application for the same hostname with the path
-   `sign-in`, allowing only you. Opening **Sign in to edit** goes through
-   its login, sets the `CF_Authorization` cookie, and returns to the editor.
-3. Keep `/mcp` behind its own application, as before. A more specific path
-   takes precedence over the Bypass.
+| Hostname | Tunnel route | Access |
+| --- | --- | --- |
+| `vocabulary.majerus.us` | `http://terminology-mcp.localdomain:8000` | **Bypass** for **Everyone**, plus an application on the path `sign-in` allowing only the owner |
+| `terminology-mcp.majerus.us` | the same | Owner only, as before; MCP clients use this one |
+
+1. Add the visitors' hostname as a public hostname on the tunnel, routed to
+   the same service. Don't redirect it to the owner's hostname: a redirect
+   sends visitors to its login.
+2. In Cloudflare Zero Trust (Access → Applications), add an application for
+   the visitors' hostname with a **Bypass** policy for **Everyone**. Access
+   then forwards no assertion for visitors.
+3. Add an application for the same hostname with the path `sign-in`,
+   allowing only you. Opening **Sign in to edit** goes through its login,
+   sets the `CF_Authorization` cookie for that hostname, and returns to the
+   editor. A more specific path takes precedence over the Bypass.
+4. In the env file, set `TERMINOLOGY_PUBLIC_READ=1` and list both hostnames:
+   `TERMINOLOGY_PUBLIC_ORIGIN=https://vocabulary.majerus.us,https://terminology-mcp.majerus.us`.
+   Then restart.
+
+`TERMINOLOGY_PUBLIC_READ` applies on every hostname, but on the owner's
+hostname Access admits only you, so nobody arrives there signed out.
 
 With public read on:
 
