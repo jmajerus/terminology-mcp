@@ -77,8 +77,8 @@ export class Store {
       return item;
     };
     for (const table of ['terms', 'term_revisions'] as const) {
-      const rows = this.db.prepare(`SELECT rowid, body FROM ${table}`).all() as { rowid: number; body: string }[];
-      for (const row of rows) this.db.prepare(`UPDATE ${table} SET body = ? WHERE rowid = ?`).run(JSON.stringify(fill(JSON.parse(row.body))), row.rowid);
+      const rows = this.db.prepare(`SELECT rowid AS row, body FROM ${table}`).all() as { row: number; body: string }[];
+      for (const row of rows) this.db.prepare(`UPDATE ${table} SET body = ? WHERE rowid = ?`).run(JSON.stringify(fill(JSON.parse(row.body))), row.row);
     }
     for (const row of this.db.prepare('SELECT n, body FROM changes').all() as { n: number; body: string }[]) {
       const change = JSON.parse(row.body) as Change;

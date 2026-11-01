@@ -141,10 +141,16 @@ test('older stores get slugs and a log id on open, including history and change 
   store.operate(moved.id, { kind: 'move', broader: [root.id], expectedVersion: store.version });
   store.close();
   const db = new Database(filename);
-  const strip = (body: string) => { const value = JSON.parse(body); delete value.slug; delete value.formerSlugs; delete value.after?.slug; return JSON.stringify(value); };
+  const unslug = (item: { slug?: string; formerSlugs?: string[] } | null | undefined) => { if (item) { delete item.slug; delete item.formerSlugs; } };
+  const strip = (body: string) => {
+    const value = JSON.parse(body);
+    for (const item of [value, value.before, value.after, ...value.beforeTerms ?? [], ...value.afterTerms ?? []]) unslug(item);
+    return JSON.stringify(value);
+  };
   for (const table of ['terms', 'term_revisions', 'changes'])
-    for (const row of db.prepare(`SELECT rowid, body FROM ${table}`).all() as { rowid: number; body: string }[])
-      db.prepare(`UPDATE ${table} SET body = ? WHERE rowid = ?`).run(strip(row.body), row.rowid);
+    for (const row of db.prepare(`SELECT rowid AS row, body FROM ${table}`).all() as { row: number; body: string }[])
+      db.prepare(`UPDATE ${table} SET body = ? WHERE rowid = ?`).run(strip(row.body), row.row);
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM changes WHERE body LIKE '%\"slug\"%'").get() as { n: number }).n, 0);
   db.exec('DROP TABLE meta; PRAGMA user_version = 2;'); db.close();
   const reopened = new Store(filename); t.after(() => reopened.close());
   assert.match(reopened.logId, /^[0-9a-f-]{36}$/);
@@ -155,6 +161,11 @@ test('older stores get slugs and a log id on open, including history and change 
   assert.equal(reopened.editTerm(moved.id, { label: 'Cafe 2', expectedChanged: reopened.lookup(moved.id).changed }).slug, 'cafe-2');
   assert.equal(reopened.lookup(root.id, 2).slug, 'root');
   assert.equal((reopened.changes(1)[0].after as { slug?: string }).slug, 'root');
+  const labelled = reopened.changes(0, renamed.id).find(change => change.kind === 'labelled')!;
+  assert.deepEqual([...labelled.beforeTerms!, ...labelled.afterTerms!].map(term => [term.slug, term.formerSlugs]), [['old-name', []], ['old-name', []]]);
+  const move = reopened.changes(0, moved.id).find(change => change.kind === 'moved')!;
+  assert.equal(JSON.stringify(move).includes('placeholder'), false);
+  assert.deepEqual(move.afterTerms!.map(term => term.slug), ['cafe-2']);
 });
 
 test('HTTP changes and state filter by scheme, carry the log id, and resolve slugs', async t => {
