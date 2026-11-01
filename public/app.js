@@ -11,6 +11,7 @@ let draftRelations = [];
 let expanded = new Set();
 let allExpanded = true;
 let createMode = null;
+let createSource = null;
 let parentId = null;
 let confirmResolve;
 let noticeTimer;
@@ -310,14 +311,45 @@ function openCreate(mode, parent = null) {
   $('#create-error').textContent = '';
   const schemeFields = `<label class="field"><span class="field-label">Scheme ID</span><input name="id" required pattern="[a-z]([a-z0-9]|-){0,59}" maxlength="60" placeholder="e.g. subjects"><span class="help">Lowercase letters, numbers, and hyphens. This ID stays fixed.</span></label><label class="field"><span class="field-label">Hierarchy</span><select name="hierarchy"><option value="tree">Tree · one broader term</option><option value="poly">Polyhierarchy · multiple broader terms</option><option value="graph">Concept graph · associative network</option></select></label><label class="field"><span class="field-label">Maximum depth <span class="help">optional</span></span><input name="maxDepth" type="number" min="0" max="500" placeholder="No limit"><span class="help">Top terms are depth 0. Leave empty for no limit.</span></label><label class="field"><span class="field-label">Description</span><textarea name="description" rows="2" maxlength="10000"></textarea></label>`;
   const termFields = `<label class="field"><span class="field-label">Broader terms</span><select name="broader" ${scheme()?.hierarchy !== 'tree' ? 'multiple size="5"' : ''}><option value="" ${!parent ? 'selected' : ''}>Top level</option>${termOptions(state.terms.filter(term => term.scheme === schemeId), parent)}</select>${scheme()?.hierarchy !== 'tree' ? '<span class="help">Use Ctrl or Command to select more than one parent.</span>' : ''}</label><label class="field"><span class="field-label">Scope note</span><textarea name="scopeNote" rows="3" maxlength="20000" placeholder="What belongs here?"></textarea></label><label class="field"><span class="field-label">Status</span><select name="status"><option value="provisional">Provisional</option><option value="active">Active</option></select></label>`;
-  $('#create-fields').innerHTML = `<label class="field"><span class="field-label">${mode === 'scheme' ? 'Scheme name' : 'Preferred label'}</span><input name="label" required maxlength="200" autocomplete="off"></label>${mode === 'scheme' ? schemeFields : termFields}`;
+  const sourceFields = `<div class="field"><span class="field-label">Copy from another vocabulary <span class="help">optional</span></span><input id="source-search" type="search" placeholder="Search entries by label or code, e.g. computer science or QA76" autocomplete="off" aria-label="Search other vocabularies"><div id="source-results" class="source-results"></div><div id="source-chosen"></div></div>`;
+  const slugField = `<label class="field"><span class="field-label">Slug <span class="help">optional</span></span><input name="slug" maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="Minted from the label" autocomplete="off"><span class="help">Lowercase letters and digits separated by hyphens. It stays fixed when the label changes.</span></label>`;
+  createSource = null;
+  $('#create-fields').innerHTML = `${mode === 'term' ? sourceFields : ''}<label class="field"><span class="field-label">${mode === 'scheme' ? 'Scheme name' : 'Preferred label'}</span><input name="label" required maxlength="200" autocomplete="off"></label>${mode === 'scheme' ? schemeFields : termFields + slugField}`;
+  if (mode === 'term') {
+    $('#source-search').oninput = renderSourceResults;
+    $('#source-results').onclick = event => { const pick = event.target.closest('[data-source]'); if (pick) chooseSource(byId(pick.dataset.source)); };
+  }
   $('#create-dialog').showModal();
+}
+// The IRI another vocabulary uses for a term: its source IRI, else an IRI alias, else the stable URN its SKOS export uses.
+const termIri = term => term.sourceUri ?? term.aliases.find(alias => /^https?:\/\//.test(alias)) ?? `urn:terminology-mcp:term:${term.id}`;
+function renderSourceResults() {
+  const query = $('#source-search').value.trim().toLowerCase();
+  const schemes = new Map(state.schemes.map(item => [item.id, item.label]));
+  const found = query.length < 2 ? [] : state.terms.filter(term => term.scheme !== schemeId && term.status !== 'retired'
+    && [term.label, ...term.altLabels, ...(term.notations ?? []).map(notation => notation.value), ...term.aliases].some(value => value.toLowerCase().includes(query)));
+  $('#source-results').innerHTML = found.slice(0, 12).map(term => `<button type="button" class="source-option" data-source="${escape(term.id)}"><span>${escape(term.label)}</span><span class="help">${escape([(term.notations ?? []).map(notation => notation.value).join(', '), schemes.get(term.scheme)].filter(Boolean).join(' · '))}</span></button>`).join('')
+    + (found.length > 12 ? `<p class="help">${found.length - 12} more; keep typing to narrow.</p>` : query.length >= 2 && !found.length ? '<p class="help">No matching entries in other vocabularies.</p>' : '');
+}
+function chooseSource(term) {
+  const label = $('#create-form [name="label"]');
+  if (!label.value.trim() || label.value === createSource?.label) label.value = term.label;
+  createSource = term;
+  $('#source-search').value = ''; $('#source-results').innerHTML = '';
+  $('#source-chosen').innerHTML = `<div class="source-chosen"><div class="source-label"><strong>${escape(term.label)}</strong><span class="help">${escape(termIri(term))}</span></div><button type="button" class="remove" id="source-remove" aria-label="Don’t link ${escape(term.label)}">×</button>
+    <select id="source-match" aria-label="How the new term matches it"><option value="closeMatch" selected>Close match</option><option value="broadMatch">Broad match · the entry is wider</option><option value="narrowMatch">Narrow match · the entry is narrower</option><option value="exactMatch">Exact match</option><option value="relatedMatch">Related match</option></select></div><p class="help">Adds an external reference to this entry. Edit the label if it should read differently.</p>`;
+  $('#source-remove').onclick = () => { createSource = null; $('#source-chosen').innerHTML = ''; };
+  label.focus();
 }
 $('#create-form').addEventListener('submit', async event => {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const data = Object.fromEntries(form);
-  if (createMode === 'term') { data.scheme = schemeId; data.broader = form.getAll('broader').filter(Boolean); }
+  if (createMode === 'term') {
+    data.scheme = schemeId; data.broader = form.getAll('broader').filter(Boolean);
+    if (!data.slug) delete data.slug;
+    if (createSource) data.links = [{ uri: termIri(createSource), match: $('#source-match').value }];
+  }
   if (createMode === 'scheme') { if (data.maxDepth === '') delete data.maxDepth; else data.maxDepth = Number(data.maxDepth); }
   $('#submit-create').disabled = true;
   try {

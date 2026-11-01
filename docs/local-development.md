@@ -154,20 +154,26 @@ depths still narrows correctly.
 ### Linking cc-subjects to LCC
 
 A `cc-subjects` term points at the Library of Congress class that fits it,
-at any depth, through an external reference:
+at any depth, through an external reference.
 
-1. Open the class in `loc-classification` and copy its id.loc.gov IRI from
-   **Aliases**.
-2. Open the `cc-subjects` term, and under **External references** choose
-   **+ Reference**.
-3. Pick **Close match**, or **broad match** when the class is wider than
-   the term. Keep **Exact match**, the default, for true equivalents only.
-4. Paste the IRI and save.
+To add a subcategory from a class, select its category and choose
+**+ Narrower term**. In **Copy from another vocabulary**, search by label
+or class code (for example `QA76`), and pick the entry. That fills in the
+label (edit it if it should read differently) and links the class's
+id.loc.gov IRI. Choose how they match: **Close match** by default,
+**Broad match** when the class is wider, and **Exact match** only for true
+equivalents. Set **Status** to Active unless Concept Clusters should show
+it as provisional, and give a **Slug** if Concept Clusters' id differs from
+the one minted from the label. **Create** saves the term and its link as
+one change.
 
-To promote a class to a new subcategory, select the category, choose
-**+ Narrower term**, and create it. If its minted slug isn't the one
-Concept Clusters uses, change it with **Change slug…**, then link it as
-above. The subjects graph can't be imported again (409, "source scheme is
+To link an existing term, copy the class's IRI from **Aliases** on the
+`loc-classification` term, then add it under **External references** with
+**+ Reference** and save. Change a slug that's already in use with
+**Change slug…**; Concept Clusters holds on slug changes until you
+coordinate them.
+
+The subjects graph can't be imported again (409, "source scheme is
 already imported"), so domains, categories and subcategories are added here
 by hand.
 
