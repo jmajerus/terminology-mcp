@@ -78,3 +78,4 @@
 .graph-zoom .button { min-width:30px; }
 #graph-map { touch-action:none; cursor:grab; }
 #graph-map.panning { cursor:grabbing; }
+.graph-option { display:flex; align-items:center; gap:6px; font-size:12px; }

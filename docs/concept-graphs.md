@@ -48,6 +48,13 @@ The diagram uses a force-directed layout ([d3-force](https://d3js.org/d3-force))
 - **Dragging** a concept pins it under the pointer while the others re-settle
   around it. It stays where it's dropped until the next refocus, and a drag
   doesn't select the concept.
+- **Force layout** (on by default, remembered in the browser) can be turned
+  off to arrange concepts by hand, for example for a screenshot.
+  - While it's off, dragging moves only that concept, and nothing else shifts.
+  - Changing the depth or relationship types keeps every concept already
+    drawn where it is. New concepts settle around them, starting from their
+    parent's place.
+  - Turning it back on re-settles the layout from where things stand.
 - **Zoom and pan:** the scroll wheel, or a pinch on a touch screen, zooms
   about the pointer, from the fitted view up to 8× in and 1.5× out.
   Dragging the background pans. The **+**, **−** and **Fit** buttons zoom

@@ -89,9 +89,17 @@ function draw(ids,relations,levels) {
   for (const child of children.get(id)) { const span = (to-from)*leaves(child)/leaves(id); sector(child,at,at+span); at += span; }
  };
  sector(selected,-Math.PI/2,Math.PI*1.5);
+ // With the force layout off, a concept new to the drawing fans out from its parent's actual place; the forces
+ // untangle better from the tree's sectors, so they keep those.
+ const parentOf = new Map([...children].flatMap(([parent,ids]) => ids.map(id => [id,parent]))), placedHere = new Set();
  for (const n of nodes) {
-  const known = placed.get(n.id), a = angles.get(n.id) ?? 0;
-  Object.assign(n,known ? {x:known.x-shift.x,y:known.y-shift.y} : {x:Math.cos(a)*n.depth*125*1.3,y:Math.sin(a)*n.depth*125});
+  const known = placed.get(n.id), parent = byId.get(parentOf.get(n.id)), a = angles.get(n.id) ?? 0;
+  if (known) { Object.assign(n,{x:known.x-shift.x,y:known.y-shift.y}); placedHere.add(n.id); }
+  else if (!forceLayout() && parent && parent.id !== selected && placedHere.has(parent.id)) {
+   const siblings = children.get(parent.id), j = siblings.indexOf(n.id), reach = 95+siblings.length*4;
+   const out = Math.atan2(parent.y,parent.x)+(j-(siblings.length-1)/2)*Math.min(0.35,2.4/siblings.length);
+   Object.assign(n,{x:parent.x+Math.cos(out)*reach,y:parent.y+Math.sin(out)*reach}); placedHere.add(n.id);
+  } else Object.assign(n,{x:Math.cos(a)*n.depth*125*1.3,y:Math.sin(a)*n.depth*125});
  }
  Object.assign(nodes[0],{fx:0,fy:0});
  simulation = d3.forceSimulation(nodes)
@@ -100,7 +108,14 @@ function draw(ids,relations,levels) {
   .force('ring',d3.forceRadial(n => n.depth*125,0,0).strength(n => n.depth ? 0.05 : 0))
   .force('collide',d3.forceCollide(n => 14+n.width*0.27).strength(0.9))
   .stop();
- for (let i = 0; i < 300; i++) simulation.tick();
+ // With the force layout off, concepts already drawn are pinned in place and only new ones settle around them.
+ if (forceLayout()) for (let i = 0; i < 300; i++) simulation.tick();
+ else if (nodes.some(n => !placed.has(n.id))) {
+  const pinned = nodes.filter(n => placed.has(n.id) && n.id !== selected);
+  for (const n of pinned) { n.fx = n.x; n.fy = n.y; }
+  for (let i = 0; i < 300; i++) simulation.tick();
+  for (const n of pinned) { n.fx = null; n.fy = null; }
+ }
  // The glide starts from the previous drawing in the new frame; new concepts emerge from the focus.
  const start = new Map(nodes.map(n => { const p = placed.get(n.id); return [n.id,p ? {x:p.x-shift.x,y:p.y-shift.y} : {x:0,y:0}]; }));
  const from = view && view.map((v,i) => i === 0 ? v-shift.x : i === 1 ? v-shift.y : v);
@@ -140,6 +155,14 @@ function draw(ids,relations,levels) {
  }
  drag(svg,groups,nodes,() => { paint(n => n); for (const n of nodes) placed.set(n.id,{x:n.x,y:n.y}); });
 }
+// The force layout can be turned off to arrange concepts by hand, for example for a screenshot. The choice is
+// remembered in this browser.
+const forceLayout = () => $('#graph-force').checked;
+try { $('#graph-force').checked = localStorage.getItem('graph-force') !== 'off'; } catch {}
+$('#graph-force').onchange = () => {
+ try { localStorage.setItem('graph-force',forceLayout() ? 'on' : 'off'); } catch {}
+ if (forceLayout()) render(); else simulation?.stop();
+};
 function setView(box) { view = box; $('#graph-map').setAttribute('viewBox',box.map(v => v.toFixed(1)).join(' ')); }
 // Zoom and pan: the wheel or a pinch zooms about the pointer, dragging the background pans, and the buttons zoom
 // about the centre or fit the neighbourhood again. Zooming in reads a dense neighbourhood at full size.
@@ -192,13 +215,14 @@ function drag(svg,groups,nodes,paint) {
   const move = e => {
    const p = point(e);
    if (!moved && Math.hypot(p.x-origin.x,p.y-origin.y) < 4) return;
-   if (!moved) { moved = true; cancelAnimationFrame(glide); simulation.on('tick',paint).alphaTarget(0.3).restart(); }
+   if (!moved) { moved = true; cancelAnimationFrame(glide); if (forceLayout()) simulation.on('tick',paint).alphaTarget(0.3).restart(); }
    n.fx = p.x; n.fy = p.y;
+   if (!forceLayout()) { n.x = p.x; n.y = p.y; paint(); }
   };
   const up = () => {
    g.removeEventListener('pointermove',move); g.removeEventListener('pointerup',up); g.removeEventListener('pointercancel',up);
    if (!moved) return;
-   dragged = true; simulation.alphaTarget(0);
+   dragged = true; if (forceLayout()) simulation.alphaTarget(0);
   };
   g.addEventListener('pointermove',move); g.addEventListener('pointerup',up); g.addEventListener('pointercancel',up);
  }));
