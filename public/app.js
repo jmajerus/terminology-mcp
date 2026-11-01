@@ -365,7 +365,7 @@ $('#scheme').onchange = () => {
   schemeId = $('#scheme').value;
   $('#export-scheme').href = `/api/schemes/${encodeURIComponent(schemeId)}/skos`;
   selectedId = state.terms.find(term => term.scheme === schemeId)?.id ?? '';
-  $('#search').value = ''; resetDirty(); renderTree(); renderDetail(); renderChanges();
+  $('#search').value = ''; resetDirty(); renderTree(); renderDetail(); renderChanges(); renderSubscribers();
 };
 document.addEventListener('click', event => {
   const operation = event.target.closest('[data-operation]');
@@ -374,7 +374,7 @@ document.addEventListener('click', event => {
   if (pick && allowLeave()) {
     selectedId = pick.dataset.pick; schemeId = current().scheme;
     $('#export-scheme').href = `/api/schemes/${encodeURIComponent(schemeId)}/skos`;
-    $('#scheme').value = schemeId; resetDirty(); renderTree(); renderDetail(); renderChanges();
+    $('#scheme').value = schemeId; resetDirty(); renderTree(); renderDetail(); renderChanges(); renderSubscribers();
   }
   const toggle = event.target.closest('[data-toggle]');
   if (toggle) {

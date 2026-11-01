@@ -48,8 +48,12 @@ test('a scheme’s maximum depth is a versioned setting enforced on every write'
   const sibling = store.addTerm({ scheme: 'cc-subjects', label: 'Climate', broader: [domain.id] });
   assert.throws(() => store.operate(category.id, { kind: 'move', broader: [sibling.id], expectedVersion: store.version }), /depth 3/);
   assert.throws(() => store.updateScheme('cc-subjects', { maxDepth: 2, expectedVersion: before }), /workspace changed/);
+  // Retired terms are read-only and keep their place, so they don't block a lower limit.
+  store.operate(sub.id, { kind: 'retire', replacements: [], expectedVersion: store.version });
+  assert.equal(store.updateScheme('cc-subjects', { maxDepth: 1, expectedVersion: store.version }).maxDepth, 1);
   assert.equal(store.updateScheme('cc-subjects', { maxDepth: null, expectedVersion: store.version }).maxDepth, undefined);
-  assert.ok(store.addTerm({ scheme: 'cc-subjects', label: 'Now allowed', broader: [sub.id] }));
+  const limnology = store.addTerm({ scheme: 'cc-subjects', label: 'Limnology', broader: [category.id] });
+  assert.ok(store.addTerm({ scheme: 'cc-subjects', label: 'Now allowed', broader: [limnology.id] }));
 });
 
 test('maximum depth round-trips through SKOS', async t => {

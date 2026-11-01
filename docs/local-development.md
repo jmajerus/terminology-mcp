@@ -41,8 +41,10 @@ does not advance the changelog. Revisions are full term snapshots rather
 than event replay; historical reads select the last revision at or before N.
 Schemes have revisions too. Only the maximum depth can change after creation:
 **Depth limit** in the outline (or `PATCH /api/schemes/:id`) logs a
-`scheme-changed` change, and every term must already fit the new limit. Once
-set, adding, moving or importing a term deeper than the limit is refused, and
+`scheme-changed` change, and every active or provisional term must already fit
+the new limit. Retired terms are exempt: they are read-only and keep the place
+they retired from. Once set, adding, moving or importing a term deeper than
+the limit is refused, and
 **+ Narrower term** is disabled at the limit. Top terms are depth 0, so
 `cc-subjects` uses 2 for domains, categories and subcategories.
 
