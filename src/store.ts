@@ -851,7 +851,7 @@ export class Store {
       } else {
         if (operation.kind === 'split') {
           replacements = operation.newTerms.map(term => ({ ...source, ...term,
-            id: `t_${randomUUID().replaceAll('-', '')}`, aliases: [], sourceUri: undefined, slug: '', formerSlugs: [],
+            id: `t_${randomUUID().replaceAll('-', '')}`, aliases: [], sourceUri: undefined, source: undefined, proposal: undefined, slug: '', formerSlugs: [],
             altLabels: [], links: [], notations: [], replacedBy: [], created: this.version + 1, changed: this.version + 1 }));
           if (new Set(operation.children.map(child => child.id)).size !== operation.children.length ||
               operation.children.length !== children.length || children.some(child => !operation.children.some(row => row.id === child.id)))

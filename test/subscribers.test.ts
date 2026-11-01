@@ -133,6 +133,10 @@ test('proposals create provisional terms with a slug, and refuse duplicates with
   assert.equal((await send('POST', '/api/proposals', { ...proposal, requestId: 'r-9', label: 'Karst', scheme: 'missing' })).status, 404);
   assert.equal(store.version, head + 2);
   assert.ok(store.lookup(domain.id));
+  // Split replacements don't inherit the proposal, so a retry can't return one of them.
+  store.operate(created.body.id, { kind: 'split', expectedVersion: store.version, children: [], newTerms: [{ label: 'Ice Sheets' }, { label: 'Sea Ice' }] });
+  assert.ok(store.terms('cc-subjects').filter(term => ['Ice Sheets', 'Sea Ice'].includes(term.label)).every(term => !term.proposal && !term.source));
+  assert.equal((await send('POST', '/api/proposals', proposal)).body.id, created.body.id);
 });
 
 test('subscribers report progress; pending counts follow their schemes and holds carry a code', async t => {
@@ -229,6 +233,11 @@ test('editor-created terms record the source they were copied from', async t => 
   assert.deepEqual((store.changes(store.version - 1)[0].after as { source: unknown }).source, source);
   const edited = store.editTerm(created.body.term.id, { label: 'Karst Waters', expectedChanged: store.lookup(created.body.term.id).changed });
   assert.deepEqual(edited.source, source);
+  // Split replacements don't link to the source, so they don't claim it either.
+  store.operate(edited.id, { kind: 'split', expectedVersion: store.version, children: [], newTerms: [{ label: 'Karst Springs' }, { label: 'Karst Lakes' }] });
+  const parts = store.terms('cc-subjects').filter(term => ['Karst Springs', 'Karst Lakes'].includes(term.label));
+  assert.deepEqual(parts.map(term => [term.label, term.source, term.proposal, term.links]).sort(),
+    [['Karst Lakes', undefined, undefined, []], ['Karst Springs', undefined, undefined, []]]);
   // Without a source an editor term is unchanged; a same-scheme source is refused.
   assert.equal(store.addTerm({ scheme: 'cc-subjects', label: 'Lakes', broader: [category.id] }).source, undefined);
   assert.equal((await send('POST', '/api/terms', { scheme: 'cc-subjects', label: 'Ponds', source: { ref: category.id } })).status, 422);
