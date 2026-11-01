@@ -76,7 +76,7 @@ export type TermSource = { id: string; scheme: string; uri: string; label: strin
 export type Proposal = { proposer: string; evidence?: Record<string, unknown>; requestId?: string; source?: TermSource };
 /** A term's public IRI: its source IRI, else an http(s) alias, else its URN. */
 export const termIri = (term: { id: string; sourceUri?: string; aliases: string[] }) =>
-  term.sourceUri ?? term.aliases.find(alias => /^https?:\/\//.test(alias)) ?? `urn:terminology-mcp:term:${term.id}`;
+  term.sourceUri ?? term.aliases.find(alias => /^https?:\/\//i.test(alias)) ?? `urn:terminology-mcp:term:${term.id}`;
 export type Term = Omit<CreateTerm, 'status' | 'slug' | 'source'> & {
   status: 'provisional' | 'active' | 'retired'; replacedBy: string[]; slug: string; formerSlugs: string[];
   id: string; created: number; changed: number; source?: TermSource; proposal?: Proposal;

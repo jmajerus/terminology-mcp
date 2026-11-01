@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { termIri } from '../src/model.js';
 import { Store } from '../src/store.js';
 import { createApp } from '../src/server.js';
 import { planSkos, exportSkos } from '../src/skos.js';
@@ -196,6 +197,11 @@ test('proposals copy a source from another scheme, and refuse a second close mat
   assert.equal((await propose({ label: 'Limestone', source: 'GB600', match: 'exactMatch', broader: 'sciences' })).status, 201);
   const exact = await propose({ label: 'Karst Landforms', source: 'GB600', match: 'exactMatch', broader: 'humanities' });
   assert.deepEqual([exact.status, exact.body.reason], [409, 'linked']);
+  // A retired claim still counts, and the refusal names it with its replacements.
+  const oceansTerm = store.terms('cc-subjects').find(term => term.label === 'Oceans')!;
+  store.operate(oceansTerm.id, { kind: 'retire', replacements: [], expectedVersion: store.version });
+  const stale = await propose({ label: 'Seas', source: 'GC1-1581' });
+  assert.deepEqual([stale.status, stale.body.reason, stale.body.existing.status], [409, 'linked', 'retired']);
 
   assert.equal((await propose({ label: 'Lakes', source: category.id })).status, 422);
   assert.equal((await propose({ label: 'Lakes', source: 'GB600', sourceScheme: 'cc-subjects' })).status, 422);
@@ -247,8 +253,15 @@ test('MCP propose_term and list_subscribers', async t => {
   const found = await client.callTool({ name: 'search_terms', arguments: { query: 'ocean', excludeScheme: 'cc-subjects' } });
   assert.deepEqual((found.structuredContent as { items: { id: string; iri: string }[] }).items.map(item => [item.id, item.iri]),
     [[oceans.id, oceans.sourceUri]]);
+  assert.equal((await client.callTool({ name: 'search_terms', arguments: { query: 'ocean', excludeScheme: 'missing' } })).isError, true);
   store.reportProgress('concept-clusters', { log: store.logId, through: 1 });
   const listed = await client.callTool({ name: 'list_subscribers', arguments: {} });
   const subscribers = (listed.structuredContent as { subscribers: { id: string; pending: number }[] }).subscribers;
   assert.deepEqual(subscribers.map(s => [s.id, s.pending]), [['concept-clusters', store.version - 1]]);
+});
+
+test('a term’s public IRI prefers its source IRI, then an http(s) alias in any case', () => {
+  assert.equal(termIri({ id: 't1', sourceUri: 'https://a.test/x', aliases: ['https://b.test/y'] }), 'https://a.test/x');
+  assert.equal(termIri({ id: 't1', aliases: ['cc:path', 'HTTPS://b.test/y'] }), 'HTTPS://b.test/y');
+  assert.equal(termIri({ id: 't1', aliases: ['cc:path'] }), 'urn:terminology-mcp:term:t1');
 });

@@ -158,7 +158,9 @@ person copies from another vocabulary in the editor gets one too.
 - **Already linked:** a sibling with a `closeMatch` or `exactMatch` to the
   same source refuses a new close or exact match, and an `exactMatch` is
   unique across the scheme. Both are a 409 with `reason: "linked"` and
-  `existing`. Broad, narrow and related matches to one source are allowed.
+  `existing`; a retired claim still counts, and `existing` shows its status
+  and `replacedBy`. Broad, narrow and related matches to one source are
+  allowed.
 - **Source:** no `source` is 422, with a hint to search first. A source that
   isn't found is 404; several matches are a 409 with `reason: "ambiguous"`
   and `candidates`; a source in the target scheme, or a retired one, is 422.

@@ -595,11 +595,15 @@ export class Store {
           status: existing.status, replacedBy: existing.replacedBy } });
       }
       // Close and exact matches claim the same concept, so they must be unique among siblings; exact matches scheme-wide.
+      // Retired terms still count, as for duplicate labels, so a retired claim points at its replacement.
       const claims = (other: Term, matches: string[]) => other.links.some(link => link.uri === source.uri && matches.includes(link.match));
-      const linked = source.match === 'closeMatch' || source.match === 'exactMatch' ? terms.find(other => other.scheme === term.scheme
-        && other.status !== 'retired' && ((other.broader.includes(parent.id) && claims(other, ['closeMatch', 'exactMatch']))
-          || (source.match === 'exactMatch' && claims(other, ['exactMatch'])))) : undefined;
-      if (linked) throw new DomainError(409, `“${linked.label}” already matches ${source.uri}. Use it, or link with a broader, narrower or related match.`,
+      const linked = source.match === 'closeMatch' || source.match === 'exactMatch' ? terms.filter(other => other.scheme === term.scheme
+        && ((other.broader.includes(parent.id) && claims(other, ['closeMatch', 'exactMatch']))
+          || (source.match === 'exactMatch' && claims(other, ['exactMatch']))))
+        .sort((a, b) => Number(a.status === 'retired') - Number(b.status === 'retired'))[0] : undefined;
+      if (linked) throw new DomainError(409, linked.status === 'retired'
+        ? `A retired term, “${linked.label}”, already matches ${source.uri}. Use its replacement, or link with a broader, narrower or related match.`
+        : `“${linked.label}” already matches ${source.uri}. Use it, or link with a broader, narrower or related match.`,
         { reason: 'linked', existing: { id: linked.id, slug: linked.slug, label: linked.label, status: linked.status, replacedBy: linked.replacedBy } });
       this.validateTerm(term);
       const alias = this.pathAlias(term);

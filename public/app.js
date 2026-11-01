@@ -322,7 +322,7 @@ function openCreate(mode, parent = null) {
   $('#create-dialog').showModal();
 }
 // The IRI another vocabulary uses for a term: its source IRI, else an IRI alias, else the stable URN its SKOS export uses.
-const termIri = term => term.sourceUri ?? term.aliases.find(alias => /^https?:\/\//.test(alias)) ?? `urn:terminology-mcp:term:${term.id}`;
+const termIri = term => term.sourceUri ?? term.aliases.find(alias => /^https?:\/\//i.test(alias)) ?? `urn:terminology-mcp:term:${term.id}`;
 function renderSourceResults() {
   const query = $('#source-search').value.trim().toLowerCase();
   const schemes = new Map(state.schemes.map(item => [item.id, item.label]));
