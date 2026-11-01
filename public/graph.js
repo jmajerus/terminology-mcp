@@ -4,6 +4,8 @@ import { exportGraph } from './graph-export.js';
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const types = ['broader','narrower','related','opposite'];
+// The most concepts drawn at once, nearest first; zooming makes a large neighbourhood readable.
+const MAX_NODES = 300;
 let graph = {concepts:[],relations:[],schemes:[],version:0}, selected = decodeURIComponent(location.hash.slice(1)), scheme = new URLSearchParams(location.search).get('scheme') ?? '', generation = 0, busy = false;
 let pendingHierarchy = null, connectionEpoch = 0, hierarchyApplying = false;
 const hierarchyDialog = $('#graph-hierarchy-dialog');
@@ -51,20 +53,22 @@ function render() {
   return `<section class="graph-relation-group"><h2>${escape(type)} <span class="help">${edges.length}</span></h2>${edges.map(e => `<div><button type="button" class="text-button" data-focus="${escape(e.to)}">${escape(node(e.to)?.label)}</button><button type="button" class="text-button" data-write data-remove="${escape(e.to)}" data-type="${type}" aria-label="Remove ${type} ${escape(node(e.to)?.label)}">×</button></div>`).join('') || '<p class="help">None</p>'}</section>`;
  }).join('');
  const allowed = new Set([...$('#graph-types').querySelectorAll(':checked')].map(c => c.value)), levels = new Map([[selected,0]]);
+ // "All" follows the relationships until nothing new is reached; the node cap below still applies.
+ const maxDepth = $('#graph-depth').value === 'all' ? Infinity : Number($('#graph-depth').value);
  let frontier = [selected];
- for (let depth = 1; depth <= Number($('#graph-depth').value); depth++) {
+ for (let depth = 1; depth <= maxDepth && frontier.length; depth++) {
   const next = [];
   for (const id of frontier) for (const e of graph.relations) if (e.from === id && allowed.has(e.type) && !levels.has(e.to)) { levels.set(e.to,depth); next.push(e.to); }
   frontier = next;
  }
- const all = [...levels.keys()], visible = all.slice(0,150), keep = new Set(visible);
+ const all = [...levels.keys()], visible = all.slice(0,MAX_NODES), keep = new Set(visible);
  const edges = new Map();
  for (const edge of graph.relations) if (allowed.has(edge.type) && keep.has(edge.from) && keep.has(edge.to)) {
   const e = edge.type === 'narrower' ? {from:edge.to,to:edge.from,type:'broader'} : edge;
   const pair = ['related','opposite'].includes(e.type) ? [e.from,e.to].sort() : [e.from,e.to];
   edges.set(`${e.type}:${pair.join(':')}`,e);
  }
- $('#graph-size').textContent = `${graph.concepts.length} concepts in scheme · ${visible.length} shown${all.length > visible.length ? ` of ${all.length} in this neighbourhood; reduce depth to see labels clearly` : ''}`;
+ $('#graph-size').textContent = `${graph.concepts.length} concepts in scheme · ${visible.length} shown${all.length > visible.length ? ` of ${all.length} in this neighbourhood, nearest first; reduce the depth to see the rest of a branch` : ''}`;
  draw(visible,[...edges.values()],levels);
 }
 // Force-directed layout: the focus stays at the centre, each depth is drawn toward its own ring, and links, repulsion

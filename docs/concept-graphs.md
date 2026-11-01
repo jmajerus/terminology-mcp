@@ -27,8 +27,14 @@ a connection opens that concept; **Explore graph** opens its neighbourhood.
 
 The **Concept graph** page (`/graph`) works with all scheme types. Search for a
 concept, select a node or connection, choose the traversal depth and relationship
-types, or use Enter/Space on a diagram node. The diagram shows at most 150 nodes
-and reports truncation; the API and JSON export retain the complete graph.
+types, or use Enter/Space on a diagram node.
+
+- **Depth** goes from 1 to 6, or **All**, which follows the relationships
+  until nothing new is reached. That suits sparse but deep graphs.
+- **Size:** the diagram shows at most 300 concepts, nearest first, and
+  reports how many it left out. A 300-concept layout takes about a third of a
+  second; zoom in to read it.
+- **Completeness:** the API and JSON export always carry the complete graph.
 Disconnected concepts remain in the search list. Arrows point toward broader
 concepts; related links are blue and opposite links are dashed amber.
 
