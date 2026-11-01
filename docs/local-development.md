@@ -122,10 +122,10 @@ conflicts 409, and missing resources 404, with `{ "error": "…" }` bodies.
 | GET | `/api/schemes/:id/slugs/:slug?parent=REF&depth=D&at=N` | Resolve a current or former slug; `parent` (ID, alias or slug) or `depth` narrows it |
 | POST | `/api/schemes` | Create `{id, label, hierarchy, description?, admissionTest?, slugUniqueDepths?, maxDepth?}` |
 | PATCH | `/api/schemes/:id` | Change settings `{maxDepth, expectedVersion}`; `maxDepth: null` removes the limit |
-| POST | `/api/proposals` | Propose a provisional term `{scheme, label, broader, proposer, scopeNote?, altLabels?, slug?, evidence?, requestId?}` |
+| POST | `/api/proposals` | Propose a provisional term `{scheme, broader, source, sourceScheme?, match?, label?, proposer, scopeNote?, altLabels?, slug?, evidence?, requestId?}`, copied from a term in another scheme |
 | POST | `/api/subscribers/:id/progress` | Report `{log, through, schemes?, label?, blocked?, reset?}` |
 | GET | `/api/subscribers`, `/api/subscribers/:id` | Each subscriber's progress, pending changes and hold |
-| POST | `/api/terms` | Create `{scheme, label, broader?, altLabels?, scopeNote?, status?, relations?, links?, aliases?, slug?}` |
+| POST | `/api/terms` | Create `{scheme, label, broader?, altLabels?, scopeNote?, status?, relations?, links?, aliases?, slug?, source?}`; `source: {ref, scheme?, match?}` names the term in another scheme it was copied from |
 | PATCH | `/api/terms/:id` | Save all editable fields and `expectedChanged`, with optional `reason` |
 | POST | `/api/terms/:id/operations/preview` | Preview move/merge/split/retire/slug, using `expectedVersion` |
 | POST | `/api/terms/:id/operations/apply` | Apply an explicit structural operation at its previewed version |
@@ -165,7 +165,9 @@ id.loc.gov IRI. Choose how they match: **Close match** by default,
 equivalents. Set **Status** to Active unless Concept Clusters should show
 it as provisional, and give a **Slug** if Concept Clusters' id differs from
 the one minted from the label. **Create** saves the term and its link as
-one change.
+one change, and records the entry it was copied from (its id, scheme, IRI,
+label and match) as the term's `source`, the same record an agent's
+proposal keeps.
 
 To link an existing term, copy the class's IRI from **Aliases** on the
 `loc-classification` term, then add it under **External references** with

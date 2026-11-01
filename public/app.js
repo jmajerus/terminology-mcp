@@ -322,7 +322,7 @@ function openCreate(mode, parent = null) {
   $('#create-dialog').showModal();
 }
 // The IRI another vocabulary uses for a term: its source IRI, else an IRI alias, else the stable URN its SKOS export uses.
-const termIri = term => term.sourceUri ?? term.aliases.find(alias => /^https?:\/\//.test(alias)) ?? `urn:terminology-mcp:term:${term.id}`;
+const termIri = term => term.sourceUri ?? term.aliases.find(alias => /^https?:\/\//i.test(alias)) ?? `urn:terminology-mcp:term:${term.id}`;
 function renderSourceResults() {
   const query = $('#source-search').value.trim().toLowerCase();
   const schemes = new Map(state.schemes.map(item => [item.id, item.label]));
@@ -348,7 +348,7 @@ $('#create-form').addEventListener('submit', async event => {
   if (createMode === 'term') {
     data.scheme = schemeId; data.broader = form.getAll('broader').filter(Boolean);
     if (!data.slug) delete data.slug;
-    if (createSource) data.links = [{ uri: termIri(createSource), match: $('#source-match').value }];
+    if (createSource) data.source = { ref: createSource.id, match: $('#source-match').value };
   }
   if (createMode === 'scheme') { if (data.maxDepth === '') delete data.maxDepth; else data.maxDepth = Number(data.maxDepth); }
   $('#submit-create').disabled = true;

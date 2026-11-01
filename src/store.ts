@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, uniqueNotations, DomainError,
-  conceptSetSchema, pathLabel as slug, slugify, slugSchema, proposeTermSchema, schemeSettingsSchema, progressSchema,
-  type ConceptSet, type Scheme, type Term, type TermView, type Change, type Subscriber } from './model.js';
+  conceptSetSchema, pathLabel as slug, slugify, slugSchema, proposeTermSchema, schemeSettingsSchema, progressSchema, termIri,
+  type ConceptSet, type Scheme, type Term, type TermView, type Change, type Subscriber, type TermSource } from './model.js';
 
 const setReferences = (set: Pick<ConceptSet, 'members' | 'recipe'>) => [...set.members,
   ...set.recipe?.concepts ?? [], ...set.recipe?.narrower ?? [], ...set.recipe?.exclude ?? [], ...set.recipe?.around.map(rule => rule.term) ?? []];
@@ -540,10 +540,13 @@ export class Store {
     return `${term.scheme}:${parentPath}${slug(term.label)}`;
   }
   addTerm(input: unknown): TermView {
-    const data = createTermSchema.parse(input);
+    const { source: ref, ...data } = createTermSchema.parse(input);
     return this.db.transaction(() => {
       const n = this.version + 1;
-      const term: Term = { ...data, slug: data.slug ?? '', formerSlugs: [], notations: uniqueNotations(data.notations), replacedBy: [], altLabels: [...new Set(data.altLabels)], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n };
+      const source = ref && this.termSource(data.scheme, ref.ref, ref.scheme, ref.match);
+      if (source && !data.links.some(link => link.uri === source.uri && link.match === source.match))
+        data.links = [...data.links, { uri: source.uri, match: source.match }];
+      const term: Term = { ...data, ...(source ? { source } : {}), slug: data.slug ?? '', formerSlugs: [], notations: uniqueNotations(data.notations), replacedBy: [], altLabels: [...new Set(data.altLabels)], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n };
       this.mintSlugs([...this.rawTerms(), term]);
       this.validateTerm(term);
       const alias = this.pathAlias(term);
@@ -568,11 +571,16 @@ export class Store {
       this.scheme(data.scheme);
       const parent = this.resolveRef(data.scheme, data.broader);
       if (parent.status === 'retired') throw new DomainError(422, 'Propose terms under an active or provisional term.');
+      if (!data.source) throw new DomainError(422, 'Pass source: search a reference vocabulary first (search_terms with scheme '
+        + 'loc-classification, or excludeScheme set to the target scheme). If nothing fits even broadly, leave the addition to a person in the editor.');
+      const source = this.termSource(data.scheme, data.source, data.sourceScheme, data.match);
+      const label = data.label ?? source.label;
+      if (label.length > 200) throw new DomainError(422, 'The source label is longer than 200 characters. Pass a shorter label.');
       const n = this.version + 1;
-      const term: Term = { scheme: data.scheme, label: data.label, altLabels: [...new Set(data.altLabels)], scopeNote: data.scopeNote,
-        broader: [parent.id], notations: [], relations: [], links: [], aliases: [], status: 'provisional', replacedBy: [],
-        slug: data.slug ?? slugify(data.label), formerSlugs: [], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n,
-        proposal: { proposer, ...(data.evidence ? { evidence: data.evidence } : {}), ...(data.requestId ? { requestId: data.requestId } : {}) } };
+      const term: Term = { scheme: data.scheme, label, altLabels: [...new Set(data.altLabels)], scopeNote: data.scopeNote,
+        broader: [parent.id], notations: [], relations: [], links: [{ uri: source.uri, match: source.match }], aliases: [], status: 'provisional', replacedBy: [], source,
+        slug: data.slug ?? slugify(label), formerSlugs: [], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n,
+        proposal: { proposer, ...(data.evidence ? { evidence: data.evidence } : {}), ...(data.requestId ? { requestId: data.requestId } : {}), source } };
       const scopes = this.slugScopes([...terms, term]), mine = new Set(scopes.get(term.id));
       const clashes = terms.filter(other => other.scheme === term.scheme && (
         (other.broader.includes(parent.id) && slug(other.label) === slug(term.label)) ||
@@ -586,6 +594,17 @@ export class Store {
         { reason: retired ? 'retired' : 'duplicate', existing: { id: existing.id, slug: existing.slug, label: existing.label,
           status: existing.status, replacedBy: existing.replacedBy } });
       }
+      // Close and exact matches claim the same concept, so they must be unique among siblings; exact matches scheme-wide.
+      // Retired terms still count, as for duplicate labels, so a retired claim points at its replacement.
+      const claims = (other: Term, matches: string[]) => other.links.some(link => link.uri === source.uri && matches.includes(link.match));
+      const linked = source.match === 'closeMatch' || source.match === 'exactMatch' ? terms.filter(other => other.scheme === term.scheme
+        && ((other.broader.includes(parent.id) && claims(other, ['closeMatch', 'exactMatch']))
+          || (source.match === 'exactMatch' && claims(other, ['exactMatch']))))
+        .sort((a, b) => Number(a.status === 'retired') - Number(b.status === 'retired'))[0] : undefined;
+      if (linked) throw new DomainError(409, linked.status === 'retired'
+        ? `A retired term, “${linked.label}”, already matches ${source.uri}. Use its replacement, or link with a broader, narrower or related match.`
+        : `“${linked.label}” already matches ${source.uri}. Use it, or link with a broader, narrower or related match.`,
+        { reason: 'linked', existing: { id: linked.id, slug: linked.slug, label: linked.label, status: linked.status, replacedBy: linked.replacedBy } });
       this.validateTerm(term);
       const alias = this.pathAlias(term);
       if (alias) term.aliases = [alias];
@@ -598,6 +617,33 @@ export class Store {
   private proposalResult(term: Term) {
     const view = this.lookup(term.id);
     return { id: view.id, slug: view.slug, status: view.status, change: term.created, version: this.version, term: view };
+  }
+  private termSource(target: string, ref: string, scheme: string | undefined, match: TermSource['match']): TermSource {
+    const origin = this.resolveSource(target, ref, scheme);
+    return { id: origin.id, scheme: origin.scheme, uri: termIri(origin), label: origin.label, match };
+  }
+  /**
+   * Resolves a term's source in another scheme by stable ID, alias, IRI, then notation; the first kind of
+   * reference that matches decides. Several matches are ambiguous.
+   */
+  private resolveSource(target: string, ref: string, scheme?: string): TermView {
+    if (scheme === target) throw new DomainError(422, 'The source must be in another scheme.');
+    if (scheme) this.scheme(scheme);
+    const terms = this.terms().filter(term => !scheme || term.scheme === scheme);
+    const tests: ((term: TermView) => boolean)[] = [term => term.id === ref, term => term.aliases.includes(ref),
+      term => term.sourceUri === ref || termIri(term) === ref, term => term.notations.some(notation => notation.value === ref)];
+    for (const test of tests) {
+      const found = terms.filter(test);
+      if (!found.length) continue;
+      const candidates = found.filter(term => term.scheme !== target);
+      if (!candidates.length) throw new DomainError(422, 'The source must be in another scheme.');
+      if (candidates.length > 1) throw new DomainError(409, 'The source matches several terms. Pass a stable ID or sourceScheme.', { reason: 'ambiguous',
+        candidates: candidates.map(term => ({ id: term.id, scheme: term.scheme, label: term.label, notations: term.notations.map(notation => notation.value), uri: termIri(term) })) });
+      const [source] = candidates;
+      if (source.status === 'retired') throw new DomainError(422, 'The source is retired. Use one of its replacements.', { replacedBy: source.replacedBy });
+      return source;
+    }
+    throw new DomainError(404, 'Source term not found.');
   }
   /** Resolves a term reference within a scheme: a stable ID, an alias, or a current or former slug. */
   private resolveRef(scheme: string, ref: string): TermView {
@@ -805,7 +851,7 @@ export class Store {
       } else {
         if (operation.kind === 'split') {
           replacements = operation.newTerms.map(term => ({ ...source, ...term,
-            id: `t_${randomUUID().replaceAll('-', '')}`, aliases: [], sourceUri: undefined, slug: '', formerSlugs: [],
+            id: `t_${randomUUID().replaceAll('-', '')}`, aliases: [], sourceUri: undefined, source: undefined, proposal: undefined, slug: '', formerSlugs: [],
             altLabels: [], links: [], notations: [], replacedBy: [], created: this.version + 1, changed: this.version + 1 }));
           if (new Set(operation.children.map(child => child.id)).size !== operation.children.length ||
               operation.children.length !== children.length || children.some(child => !operation.children.some(row => row.id === child.id)))
