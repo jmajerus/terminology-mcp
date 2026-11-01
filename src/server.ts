@@ -46,7 +46,7 @@ function json(res: ServerResponse, status: number, value: unknown) {
 }
 
 export function createApp(store: Store, options: { demo?: boolean; origins?: string[]; deploymentFile?: string;
-  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey } = {}) {
+  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey; editUrl?: string } = {}) {
   const origins = allowedOrigins(options.origins);
   const access = options.access ?? requestAccessConfig({}, ['terminology-mcp', 'terminology-mcp.localdomain']);
   return createServer(async (req, res) => {
@@ -62,18 +62,15 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       const caller = identity.via === 'access' ? identity.email ?? identity.subject : undefined;
       const visitor = identity.via === 'public';
       if (visitor) redacted.add(res);
-      if (url.pathname === '/sign-in' && req.method === 'GET') {
-        // Access guards this path; reaching it signed out means that application is missing.
-        if (visitor) throw new DomainError(401, 'Signing in is not set up: protect /sign-in with a Cloudflare Access application.');
-        res.writeHead(303, { Location: '/', 'Cache-Control': 'no-store' }); res.end(); return;
-      }
+      // Visitors edit nowhere here; the owner edits on the hostname named by editUrl.
+      const edit = visitor && options.editUrl ? { edit: options.editUrl } : {};
       if (url.pathname === '/api/viewer' && req.method === 'GET') {
-        json(res, 200, { canEdit: !visitor, via: identity.via, ...(caller ? { name: caller } : {}),
-          ...(visitor ? { signIn: '/sign-in' } : identity.via === 'access' ? { signOut: '/cdn-cgi/access/logout' } : {}) });
+        json(res, 200, { canEdit: !visitor, via: identity.via, ...(caller ? { name: caller } : {}), ...edit,
+          ...(identity.via === 'access' ? { signOut: '/cdn-cgi/access/logout' } : {}) });
         return;
       }
       if (visitor && (!['GET', 'HEAD'].includes(req.method ?? '') || url.pathname === '/mcp' || url.pathname.startsWith('/api/subscribers')))
-        throw new DomainError(401, 'This is a read-only view. Sign in to edit.', { signIn: '/sign-in' });
+        throw new DomainError(401, 'This is a read-only view.', edit);
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         if (req.headers.origin && req.headers.origin !== origin)
           throw new DomainError(403, 'Cross-origin writes are not allowed.');

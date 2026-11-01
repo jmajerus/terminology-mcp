@@ -1,4 +1,4 @@
-// Who is looking: visitors who aren't signed in get a read-only page and a sign-in link.
+// Who is looking: visitors get a read-only page, linking to the same page on the editing hostname when there is one.
 export const viewer = await fetch('/api/viewer').then(response => response.ok ? response.json() : { canEdit: false })
   .catch(() => ({ canEdit: false }));
 
@@ -8,7 +8,15 @@ if (bar && (!viewer.canEdit || viewer.signOut)) {
   const who = document.createElement('span');
   who.className = 'viewer';
   if (!viewer.canEdit) {
-    who.innerHTML = `<span class="badge">Read-only</span><a class="button small" href="${viewer.signIn ?? '/sign-in'}">Sign in to edit</a>`;
+    who.innerHTML = '<span class="badge">Read-only</span>';
+    if (viewer.edit) {
+      const link = document.createElement('a');
+      link.className = 'button small'; link.textContent = 'Sign in to edit';
+      // Opens the page being viewed, including the selected term, on the editing hostname.
+      const target = () => { link.href = viewer.edit + location.pathname + location.search + location.hash; };
+      target(); link.addEventListener('click', target);
+      who.append(link);
+    }
   } else {
     who.textContent = viewer.name ?? 'Signed in';
     who.insertAdjacentHTML('beforeend', `<a class="text-button" href="${viewer.signOut}">Sign out</a>`);

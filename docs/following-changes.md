@@ -11,8 +11,8 @@ shows how far each one has got. Usage reports, gates and leases are planned
 | From | Reads (`GET`) | Progress reports, proposals, MCP |
 | --- | --- | --- |
 | The LAN, naming the LAN host (`http://terminology-mcp.localdomain:8000`) | Open | Open; the caller names itself |
-| The public hostname, signed out (needs `TERMINOLOGY_PUBLIC_READ`) | Open | Refused with 401 |
-| The public hostname with an Access identity | Open | Allowed; the verified email or subject names the caller |
+| The visitors' hostname (`vocabulary.majerus.us`; needs `TERMINOLOGY_PUBLIC_READ`) | Open | Refused with 401 |
+| The owner's hostname (`terminology-mcp.majerus.us`), through Cloudflare Access | Allowed | Allowed; the verified email or subject names the caller |
 
 A consumer off the LAN can therefore follow the changelog without
 credentials when public read is on. To report progress or propose terms, it
@@ -146,8 +146,8 @@ report without `blocked` clears it.
   applied yet. The **pending** mark's tooltip names those subscribers.
 - The panel shows only subscribers that have reported.
 
-Signed-out visitors on the public hostname don't see the panel, because
-`/api/subscribers` needs sign-in there.
+Visitors on the read-only hostname don't see the panel, because
+`/api/subscribers` needs an Access identity.
 
 Refusals:
 - a `log` that isn't the store's is 409, with the current `log`;

@@ -40,20 +40,12 @@ export async function authorizeRequest(req: IncomingMessage, pathname: string, c
   const localHost = host === 'localhost' || privatePeer(host) || config.lanHosts.some(h => h.toLowerCase() === host);
   if (!proxied && localHost && privatePeer(req.socket.remoteAddress)) return { via: 'lan' as const };
   if (token === undefined) {
-    // Under a Bypass policy Access forwards no assertion, but a visitor who signed in carries its cookie.
-    const cookie = config.publicRead ? accessCookie(req.headers.cookie) : undefined;
-    if (cookie) try { return await verifyToken(cookie, config, keys); } catch { /* A stale cookie leaves the visitor anonymous. */ }
+    // Under a Bypass policy Access forwards no assertion: the visitor reads, and editing happens on the owner's hostname.
     if (config.publicRead) return { via: 'public' as const };
     throw new AccessError(401, 'Cloudflare Access authentication is required.');
   }
-  // A present but empty or repeated assertion is invalid, never a reason to fall back to the cookie.
+  // A present but empty or repeated assertion is invalid, never a reason to admit a visitor.
   return verifyToken(typeof token === 'string' ? token : '', config, keys);
-}
-function accessCookie(header = '') {
-  for (const part of header.split(';')) {
-    const [name, ...value] = part.trim().split('=');
-    if (name === 'CF_Authorization' && value.length) return value.join('=');
-  }
 }
 async function verifyToken(token: string, config: RequestAccessConfig, keys?: JWTVerifyGetKey) {
   // The audience (which Access application issued the token) is not checked: every application in the team

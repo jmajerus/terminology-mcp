@@ -135,51 +135,64 @@ than one public hostname reaches the server. Public routing and Managed OAuth ar
 
 ### Public read-only
 
-To let anyone browse the vocabulary while only you edit, give visitors a
-hostname of their own and leave the owner's hostname (with MCP and its
-Managed OAuth) as it is. The live setup:
+To let anyone browse the vocabulary, give visitors a hostname of their own.
+Leave the owner's hostname, with MCP and its Managed OAuth, as it is: that's
+where you edit, as with the sibling apps. The live setup:
 
-| Hostname | Tunnel route | Access |
-| --- | --- | --- |
-| `vocabulary.majerus.us` | `http://terminology-mcp.localdomain:8000` | **Bypass** for **Everyone**, plus an application on the path `sign-in` allowing only the owner |
-| `terminology-mcp.majerus.us` | the same | Owner only, as before; MCP clients use this one |
+| Hostname | Tunnel route | Access | Used for |
+| --- | --- | --- | --- |
+| `vocabulary.majerus.us` | `http://terminology-mcp.localdomain:8000` | **Bypass** for **Everyone** | Reading, by anyone |
+| `terminology-mcp.majerus.us` | the same | Owner only, as before | Editing and MCP |
 
 1. Add the visitors' hostname as a public hostname on the tunnel, routed to
    the same service. Don't redirect it to the owner's hostname: a redirect
    sends visitors to its login.
 2. In Cloudflare Zero Trust (Access → Applications), add an application for
-   the visitors' hostname with a **Bypass** policy for **Everyone**. Access
-   then forwards no assertion for visitors.
-3. Add an application for the same hostname with the path `sign-in`,
-   allowing only you. Opening **Sign in to edit** goes through its login,
-   sets the `CF_Authorization` cookie for that hostname, and returns to the
-   editor. A more specific path takes precedence over the Bypass.
-4. In the env file, set `TERMINOLOGY_PUBLIC_READ=1` and list both hostnames:
-   `TERMINOLOGY_PUBLIC_ORIGIN=https://vocabulary.majerus.us,https://terminology-mcp.majerus.us`.
-   Then restart.
+   the visitors' hostname with a **Bypass** policy for **Everyone**, and
+   check the policy is assigned to the application. Access then forwards no
+   assertion for visitors.
+3. In the env file, set:
 
-`TERMINOLOGY_PUBLIC_READ` applies on every hostname, but on the owner's
-hostname Access admits only you, so nobody arrives there signed out.
+   ```dotenv
+   TERMINOLOGY_PUBLIC_READ=1
+   TERMINOLOGY_PUBLIC_ORIGIN=https://vocabulary.majerus.us,https://terminology-mcp.majerus.us
+   TERMINOLOGY_EDIT_URL=https://terminology-mcp.majerus.us
+   ```
+
+   Then restart. A hostname missing from `TERMINOLOGY_PUBLIC_ORIGIN` is
+   refused with 403, "This host is not configured for the editor."
+4. Check with `curl -s https://vocabulary.majerus.us/api/viewer`, which
+   should answer
+   `{"canEdit":false,"via":"public","edit":"https://terminology-mcp.majerus.us"}`.
 
 With public read on:
 
-- **Visitors without a valid Access identity** get every page and `GET` API
-  read, including SKOS export and pinned historical reads.
+- **Visitors** are requests with no Access assertion. They get every page
+  and every `GET` read, including SKOS export and pinned historical reads.
 - **Email addresses** in JSON responses, such as proposers and change
-  authors, read "an editor" for them.
-- **Refused with 401:** writes (every non-`GET` request, including import
-  and operation previews, so a visitor can't make the server fetch a SPARQL
-  endpoint), `/mcp`, and `/api/subscribers`.
-- **Editor pages** grey out their editing controls in place (with a "Sign in to
-  edit" tooltip), make fields read-only, and show **Sign in to edit**.
-- **Signed-in requests:** a request with a valid assertion header, or a
-  valid `CF_Authorization` cookie, is signed in. `GET /api/viewer` reports
-  which.
-- **Bad tokens:** an expired or invalid cookie leaves the visitor anonymous;
-  an invalid assertion header is still refused.
+  authors, read "an editor" for visitors.
+- **Refused with 401 for visitors:**
+  - writes: every non-`GET` request, including import and operation
+    previews, so a visitor can't make the server fetch a SPARQL endpoint;
+  - `/mcp`;
+  - `/api/subscribers`.
+- **Editor pages** grey out their editing controls in place, with a tooltip,
+  and make fields read-only.
+  - With `TERMINOLOGY_EDIT_URL` set, the top bar's **Sign in to edit** opens
+    the same page, including the selected term, on the editing hostname,
+    where Cloudflare Access asks you to sign in.
+  - Without it, visitors see only a **Read-only** badge.
+- **No sign-in on the visitors' hostname:** it never accepts a sign-in.
+  Access forwards no assertion under the Bypass, and the server doesn't treat
+  the `CF_Authorization` cookie as one.
+- **Assertions:** a request that carries an assertion must have a valid one,
+  or it is refused with 403.
 - **Audiences:** the token's audience isn't checked, so every Access
   application in the team must still admit only you. An application that
   lets other people sign in would give them editing here too.
+- **Owner's hostname:** `TERMINOLOGY_PUBLIC_READ` applies on every hostname,
+  but on the owner's hostname Access admits only you, so nobody arrives
+  there as a visitor.
 - **LAN:** direct LAN access is unaffected.
 
 Without `TERMINOLOGY_PUBLIC_READ`, every public request still needs an Access

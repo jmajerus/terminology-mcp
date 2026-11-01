@@ -156,8 +156,9 @@ subscriber registration, usage, gates and proposals are next. See
 
 **Public read-only update (2026-11-01):** with `TERMINOLOGY_PUBLIC_READ=1` and
 an Access Bypass policy, visitors browse the vocabulary read-only (emails
-redacted; writes, `/mcp` and subscribers refused), and **Sign in to edit**
-goes through Access. Editing controls stay in place, greyed out. Live at
+redacted; writes, `/mcp` and subscribers refused) on a hostname of their own.
+Editing controls stay in place, greyed out, and **Sign in to edit** opens the
+same page on the owner's hostname, which stays behind Access with MCP. Live at
 [vocabulary.majerus.us](https://vocabulary.majerus.us); the repository is
 public. A sandboxed playground instance that anyone can edit,
 with caps and a nightly reset, is next.
