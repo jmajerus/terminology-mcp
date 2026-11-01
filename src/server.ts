@@ -55,7 +55,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       }
       if (req.method === 'GET' && url.pathname === '/health') {
         const count = (table: 'schemes' | 'terms') => (store.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
-        json(res, 200, { ok: true, version: store.version, schemes: count('schemes'), terms: count('terms'),
+        json(res, 200, { ok: true, log: store.logId, version: store.version, schemes: count('schemes'), terms: count('terms'),
           deployed: await deploymentRecord(options.deploymentFile) });
         return;
       }
@@ -100,8 +100,16 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 200, operation[2] === 'preview' ? store.preview(run) : run()); return;
         }
         if (req.method === 'GET' && url.pathname === '/api/state') {
-          json(res, 200, { version: at ?? store.version, head: store.version, demo: !!options.demo, schemes: store.schemes(at), terms: store.terms(undefined, at), sets: store.sets(undefined, at) });
+          const scheme = url.searchParams.get('scheme') ?? undefined, schemes = store.schemes(at).filter(item => !scheme || item.id === scheme);
+          if (scheme && !schemes.length) throw new DomainError(404, 'Scheme not found at this version.');
+          json(res, 200, { log: store.logId, version: at ?? store.version, head: store.version, demo: !!options.demo, schemes,
+            terms: store.terms(scheme, at), sets: store.sets(scheme, at) });
           return;
+        }
+        const slugMatch = url.pathname.match(/^\/api\/schemes\/([^/]+)\/slugs\/([^/]+)$/);
+        if (slugMatch && req.method === 'GET') {
+          json(res, 200, store.slugLookup(decodeURIComponent(slugMatch[1]), decodeURIComponent(slugMatch[2]),
+            { parent: url.searchParams.get('parent') ?? undefined, depth: numberParam(url, 'depth') }, at)); return;
         }
         if (req.method === 'GET' && url.pathname === '/api/graph') {
           json(res, 200, conceptGraph(store, { at, scheme: url.searchParams.get('scheme') ?? undefined,
@@ -114,8 +122,8 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 200, store.setRelation(input.from, input.to, input.type, req.method === 'POST', input.expectedVersion)); return;
         }
         if (req.method === 'GET' && url.pathname === '/api/changes') {
-          json(res, 200, { version: store.version,
-            changes: store.changes(numberParam(url, 'since') ?? 0, url.searchParams.get('term') ?? undefined) });
+          json(res, 200, { log: store.logId, version: store.version, changes: store.changes(numberParam(url, 'since') ?? 0,
+            url.searchParams.get('term') ?? undefined, url.searchParams.get('scheme') ?? undefined) });
           return;
         }
         if (req.method === 'POST' && url.pathname === '/api/schemes') {

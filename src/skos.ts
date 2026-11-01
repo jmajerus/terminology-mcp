@@ -81,8 +81,11 @@ export function planSkos(store: Store, data: string, request: ImportRequest) {
   const resolveRelated = (uri: string) => members.has(uri) || known.some(term => term.sourceUri === uri || term.aliases.includes(uri));
   const supported = new Set([RDF + 'type', SKOS + 'inScheme', SKOS + 'prefLabel', SKOS + 'altLabel', SKOS + 'scopeNote',
     SKOS + 'definition', SKOS + 'broader', SKOS + 'narrower', SKOS + 'related', SKOS + 'topConceptOf', SKOS + 'notation',
-    ...matches.map(match => SKOS + match), DCT + 'isReplacedBy', EX + 'status', EX + 'alias', EX + 'opposite']);
-  const schemeSupported = new Set([RDF + 'type', SKOS + 'prefLabel', SKOS + 'hasTopConcept', SKOS + 'notation', DCT + 'description', EX + 'hierarchy', EX + 'admissionTest']);
+    ...matches.map(match => SKOS + match), DCT + 'isReplacedBy', EX + 'status', EX + 'alias', EX + 'opposite', EX + 'slug', EX + 'formerSlug']);
+  const schemeSupported = new Set([RDF + 'type', SKOS + 'prefLabel', SKOS + 'hasTopConcept', SKOS + 'notation', DCT + 'description', EX + 'hierarchy', EX + 'admissionTest', EX + 'slugUniqueDepth']);
+  const plainLiterals = (subject: RdfTerm, predicate: string, field: string) => objects(subject, predicate).map(value => {
+    if (value.termType !== 'Literal') throw new DomainError(422, `${field} must be literals.`); return value.value;
+  });
   for (const q of rdf.getQuads(null, null, null, null)) {
     if (q.subject.equals(scheme) ? !schemeSupported.has(q.predicate.value) : members.has(q.subject.value) && !supported.has(q.predicate.value))
       warnings.add(`Unsupported predicate omitted: ${q.predicate.value}`);
@@ -115,15 +118,16 @@ export function planSkos(store: Store, data: string, request: ImportRequest) {
     });
     const statuses = objects(subject, EX + 'status');
     if (statuses.length > 1) throw new DomainError(422, `Multiple statuses for ${subject.value}.`);
+    const slugs = plainLiterals(subject, EX + 'slug', 'Slugs');
+    if (slugs.length > 1) throw new DomainError(422, `Multiple slugs for ${subject.value}.`);
     const scope = preferred(subject, SKOS + 'scopeNote') ?? preferred(subject, SKOS + 'definition');
     if (objects(subject, SKOS + 'scopeNote').length && objects(subject, SKOS + 'definition').length)
       warnings.add('skos:definition is omitted when a scope note is present.');
     return { key: subject.value, label: label.value, language: label.language || undefined,
       altLabels: [...new Set(altLabels)], notations: notations(subject), scopeNote: scope?.value ?? '',
       status: (statuses[0]?.value ?? 'active') as 'active', broader, relations,
-      aliases: objects(subject, EX + 'alias').map(v => {
-        if (v.termType !== 'Literal') throw new DomainError(422, 'Aliases must be literals.'); return v.value;
-      }),
+      aliases: plainLiterals(subject, EX + 'alias', 'Aliases'),
+      ...(slugs.length ? { slug: slugs[0] } : {}), formerSlugs: plainLiterals(subject, EX + 'formerSlug', 'Former slugs'),
       replacedBy: named(objects(subject, DCT + 'isReplacedBy'), 'Replacement'),
       links: matches.flatMap(match => {
         const inverse = match === 'broadMatch' ? 'narrowMatch' : match === 'narrowMatch' ? 'broadMatch' : match;
@@ -135,7 +139,10 @@ export function planSkos(store: Store, data: string, request: ImportRequest) {
   const plan = importPlanSchema.parse({ scheme: { id: request.schemeId,
     label: request.label || schemeLabel!.value, language: schemeLabel?.language || undefined,
     description: preferred(scheme, DCT + 'description')?.value ?? '', hierarchy: 'graph',
-    admissionTest: preferred(scheme, EX + 'admissionTest')?.value ?? '', notations: notations(scheme), sourceUri: scheme.value }, terms,
+    admissionTest: preferred(scheme, EX + 'admissionTest')?.value ?? '', notations: notations(scheme), sourceUri: scheme.value,
+    slugUniqueDepths: plainLiterals(scheme, EX + 'slugUniqueDepth', 'Slug depths').map(value => {
+      if (!/^\d{1,3}$/.test(value)) throw new DomainError(422, 'Slug depths must be non-negative integers.'); return Number(value);
+    }) }, terms,
     sets: readCollections(rdf, scheme, new Set(members.keys()), request.language, warnings) });
   const declarations = objects(scheme, EX + 'hierarchy');
   const declared = declarations.length === 1 && declarations[0].termType === 'Literal' ? declarations[0].value
@@ -164,6 +171,7 @@ export async function exportSkos(store: Store, schemeId: string, at?: number): P
   if (scheme.description) add(subject, DCT + 'description', lit(scheme.description, scheme.language));
   if (scheme.admissionTest) add(subject, EX + 'admissionTest', lit(scheme.admissionTest));
   add(subject, EX + 'hierarchy', lit(scheme.hierarchy));
+  scheme.slugUniqueDepths.forEach(depth => add(subject, EX + 'slugUniqueDepth', lit(String(depth), nn('http://www.w3.org/2001/XMLSchema#integer'))));
   addNotations(subject, scheme.notations);
   for (const term of terms) {
     const s = termIri(term.id);
@@ -184,6 +192,8 @@ export async function exportSkos(store: Store, schemeId: string, at?: number): P
         add(s, SKOS + 'related', termIri(other.id));
     term.links.forEach(link => add(s, SKOS + link.match, nn(link.uri)));
     term.aliases.forEach(alias => add(s, EX + 'alias', lit(alias)));
+    add(s, EX + 'slug', lit(term.slug));
+    term.formerSlugs.forEach(value => add(s, EX + 'formerSlug', lit(value)));
     add(s, EX + 'status', lit(term.status));
     term.replacedBy.forEach(id => add(s, DCT + 'isReplacedBy', termIri(id)));
   }
