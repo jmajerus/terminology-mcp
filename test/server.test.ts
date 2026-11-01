@@ -61,7 +61,7 @@ test('HTTP API supports empty setup, edits, historical reads, validation, and lo
 
 test('configured LAN hosts allow same-origin edits and reject unknown hosts, origins and absolute URLs', async t => {
   const store = new Store(':memory:');
-  const server = createApp(store, { origins: ['http://terminology-mcp:3210'] });
+  const server = createApp(store, { origins: ['http://terminology-mcp:8000'] });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); store.close(); });
   const port = (server.address() as AddressInfo).port;
@@ -72,9 +72,9 @@ test('configured LAN hosts allow same-origin edits and reject unknown hosts, ori
     } }, response => { response.resume(); resolve(response.statusCode); });
     req.on('error', reject); req.end(body);
   });
-  assert.equal(await send('unknown.example:3210', 'http://unknown.example:3210'), 403);
-  assert.equal(await send('terminology-mcp:3210', 'http://other.example'), 403);
-  assert.equal(await send('terminology-mcp:3210', 'http://terminology-mcp:3210', 'http://evil.example/api/schemes'), 403);
-  assert.equal(await send('terminology-mcp:3210', 'http://terminology-mcp:3210'), 201);
+  assert.equal(await send('unknown.example:8000', 'http://unknown.example:8000'), 403);
+  assert.equal(await send('terminology-mcp:8000', 'http://other.example'), 403);
+  assert.equal(await send('terminology-mcp:8000', 'http://terminology-mcp:8000', 'http://evil.example/api/schemes'), 403);
+  assert.equal(await send('terminology-mcp:8000', 'http://terminology-mcp:8000'), 201);
   assert.equal(store.schemes().length, 1);
 });

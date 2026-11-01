@@ -8,7 +8,7 @@ const health = { ok: true, version: 3, schemes: 1, terms: 2,
 test('probe shows the deployed PR, current state, lag, and link to the editor', () => {
   const current = formatStatus(health, { prState: 'OPEN', head: commit });
   assert.equal(current.level, 'ok'); assert.match(current.text, /#4/);
-  assert.equal(current.open, 'http://terminology-mcp.localdomain:3210');
+  assert.equal(current.open, 'http://terminology-mcp.localdomain:8000');
   const behind = formatStatus(health, { prState: 'OPEN', head, comparison: { status: 'ahead', ahead_by: 3 } });
   assert.equal(behind.level, 'warn'); assert.match(behind.text, /↓3/);
   assert.equal(formatStatus(health, { prState: 'OPEN', head, comparison: null }).level, 'warn');
@@ -25,8 +25,8 @@ test('merged/closed PRs, missing metadata, and unavailable heads are warnings', 
   assert.equal(formatStatus(main, { head: commit }).level, 'ok');
 });
 test('probe escapes markdown metadata and derives the LAN URL without exposing SSH credentials', () => {
-  assert.equal(statusUrl({ LAN_DEPLOY_SERVER: 'ssh://authoring@host.localdomain:2222' }, {}), 'http://host.localdomain:3210');
-  assert.equal(statusUrl({}, { TERMINOLOGY_STATUS_URL: 'http://custom:3210/' }), 'http://custom:3210');
+  assert.equal(statusUrl({ LAN_DEPLOY_SERVER: 'ssh://authoring@host.localdomain:2222' }, {}), 'http://host.localdomain:8000');
+  assert.equal(statusUrl({}, { TERMINOLOGY_STATUS_URL: 'http://custom:8000/' }), 'http://custom:8000');
   assert.throws(() => statusUrl({}, { TERMINOLOGY_STATUS_URL: 'http://user:secret@host/' }));
   const status = formatStatus({ ...health, deployed: { ...health.deployed, branch: 'feature/[unsafe](link)' } }, { prState: 'OPEN', head: commit });
   assert.match(status.tooltip, /\\\[unsafe\\\]/);

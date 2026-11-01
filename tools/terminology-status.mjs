@@ -25,10 +25,10 @@ export function statusUrl(values = {}, environment = process.env) {
   }
   const address = environment.LAN_DEPLOY_SERVER || values.LAN_DEPLOY_SERVER || 'terminology-mcp.localdomain';
   const url = new URL(address.includes('://') ? address : 'ssh://' + address);
-  return `http://${url.hostname}:3210`;
+  return `http://${url.hostname}:8000`;
 }
 
-export function formatStatus(health, remote = {}, base = 'http://terminology-mcp.localdomain:3210') {
+export function formatStatus(health, remote = {}, base = 'http://terminology-mcp.localdomain:8000') {
   const rows = [['Server', base], ['Version', health.version], ['Schemes', health.schemes], ['Terms', health.terms]];
   const deployed = health.deployed;
   if (!deployed || !/^[a-f0-9]{40}$/.test(deployed.commit) || typeof deployed.branch !== 'string' ||
@@ -58,7 +58,7 @@ export function formatStatus(health, remote = {}, base = 'http://terminology-mcp
 }
 
 export async function probe() {
-  let base = 'http://terminology-mcp.localdomain:3210';
+  let base = 'http://terminology-mcp.localdomain:8000';
   try {
     const values = existsSync(join(root, '.env')) ? parseEnv(readFileSync(join(root, '.env'), 'utf8')) : {};
     base = statusUrl(values);

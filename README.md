@@ -12,7 +12,7 @@ It borrows its model from FHIR terminology servers: code systems become
 **maps**, and the operations (`lookup`, `expand`, `validate`, `subsumes`,
 `translate`) keep their meaning. SKOS is the export format.
 
-**Status: local taxonomy editor and SKOS interchange implemented.** SQLite
+**Status: taxonomy editor, SKOS interchange and read-only MCP implemented.** SQLite
 stores the vocabulary; consumer integrations are still planned. What exists:
 
 | | |
@@ -26,6 +26,7 @@ stores the vocabulary; consumer integrations are still planned. What exists:
 | [docs/skos.md](docs/skos.md) | File/SPARQL scheme import, SKOS field mappings, export, and local Oxigraph integration test |
 | [docs/concept-sets.md](docs/concept-sets.md) | Explicit, ordered, nested and recipe sets; versioned expansion and SKOS collection interchange |
 | [docs/concept-graphs.md](docs/concept-graphs.md) | Create and import concept networks; graph explorer, typed edges, quote-mcp compatibility and graph APIs |
+| [docs/mcp.md](docs/mcp.md) | Connect agents to the LAN MCP endpoint; term search/lookup, graphs, collections, validation, subsumption, SKOS and changelog tools |
 
 ## Run locally
 
@@ -36,9 +37,13 @@ npm install
 npm run demo
 ```
 
-Open **http://127.0.0.1:3210**. The demo creates a separate, persistent
+Open **http://127.0.0.1:8000**. The demo creates a separate, persistent
 `data/demo.sqlite` with sample tree and polyhierarchical schemes. These are
 demonstration terms, not an import from your other projects.
+
+MCP clients can connect to **http://127.0.0.1:8000/mcp** using Streamable
+HTTP. The same endpoint is available on the configured LAN hostname;
+see [MCP access](docs/mcp.md) for client setup and the twelve read-only tools.
 
 For an empty workspace for your own vocabulary, stop the demo and run:
 

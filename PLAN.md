@@ -116,6 +116,13 @@ Concept sets and their expansion remain the next editor milestone. See
 
 ## What we borrow from FHIR
 
+**MCP read update (2026-10-30):** the editor serves stateless Streamable HTTP
+at `/mcp`, sharing the existing store and host/origin protections. Twelve
+read-only tools expose schemes, search/lookup, typed graphs, collections and
+membership, validation, subsumption, versioned changelog reads and SKOS export.
+Agents can pin every read to a changelog version. Proposals, consumer usage,
+subscriber cursors, roll-up and translation remain planned. See [MCP access](docs/mcp.md).
+
 **Import and membership update (2026-10-30):** imports default to Auto, honour
 compatible source declarations, explain recommendations, and expose a structural
 compatibility matrix with validated overrides. Term editing can assign multiple
