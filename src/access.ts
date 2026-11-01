@@ -39,14 +39,15 @@ export async function authorizeRequest(req: IncomingMessage, pathname: string, c
   const proxied = ['cf-ray', 'cf-connecting-ip', 'cdn-loop', 'cf-visitor', 'cf-access-jwt-assertion'].some(h => h in req.headers);
   const localHost = host === 'localhost' || privatePeer(host) || config.lanHosts.some(h => h.toLowerCase() === host);
   if (!proxied && localHost && privatePeer(req.socket.remoteAddress)) return { via: 'lan' as const };
-  if (typeof token !== 'string' || !token) {
+  if (token === undefined) {
     // Under a Bypass policy Access forwards no assertion, but a visitor who signed in carries its cookie.
     const cookie = config.publicRead ? accessCookie(req.headers.cookie) : undefined;
     if (cookie) try { return await verifyToken(cookie, config, keys); } catch { /* A stale cookie leaves the visitor anonymous. */ }
     if (config.publicRead) return { via: 'public' as const };
     throw new AccessError(401, 'Cloudflare Access authentication is required.');
   }
-  return verifyToken(token, config, keys);
+  // A present but empty or repeated assertion is invalid, never a reason to fall back to the cookie.
+  return verifyToken(typeof token === 'string' ? token : '', config, keys);
 }
 function accessCookie(header = '') {
   for (const part of header.split(';')) {

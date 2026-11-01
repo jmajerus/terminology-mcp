@@ -41,10 +41,12 @@ test('Access rejects expired, premature, wrong-issuer, forged and incomplete JWT
 test('only direct private peers naming a LAN host can bypass Access; proxy headers and public hosts cannot', async () => {
   for (const [host, peer] of [['localhost', '127.0.0.1'], ['terminology-mcp.localdomain:8000', '192.168.1.20'], ['[::1]:8000', '::1']])
     assert.equal((await authorizeRequest(request({ host }, peer), '/mcp', config, keys)).via, 'lan');
-  const proxyHeaders: Record<string, string>[] = [{}, { host: 'localhost', 'cf-ray': 'edge' }, { host: 'localhost', 'cf-access-jwt-assertion': '' },
+  const proxyHeaders: Record<string, string>[] = [{}, { host: 'localhost', 'cf-ray': 'edge' },
     {host:'localhost','cf-connecting-ip':'192.168.1.2'}, {host:'localhost','cdn-loop':'cloudflare'}];
   for (const headers of proxyHeaders)
     await assert.rejects(authorizeRequest(request(headers), '/mcp', config, keys), { status: 401 });
+  // An empty assertion still marks a proxied request, and is refused as invalid.
+  await assert.rejects(authorizeRequest(request({ host: 'localhost', 'cf-access-jwt-assertion': '' }), '/mcp', config, keys), { status: 403 });
   await assert.rejects(authorizeRequest(request({host:'localhost'}, '203.0.113.1'), '/mcp', config, keys), {status:401});
   await assert.rejects(authorizeRequest(request({host:'evil.example@localhost'}), '/mcp', config, keys), {status:400});
   await assert.rejects(authorizeRequest(request({'cf-access-jwt-assertion':await token()}), '/mcp', {...config,teamDomain:undefined}, keys), {status:503});
@@ -98,6 +100,9 @@ test('public read admits anonymous visitors, and recognises a signed-in cookie',
   // A stale cookie leaves the visitor anonymous; a bad assertion header is still refused.
   assert.equal((await authorizeRequest(request({ cookie: `CF_Authorization=${await token('a', { exp: 1 })}` }), '/', open, keys)).via, 'public');
   await assert.rejects(authorizeRequest(request({ 'cf-access-jwt-assertion': 'invalid' }), '/', open, keys), { status: 403 });
+  // An empty assertion is invalid too: it neither falls back to the cookie nor admits a visitor.
+  for (const headers of [{ 'cf-access-jwt-assertion': '' }, { 'cf-access-jwt-assertion': '', cookie: `CF_Authorization=${await token()}` }])
+    await assert.rejects(authorizeRequest(request(headers), '/', open, keys), { status: 403 });
   // Without public read the cookie isn't consulted.
   await assert.rejects(authorizeRequest(request({ cookie: `CF_Authorization=${await token()}` }), '/', config, keys), { status: 401 });
 });
