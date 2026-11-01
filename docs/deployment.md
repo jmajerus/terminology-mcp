@@ -126,77 +126,79 @@ The service listens on `0.0.0.0:8000`. `/etc/terminology-mcp/env`
 contains the allowed browser origins for the full hostname, short hostname,
 and SSH connection's LAN IP. The application rejects other Host headers and
 cross-origin writes. The printed editor URL can be opened directly from the LAN.
-Direct LAN access remains available. Public/proxied requests require the
-Cloudflare Access JWT described in [MCP access](mcp.md).
-Set `ACCESS_TEAM_DOMAIN` and
-`TERMINOLOGY_PUBLIC_ORIGIN` in the server's env file before exposing its public
-hostname. `TERMINOLOGY_PUBLIC_ORIGIN` takes a comma-separated list when more
-than one public hostname reaches the server. Public routing and Managed OAuth are configured in Cloudflare.
+Direct LAN access remains available.
+
+Cloudflare decides who reaches the server through its public hostnames, and
+the server decides what each one may do:
+
+- **Routing** (tunnel routes, DNS) and **sign-in** (Access applications,
+  Managed OAuth) are configured in Cloudflare only.
+- **Hostnames:** a request through Cloudflare is served under the hostname
+  it arrived on, as HTTPS. Adding a public hostname needs no change here.
+- **Access settings:** the server needs only `ACCESS_TEAM_DOMAIN` (your Zero
+  Trust login domain, `https://<name>.cloudflareaccess.com`), to check that a
+  sign-in came from your Access account. See [MCP access](mcp.md).
+- **Requests with an Access assertion** are signed in; writes, `/mcp` and
+  subscriber routes need one.
+- **Requests through Cloudflare with no assertion** got in because an
+  Access Bypass policy let them. They are read-only visitors.
 
 ### Public read-only
 
 To let anyone browse the vocabulary, give visitors a hostname of their own.
 Leave the owner's hostname, with MCP and its Managed OAuth, as it is: that's
-where you edit, as with the sibling apps. The live setup:
+where you edit, as with the sibling apps. Everything is set up in Cloudflare:
 
 | Hostname | Tunnel route | Access | Used for |
 | --- | --- | --- | --- |
 | `vocabulary.majerus.us` | `http://terminology-mcp.localdomain:8000` | **Bypass** for **Everyone** | Reading, by anyone |
-| `terminology-mcp.majerus.us` | the same | Owner only, as before | Editing and MCP |
+| `terminology-mcp.majerus.us` | the same | Owner only | Editing and MCP |
 
 1. Add the visitors' hostname as a public hostname on the tunnel, routed to
    the same service. Don't redirect it to the owner's hostname: a redirect
    sends visitors to its login.
 2. In Cloudflare Zero Trust (Access → Applications), add an application for
    the visitors' hostname with a **Bypass** policy for **Everyone**, and
-   check the policy is assigned to the application. Access then forwards no
-   assertion for visitors.
-3. In the env file, set:
+   check the policy is assigned to the application.
+3. Check with `curl -s https://vocabulary.majerus.us/api/viewer`, which
+   should answer `{"canEdit":false,"via":"public"}`.
 
-   ```dotenv
-   TERMINOLOGY_PUBLIC_READ=1
-   TERMINOLOGY_PUBLIC_ORIGIN=https://vocabulary.majerus.us,https://terminology-mcp.majerus.us
-   TERMINOLOGY_EDIT_URL=https://terminology-mcp.majerus.us
-   ```
+Optionally, set `TERMINOLOGY_EDIT_URL=https://terminology-mcp.majerus.us` in
+the env file. Visitors' top bar then shows **Sign in to edit**, which opens
+the same page, including the selected term, on the editing hostname.
+Without it they see only a **Read-only** badge.
 
-   Then restart. A hostname missing from `TERMINOLOGY_PUBLIC_ORIGIN` is
-   refused with 403, "This host is not configured for the editor."
-4. Check with `curl -s https://vocabulary.majerus.us/api/viewer`, which
-   should answer
-   `{"canEdit":false,"via":"public","edit":"https://terminology-mcp.majerus.us"}`.
+What visitors get:
 
-With public read on:
-
-- **Visitors** are requests with no Access assertion. They get every page
-  and every `GET` read, including SKOS export and pinned historical reads.
+- **Reads:** every page and every `GET` read, including SKOS export and
+  pinned historical reads.
 - **Email addresses** in JSON responses, such as proposers and change
-  authors, read "an editor" for visitors.
-- **Refused with 401 for visitors:**
+  authors, read "an editor".
+- **Refused with 401:**
   - writes: every non-`GET` request, including import and operation
     previews, so a visitor can't make the server fetch a SPARQL endpoint;
   - `/mcp`;
   - `/api/subscribers`.
 - **Editor pages** grey out their editing controls in place, with a tooltip,
   and make fields read-only.
-  - With `TERMINOLOGY_EDIT_URL` set, the top bar's **Sign in to edit** opens
-    the same page, including the selected term, on the editing hostname,
-    where Cloudflare Access asks you to sign in.
-  - Without it, visitors see only a **Read-only** badge.
-- **No sign-in on the visitors' hostname:** it never accepts a sign-in.
-  Access forwards no assertion under the Bypass, and the server doesn't treat
-  the `CF_Authorization` cookie as one.
+
+What protects editing:
+
+- **No sign-in on the visitors' hostname.** Access forwards no assertion
+  under the Bypass, and the server doesn't treat the `CF_Authorization`
+  cookie as one.
 - **Assertions:** a request that carries an assertion must have a valid one,
   or it is refused with 403.
+- **Cross-site writes** are refused: a write's `Origin` must match the
+  hostname it arrived on.
 - **Audiences:** the token's audience isn't checked, so every Access
-  application in the team must still admit only you. An application that
-  lets other people sign in would give them editing here too.
-- **Owner's hostname:** `TERMINOLOGY_PUBLIC_READ` applies on every hostname,
-  but on the owner's hostname Access admits only you, so nobody arrives
-  there as a visitor.
-- **LAN:** direct LAN access is unaffected.
-
-Without `TERMINOLOGY_PUBLIC_READ`, every public request still needs an Access
-assertion.
+  application in your account must admit only you. An application that let
+  other people sign in would give them editing here too.
+- **If an Access application were deleted** or misconfigured, its hostname
+  would become readable by anyone, as `vocabulary.majerus.us` already is.
+  It would not become writable.
+- **LAN:** direct LAN requests need a configured hostname, as before, so a
+  page elsewhere can't use DNS rebinding to reach the server.
 
 All three sibling services use `/etc/<service>/env`: `/etc/quote-mcp/env`,
 `/etc/corpus-mcp/env`, and `/etc/terminology-mcp/env`. Development checkouts

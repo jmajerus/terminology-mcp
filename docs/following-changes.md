@@ -11,11 +11,11 @@ shows how far each one has got. Usage reports, gates and leases are planned
 | From | Reads (`GET`) | Progress reports, proposals, MCP |
 | --- | --- | --- |
 | The LAN, naming the LAN host (`http://terminology-mcp.localdomain:8000`) | Open | Open; the caller names itself |
-| The visitors' hostname (`vocabulary.majerus.us`; needs `TERMINOLOGY_PUBLIC_READ`) | Open | Refused with 401 |
+| The visitors' hostname (`vocabulary.majerus.us`) | Open | Refused with 401 |
 | The owner's hostname (`terminology-mcp.majerus.us`), through Cloudflare Access | Allowed | Allowed; the verified email or subject names the caller |
 
 A consumer off the LAN can therefore follow the changelog without
-credentials when public read is on. To report progress or propose terms, it
+credentials, through the visitors' hostname. To report progress or propose terms, it
 needs an Access identity that names a user. Cloudflare Access service tokens
 aren't accepted yet: their assertions carry no subject, which the server
 requires. Until that changes, report from the LAN. Signed-out reads see email addresses, such as change authors and

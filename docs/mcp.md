@@ -24,9 +24,8 @@ The three sibling servers use the same runtime settings in `/etc/<service>/env`:
 ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com
 ```
 
-Terminology also needs `TERMINOLOGY_PUBLIC_ORIGIN=https://terminology-mcp.example.com`
-for its public hostname (a comma-separated list for more than one). This persists across deployments separately from the
-deploy-managed LAN origins.
+Public hostnames need no setting: a request through Cloudflare is served under
+the hostname it arrived on.
 
 Cloudflare Managed OAuth authenticates MCP clients at the edge and forwards a
 signed JWT in `Cf-Access-Jwt-Assertion`. The origin verifies its signature with
@@ -37,12 +36,11 @@ team admits only the owner, so recreating or merging applications needs no
 change here. An invalid assertion never falls back to LAN access. Public hostnames
 or requests carrying Cloudflare headers cannot take the LAN bypass.
 
-Without public read, the editor routes `/`, `/sets`, `/graph`, scripts/styles
-and `/api` must be included in the admin Access application's protection as
-well as the `/admin` alias. With [public read](deployment.md#public-read-only)
-on, those routes sit behind a Bypass policy and only writes need an
-identity. `/mcp` needs one in both cases, because the server refuses signed-out
-MCP requests even when public read is on. OAuth discovery must remain reachable by MCP clients. The
+A request through Cloudflare without an assertion is a read-only visitor,
+so the owner's Access application must cover the whole hostname, `/mcp`
+included, unless a [read-only hostname](deployment.md#public-read-only) is
+intended. `/mcp`, writes and subscriber routes are refused for visitors
+either way. OAuth discovery must remain reachable by MCP clients. The
 origin returns JSON errors rather than generating its own login page; use
 Cloudflare Managed OAuth for client sign-in. Configuration alone does not test
 the user's OAuth consent/callback flow.

@@ -13,7 +13,7 @@ import { graphSchemes, planGraph } from './graph-import.js';
 import { conceptGraph, graphEdges, graphTypes } from './graph.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpServer } from './mcp.js';
-import { AccessError, authorizeRequest, requestAccessConfig, type RequestAccessConfig } from './access.js';
+import { AccessError, authorizeRequest, proxiedRequest, requestAccessConfig, type RequestAccessConfig } from './access.js';
 import type { JWTVerifyGetKey } from 'jose';
 
 async function body(req: IncomingMessage, limit = 128 * 1024): Promise<unknown> {
@@ -53,7 +53,9 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     try {
-      const origin = requestOrigin(req.headers.host, origins);
+      // Cloudflare only routes the hostnames configured there, so a proxied request is served under its own (HTTPS)
+      // hostname; the allowlist guards direct LAN requests against DNS rebinding.
+      const origin = requestOrigin(req.headers.host, origins) ?? (proxiedRequest(req) ? requestOrigin(req.headers.host, new Map(), 'https:') : null);
       if (!origin) throw new DomainError(403, 'This host is not configured for the editor.');
       const url = new URL(req.url ?? '/', origin);
       if (url.origin !== origin) throw new DomainError(403, 'Request URL does not match its Host header.');
