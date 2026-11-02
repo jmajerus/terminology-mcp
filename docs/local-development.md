@@ -122,7 +122,7 @@ conflicts 409, and missing resources 404, with `{ "error": "…" }` bodies.
 | GET | `/api/schemes/:id/slugs/:slug?parent=REF&depth=D&at=N` | Resolve a current or former slug; `parent` (ID, alias or slug) or `depth` narrows it |
 | POST | `/api/schemes` | Create `{id, label, hierarchy, description?, admissionTest?, slugUniqueDepths?, maxDepth?, slugScope?, proposalSource?}` |
 | PATCH | `/api/schemes/:id` | Change settings `{maxDepth?, slugScope?, proposalSource?, expectedVersion}`; settings left out keep their value, and `maxDepth: null` removes the limit |
-| POST | `/api/proposals` | Propose a provisional term `{scheme, broader, source, sourceScheme?, match?, label?, proposer, scopeNote?, altLabels?, slug?, evidence?, requestId?}`, copied from a term in another scheme |
+| POST | `/api/proposals` | Propose a provisional term `{scheme, broader?, source?, sourceScheme?, match?, label?, proposer, scopeNote?, altLabels?, slug?, evidence?, requestId?}`, copied from a term in another scheme. `broader` is optional only in a concept graph; `source` only where the scheme's `proposalSource` is `optional`, with `label` and `evidence` instead |
 | POST | `/api/subscribers/:id/progress` | Report `{log, through, schemes?, label?, blocked?, reset?}` |
 | GET | `/api/subscribers`, `/api/subscribers/:id` | Each subscriber's progress, pending changes and hold |
 | POST | `/api/terms` | Create `{scheme, label, broader?, altLabels?, scopeNote?, status?, relations?, links?, aliases?, slug?, source?}`; `source: {ref, scheme?, match?}` names the term in another scheme it was copied from |
@@ -146,8 +146,8 @@ among siblings, and scheme-wide at each depth a tree scheme lists in
 `slugUniqueDepths` (SKOS `vocab:slugUniqueDepth`); each listed depth is its
 own scope. A scheme with `slugScope: "scheme"` (SKOS `vocab:slugScope`) has
 one scope instead, the whole scheme, and takes no slug depths. Switching an
-existing scheme to it is refused while two of its terms share a slug or
-former slug. Minted slugs take `-2`, `-3`, … on collision, while explicit slugs
+existing scheme to it drops its slug depths, which the wider scope covers, and
+is refused while two of its terms share a slug or former slug. Minted slugs take `-2`, `-3`, … on collision, while explicit slugs
 that collide are refused. The `slug` operation changes a slug as a breaking
 `slugged` change; the old value moves to `formerSlugs`, stays reserved in the
 same scopes, and still resolves through the slug lookup. A `parent` given

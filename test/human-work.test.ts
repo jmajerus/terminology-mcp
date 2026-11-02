@@ -138,3 +138,15 @@ test('MCP propose_term takes evidence instead of a source where the scheme allow
   assert.ok(!proposed.isError, JSON.stringify(proposed));
   assert.equal((proposed.structuredContent as { slug: string }).slug, 'conspiracy-theory');
 });
+
+test('switching a tree with slug depths to scheme-wide slugs drops the depths', t => {
+  const store = new Store(':memory:'); t.after(() => store.close());
+  store.addScheme({ id: 'subjects', label: 'Subjects', hierarchy: 'tree', slugUniqueDepths: [0, 1] });
+  const domain = store.addTerm({ scheme: 'subjects', label: 'Sciences', status: 'active' });
+  store.addTerm({ scheme: 'subjects', label: 'Geography', broader: [domain.id], status: 'active' });
+  const before = store.version;
+  const scheme = store.updateScheme('subjects', { slugScope: 'scheme', expectedVersion: store.version });
+  assert.deepEqual([scheme.slugScope, scheme.slugUniqueDepths], ['scheme', []]);
+  assert.match(store.changes(before)[0].reason, /replacing the slug depths 0, 1/);
+  assert.deepEqual(store.schemes(before)[0].slugUniqueDepths, [0, 1]);
+});

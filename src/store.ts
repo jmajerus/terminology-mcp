@@ -306,7 +306,8 @@ export class Store {
   }
   /**
    * Changes a scheme's settings: its maximum depth, slug scope and proposal source rule. Settings left out keep
-   * their value. Existing terms must already fit a new depth limit, and their slugs a wider slug scope.
+   * their value. Existing terms must already fit a new depth limit, and their slugs a wider slug scope. Slugs unique
+   * across the scheme cover every depth, so the switch drops the scheme's slug depths.
    */
   updateScheme(id: string, input: unknown): Scheme {
     const data = schemeSettingsSchema.parse(input);
@@ -317,16 +318,16 @@ export class Store {
       const after: Scheme = { ...(data.maxDepth === null ? rest : { ...rest, maxDepth: data.maxDepth ?? before.maxDepth }),
         ...(data.slugScope ? { slugScope: data.slugScope } : {}), ...(data.proposalSource ? { proposalSource: data.proposalSource } : {}) };
       if (after.maxDepth === undefined) delete after.maxDepth;
+      if (after.slugScope === 'scheme') after.slugUniqueDepths = [];
       const reasons = [
         after.maxDepth !== before.maxDepth && (after.maxDepth === undefined ? 'Removed the maximum depth' : `Maximum depth ${after.maxDepth}`),
         (after.slugScope ?? 'siblings') !== (before.slugScope ?? 'siblings')
-          && (after.slugScope === 'scheme' ? 'Slugs unique across the scheme' : 'Slugs unique among siblings'),
+          && (after.slugScope === 'scheme' ? `Slugs unique across the scheme${before.slugUniqueDepths.length
+            ? ` (replacing the slug depths ${before.slugUniqueDepths.join(', ')})` : ''}` : 'Slugs unique among siblings'),
         (after.proposalSource ?? 'required') !== (before.proposalSource ?? 'required')
           && (after.proposalSource === 'optional' ? 'Proposals may cite evidence instead of a source term' : 'Proposals need a source term'),
       ].filter((reason): reason is string => Boolean(reason));
       if (!reasons.length) return before;
-      if (after.slugScope === 'scheme' && after.slugUniqueDepths.length)
-        throw new DomainError(422, 'Slugs unique across the scheme already cover every depth; this scheme lists slug depths instead.');
       const schemes = new Map(this.schemes().map(scheme => [scheme.id, scheme.id === id ? after : scheme]));
       const terms = this.rawTerms();
       this.checkDepths(terms, schemes);
