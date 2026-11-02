@@ -90,7 +90,7 @@ arguments. Unknown versions, schemes and sets produce explicit errors.
 | `get_changes` | Read change summaries after `since`, optionally filtered by stable term ID or by `scheme`. Request full revision bodies with `includeSnapshots: true`. |
 | `export_skos` | Export a scheme and its collections as Turtle, preserving notations, mappings and collection definitions. |
 | `list_subscribers` | Each consumer's reported progress through the changelog, what is pending for its schemes (and how much of it is breaking), and any change it is held at. |
-| `propose_term` | Add a provisional term under an existing broader term (ID, alias or slug), copied from a `source` term in a reference vocabulary and linked to it with `match`. Find the source with `search_terms` first. See [proposals](following-changes.md#proposing-terms). |
+| `propose_term` | Add a provisional term under an existing broader term (ID, alias or slug), copied from a `source` term in a reference vocabulary and linked to it with `match`. Find the source with `search_terms` first. Where the scheme's `proposalSource` is `optional` (`human-work`), pass `label` and `evidence` instead; in a concept graph, `broader` is optional. See [proposals](following-changes.md#proposing-terms). |
 
 Search uses case-insensitive NFKC-normalized substring matching, without
 fuzzy matching or full-text syntax. It includes active and provisional terms

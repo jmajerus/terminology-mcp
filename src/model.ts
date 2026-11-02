@@ -64,6 +64,10 @@ export const schemeSchema = z.object({
   notations: z.array(notationSchema).max(100).default([]),
   slugUniqueDepths: z.array(z.number().int().min(0).max(500)).max(20).default([]),
   maxDepth: z.number().int().min(0).max(500).optional(),
+  // 'scheme': a slug is unique across the whole scheme, as quote-mcp keys concepts. Absent means among siblings.
+  slugScope: z.enum(['siblings', 'scheme']).optional(),
+  // 'optional': a proposal may cite evidence (a quote, say) instead of a source term. Absent means required.
+  proposalSource: z.enum(['required', 'optional']).optional(),
   sourceUri: iriSchema.optional(),
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
 }).strict();
@@ -82,14 +86,16 @@ export type Term = Omit<CreateTerm, 'status' | 'slug' | 'source'> & {
   id: string; created: number; changed: number; source?: TermSource; proposal?: Proposal;
 };
 export const proposeTermSchema = z.object({
-  scheme: id, label: text.optional(), broader: z.string().min(1).max(2000),
+  scheme: id, label: text.optional(), broader: z.string().min(1).max(2000).optional(),
   source: z.string().trim().min(1).max(2000).optional(), sourceScheme: id.optional(),
   match: linkSchema.shape.match.default('closeMatch'),
   altLabels: fields.altLabels, scopeNote: fields.scopeNote, slug: slugSchema.optional(),
   proposer: text.optional(), evidence: evidenceSchema.optional(), requestId: z.string().trim().min(1).max(200).optional(),
 }).strict();
 export const schemeSettingsSchema = z.object({
-  maxDepth: z.number().int().min(0).max(500).nullable(), expectedVersion: z.number().int().nonnegative(),
+  maxDepth: z.number().int().min(0).max(500).nullable().optional(),
+  slugScope: schemeSchema.shape.slugScope.unwrap().optional(), proposalSource: schemeSchema.shape.proposalSource.unwrap().optional(),
+  expectedVersion: z.number().int().nonnegative(),
 }).strict();
 const marker = z.string().trim().max(2000);
 export const progressSchema = z.object({

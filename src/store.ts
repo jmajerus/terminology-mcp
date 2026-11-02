@@ -293,6 +293,8 @@ export class Store {
         throw new DomainError(409, 'A collection IRI cannot also identify a scheme.');
       if (data.slugUniqueDepths.length && data.hierarchy !== 'tree')
         throw new DomainError(422, 'Scheme-wide slug depths apply only to tree schemes.');
+      if (data.slugUniqueDepths.length && data.slugScope === 'scheme')
+        throw new DomainError(422, 'Slugs unique across the scheme already cover every depth; leave out the slug depths.');
       const n = this.version + 1;
       const scheme = { ...data, notations: uniqueNotations(data.notations),
         slugUniqueDepths: [...new Set(data.slugUniqueDepths)].sort((a, b) => a - b), created: n };
@@ -302,18 +304,35 @@ export class Store {
       return scheme;
     })();
   }
-  /** Changes a scheme's settings. Only the maximum depth is editable; existing terms must already fit it. */
+  /**
+   * Changes a scheme's settings: its maximum depth, slug scope and proposal source rule. Settings left out keep
+   * their value. Existing terms must already fit a new depth limit, and their slugs a wider slug scope. Slugs unique
+   * across the scheme cover every depth, so the switch drops the scheme's slug depths.
+   */
   updateScheme(id: string, input: unknown): Scheme {
     const data = schemeSettingsSchema.parse(input);
     return this.db.transaction(() => {
       this.expectVersion(data.expectedVersion);
       const before = this.scheme(id);
       const { maxDepth: _old, ...rest } = before;
-      const after: Scheme = data.maxDepth === null ? rest : { ...rest, maxDepth: data.maxDepth };
-      if (after.maxDepth === before.maxDepth) return before;
-      this.checkDepths(this.rawTerms(), new Map(this.schemes().map(scheme => [scheme.id, scheme.id === id ? after : scheme])));
-      const n = this.log({ kind: 'scheme-changed', terms: [], before, after, breaking: false,
-        reason: after.maxDepth === undefined ? 'Removed the maximum depth' : `Maximum depth ${after.maxDepth}` });
+      const after: Scheme = { ...(data.maxDepth === null ? rest : { ...rest, maxDepth: data.maxDepth ?? before.maxDepth }),
+        ...(data.slugScope ? { slugScope: data.slugScope } : {}), ...(data.proposalSource ? { proposalSource: data.proposalSource } : {}) };
+      if (after.maxDepth === undefined) delete after.maxDepth;
+      if (after.slugScope === 'scheme') after.slugUniqueDepths = [];
+      const reasons = [
+        after.maxDepth !== before.maxDepth && (after.maxDepth === undefined ? 'Removed the maximum depth' : `Maximum depth ${after.maxDepth}`),
+        (after.slugScope ?? 'siblings') !== (before.slugScope ?? 'siblings')
+          && (after.slugScope === 'scheme' ? `Slugs unique across the scheme${before.slugUniqueDepths.length
+            ? ` (replacing the slug depths ${before.slugUniqueDepths.join(', ')})` : ''}` : 'Slugs unique among siblings'),
+        (after.proposalSource ?? 'required') !== (before.proposalSource ?? 'required')
+          && (after.proposalSource === 'optional' ? 'Proposals may cite evidence instead of a source term' : 'Proposals need a source term'),
+      ].filter((reason): reason is string => Boolean(reason));
+      if (!reasons.length) return before;
+      const schemes = new Map(this.schemes().map(scheme => [scheme.id, scheme.id === id ? after : scheme]));
+      const terms = this.rawTerms();
+      this.checkDepths(terms, schemes);
+      this.validateSlugs(terms, schemes);
+      const n = this.log({ kind: 'scheme-changed', terms: [], before, after, breaking: false, reason: reasons.join('; ') });
       this.db.prepare('UPDATE schemes SET body = ? WHERE id = ?').run(JSON.stringify(after), id);
       this.db.prepare('INSERT INTO scheme_revisions VALUES (?, ?, ?)').run(id, n, JSON.stringify(after));
       return after;
@@ -472,9 +491,10 @@ export class Store {
         throw new DomainError(422, `“${term.label}” would be at depth ${term.depth}, but ${schemes.get(term.scheme)!.label} allows terms only to depth ${limit} (top terms are depth 0).`);
     }
   }
-  private slugScopes(terms: Term[]): Map<string, string[]> {
-    // Slugs are unique among siblings, and scheme-wide at the scheme's listed depths. Retired terms keep their scope.
-    const byId = new Map(terms.map(term => [term.id, term])), schemes = new Map(this.schemes().map(scheme => [scheme.id, scheme]));
+  private slugScopes(terms: Term[], schemes = new Map(this.schemes().map(scheme => [scheme.id, scheme]))): Map<string, string[]> {
+    // Slugs are unique among siblings, and scheme-wide at the scheme's listed depths, or everywhere in a scheme whose
+    // slug scope is the scheme. Retired terms keep their scope.
+    const byId = new Map(terms.map(term => [term.id, term]));
     const depths = new Map<string, number>(), visiting = new Set<string>();
     const depth = (term: Term): number => {
       const saved = depths.get(term.id);
@@ -488,6 +508,7 @@ export class Store {
       return value;
     };
     return new Map(terms.map(term => {
+      if (schemes.get(term.scheme)?.slugScope === 'scheme') return [term.id, [`${term.scheme}|scheme`]];
       const siblings = term.broader.length ? term.broader.map(parent => `${term.scheme}|in:${parent}`) : [`${term.scheme}|top`];
       const wide = schemes.get(term.scheme)?.slugUniqueDepths.includes(depth(term)) ? [`${term.scheme}|depth:${depth(term)}`] : [];
       return [term.id, [...siblings, ...wide]];
@@ -507,8 +528,8 @@ export class Store {
       term.slug = value; reserve(term);
     }
   }
-  private validateSlugs(terms: Term[]) {
-    const scopes = this.slugScopes(terms), owners = new Map<string, string>();
+  private validateSlugs(terms: Term[], schemes?: Map<string, Scheme>) {
+    const scopes = this.slugScopes(terms, schemes), owners = new Map<string, string>();
     for (const term of terms) {
       if (![term.slug, ...term.formerSlugs].every(value => slugSchema.safeParse(value).success))
         throw new DomainError(422, `Invalid slug for “${term.label}”: use lowercase letters and digits separated by single hyphens.`);
@@ -517,7 +538,7 @@ export class Store {
       for (const scope of scopes.get(term.id)!) for (const value of [term.slug, ...term.formerSlugs]) {
         const key = `${scope}|${value}`, owner = owners.get(key);
         if (owner && owner !== term.id)
-          throw new DomainError(409, `The slug “${value}” is already used ${scope.includes('|depth:') ? 'at this depth of the scheme' : 'by a sibling term'}.`);
+          throw new DomainError(409, `The slug “${value}” is already used ${scope.endsWith('|scheme') ? 'in this scheme' : scope.includes('|depth:') ? 'at this depth of the scheme' : 'by a sibling term'}.`);
         owners.set(key, term.id);
       }
     }
@@ -568,22 +589,30 @@ export class Store {
       const terms = this.rawTerms();
       const prior = data.requestId && terms.find(term => term.proposal?.proposer === proposer && term.proposal.requestId === data.requestId);
       if (prior) return { ...this.proposalResult(prior), replayed: true };
-      this.scheme(data.scheme);
-      const parent = this.resolveRef(data.scheme, data.broader);
-      if (parent.status === 'retired') throw new DomainError(422, 'Propose terms under an active or provisional term.');
-      if (!data.source) throw new DomainError(422, 'Pass source: search a reference vocabulary first (search_terms with scheme '
+      const scheme = this.scheme(data.scheme);
+      // Concept graphs have top concepts anywhere, so a graph proposal may leave out its broader concept.
+      if (!data.broader && scheme.hierarchy !== 'graph') throw new DomainError(422, 'Pass broader: the term the proposal goes under.');
+      const parent = data.broader ? this.resolveRef(data.scheme, data.broader) : undefined;
+      if (parent?.status === 'retired') throw new DomainError(422, 'Propose terms under an active or provisional term.');
+      const evidenceOnly = !data.source && scheme.proposalSource === 'optional';
+      if (evidenceOnly && !data.evidence) throw new DomainError(422, `Pass source or evidence: ${scheme.label} takes a proposal backed by evidence, `
+        + 'such as the quote a concept was coined from, when no reference vocabulary has the term.');
+      if (evidenceOnly && !data.label) throw new DomainError(422, 'Pass label: without a source term there is no label to copy.');
+      if (!data.source && !evidenceOnly) throw new DomainError(422, 'Pass source: search a reference vocabulary first (search_terms with scheme '
         + 'loc-classification, or excludeScheme set to the target scheme). If nothing fits even broadly, leave the addition to a person in the editor.');
-      const source = this.termSource(data.scheme, data.source, data.sourceScheme, data.match);
-      const label = data.label ?? source.label;
+      const source = data.source ? this.termSource(data.scheme, data.source, data.sourceScheme, data.match) : undefined;
+      const label = (data.label ?? source?.label)!;
       if (label.length > 200) throw new DomainError(422, 'The source label is longer than 200 characters. Pass a shorter label.');
       const n = this.version + 1;
       const term: Term = { scheme: data.scheme, label, altLabels: [...new Set(data.altLabels)], scopeNote: data.scopeNote,
-        broader: [parent.id], notations: [], relations: [], links: [{ uri: source.uri, match: source.match }], aliases: [], status: 'provisional', replacedBy: [], source,
+        broader: parent ? [parent.id] : [], notations: [], relations: [], links: source ? [{ uri: source.uri, match: source.match }] : [], aliases: [],
+        status: 'provisional', replacedBy: [], ...(source ? { source } : {}),
         slug: data.slug ?? slugify(label), formerSlugs: [], id: `t_${randomUUID().replaceAll('-', '')}`, created: n, changed: n,
-        proposal: { proposer, ...(data.evidence ? { evidence: data.evidence } : {}), ...(data.requestId ? { requestId: data.requestId } : {}), source } };
+        proposal: { proposer, ...(data.evidence ? { evidence: data.evidence } : {}), ...(data.requestId ? { requestId: data.requestId } : {}), ...(source ? { source } : {}) } };
       const scopes = this.slugScopes([...terms, term]), mine = new Set(scopes.get(term.id));
+      const sibling = (other: Term) => parent ? other.broader.includes(parent.id) : !other.broader.length;
       const clashes = terms.filter(other => other.scheme === term.scheme && (
-        (other.broader.includes(parent.id) && slug(other.label) === slug(term.label)) ||
+        (sibling(other) && slug(other.label) === slug(term.label)) ||
         ([other.slug, ...other.formerSlugs].includes(term.slug) && scopes.get(other.id)!.some(scope => mine.has(scope)))))
         .sort((a, b) => Number(a.status === 'retired') - Number(b.status === 'retired'));
       if (clashes.length) {
@@ -596,14 +625,14 @@ export class Store {
       }
       // Close and exact matches claim the same concept, so they must be unique among siblings; exact matches scheme-wide.
       // Retired terms still count, as for duplicate labels, so a retired claim points at its replacement.
-      const claims = (other: Term, matches: string[]) => other.links.some(link => link.uri === source.uri && matches.includes(link.match));
-      const linked = source.match === 'closeMatch' || source.match === 'exactMatch' ? terms.filter(other => other.scheme === term.scheme
-        && ((other.broader.includes(parent.id) && claims(other, ['closeMatch', 'exactMatch']))
+      const claims = (other: Term, matches: string[]) => other.links.some(link => link.uri === source?.uri && matches.includes(link.match));
+      const linked = source && (source.match === 'closeMatch' || source.match === 'exactMatch') ? terms.filter(other => other.scheme === term.scheme
+        && ((sibling(other) && claims(other, ['closeMatch', 'exactMatch']))
           || (source.match === 'exactMatch' && claims(other, ['exactMatch']))))
         .sort((a, b) => Number(a.status === 'retired') - Number(b.status === 'retired'))[0] : undefined;
       if (linked) throw new DomainError(409, linked.status === 'retired'
-        ? `A retired term, “${linked.label}”, already matches ${source.uri}. Use its replacement, or link with a broader, narrower or related match.`
-        : `“${linked.label}” already matches ${source.uri}. Use it, or link with a broader, narrower or related match.`,
+        ? `A retired term, “${linked.label}”, already matches ${source!.uri}. Use its replacement, or link with a broader, narrower or related match.`
+        : `“${linked.label}” already matches ${source!.uri}. Use it, or link with a broader, narrower or related match.`,
         { reason: 'linked', existing: { id: linked.id, slug: linked.slug, label: linked.label, status: linked.status, replacedBy: linked.replacedBy } });
       this.validateTerm(term);
       const alias = this.pathAlias(term);

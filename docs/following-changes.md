@@ -181,7 +181,8 @@ A proposal is created at once as a `provisional` term, so it can be used
 straight away. The answer (201) carries `id`, `slug`, `status`, `change` (its
 change number) and the full `term`.
 
-- `broader` is a stable ID, an alias or a slug in the target scheme.
+- `broader` is a stable ID, an alias or a slug in the target scheme. In a
+  concept graph it may be left out, making the proposal a top concept.
 - `source` names one term in another scheme by stable ID, alias, IRI or
   notation, tried in that order. `sourceScheme` narrows it to one scheme
   when a notation repeats.
@@ -202,8 +203,9 @@ person copies from another vocabulary in the editor gets one too.
 - **Retries:** the same proposer and `requestId` return the original term
   (200, `replayed: true`) instead of a duplicate.
 - **Duplicates:** a sibling with the same label, or a term whose slug or
-  former slug clashes in the new term's slug scopes (siblings, and the
-  scheme-wide depths in `slugUniqueDepths`), is a 409 with `reason`
+  former slug clashes in the new term's slug scopes (siblings, the
+  scheme-wide depths in `slugUniqueDepths`, or the whole scheme when its
+  `slugScope` is `scheme`), is a 409 with `reason`
   (`duplicate`, or `retired` for a retired match) and
   `existing: {id, slug, label, status, replacedBy}`. Use the existing term,
   or propose a different `slug`.
@@ -213,7 +215,19 @@ person copies from another vocabulary in the editor gets one too.
   `existing`; a retired claim still counts, and `existing` shows its status
   and `replacedBy`. Broad, narrow and related matches to one source are
   allowed.
-- **Source:** no `source` is 422, with a hint to search first. A source that
+- **Evidence instead of a source:** a scheme whose `proposalSource` is
+  `optional`, such as quote-mcp's `human-work`, also takes a proposal with
+  no `source`, when it carries `label` and `evidence`:
+
+  ```
+  POST /api/proposals
+  {"scheme": "human-work", "label": "Flexibility", "proposer": "quote-mcp", "requestId": "tag:flexiblity",
+   "evidence": {"quote": 412, "tag": "flexiblity", "text": "…"}}
+  ```
+
+  The term then has no `source` and no link; its `proposal` holds the
+  evidence, for the owner to weigh before confirming.
+- **Source:** otherwise, no `source` is 422, with a hint to search first. A source that
   isn't found is 404; several matches are a 409 with `reason: "ambiguous"`
   and `candidates`; a source in the target scheme, or a retired one, is 422.
 - **Depth:** a proposal deeper than the scheme's maximum depth is 422.

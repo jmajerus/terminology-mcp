@@ -131,7 +131,7 @@ separately and adding their cross-scheme links explicitly.
 
 | quote-mcp field | Local representation |
 |---|---|
-| `slug` | Lookup alias `quote-mcp:<source-scheme>:<slug>` |
+| `slug` | The term's slug, kept as is, and the lookup alias `quote-mcp:<source-scheme>:<slug>` |
 | Concept identity | `urn:quote-mcp:concept:<scheme>:<slug>` source IRI |
 | Scheme identity | `urn:quote-mcp:scheme:<scheme>` source IRI |
 | `definition` | Scope note |
@@ -142,8 +142,19 @@ separately and adding their cross-scheme links explicitly.
 | `broader` / `narrower` rows | Normalized broader edges; inverse duplicates removed |
 | `related` / `inverse` rows | Symmetric related/opposite edges; duplicates removed |
 
+A quote-mcp import also sets two scheme settings, which **Scheme settings**
+can change later:
+- `slugScope: "scheme"`: slugs are unique across the whole scheme, as
+  quote-mcp keys concepts by a bare slug.
+- `proposalSource: "optional"`: a proposal may cite evidence, such as the
+  quote a concept was coined from, instead of a reference-vocabulary term.
+  See [proposing terms](following-changes.md#proposing-terms).
+
+A slug that isn't lowercase words joined by hyphens is minted again from the
+label, with a warning.
+
 Source identities remain stable when a different local scheme ID is chosen.
-Native graph exports retain original source IRIs, aliases, notes, labels,
+Native graph exports retain original source IRIs, aliases, slugs, former slugs, the two scheme settings, notes, labels,
 notations and links when reimported. Node IDs in graph API relationships are
 local stable IDs. JSON graph export contains active concepts and their edges;
 SKOS export also carries retirement metadata and collections. Use SKOS when
