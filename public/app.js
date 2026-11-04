@@ -97,7 +97,6 @@ function renderTree() {
     childMap.get(parent).push(term);
   }
   $('#scheme-settings').hidden = !schemeId;
-  $('#scheme-settings').textContent = `Depth limit: ${scheme()?.maxDepth === undefined ? 'none' : `${scheme().maxDepth} (${scheme().maxDepth + 1} levels)`}`;
   $('#scheme-kind').textContent = scheme()?.hierarchy === 'graph' ? 'CONCEPT GRAPH' : scheme()?.hierarchy === 'poly' ? 'POLYHIERARCHY' : schemeId ? 'TREE SCHEME' : 'NO SCHEMES';
   $('#scheme-notations').innerHTML = (scheme()?.notations ?? []).map(notation => `<span class="alias" title="${escape(notation.datatype)}">${escape(notation.value)}</span>`).join('');
   $('#term-count').textContent = `${terms.length} ${terms.length === 1 ? 'term' : 'terms'}`;
