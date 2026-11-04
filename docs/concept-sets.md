@@ -19,8 +19,10 @@ Choose **Recipe** to combine:
 - **Include descendants of**: all narrower levels, excluding the anchor unless
   it is also explicitly included. Polyhierarchies are traversed once per term.
 - **Related neighbourhoods**: the anchor plus concepts reachable within depth
-  0–10 through the selected `related` and/or `opposite` relations. Relations are
-  followed in either direction and stay within the set's scheme.
+  0–10 through the selected types, any of `broader`, `narrower`, `related` and
+  `opposite`. `broader` steps up to broader concepts and `narrower` down to
+  narrower ones; `related` and `opposite` are followed in either direction. The
+  walk stays within the set's scheme.
 - **Exclude concepts**: explicit exclusions applied after combining inclusions.
 
 Recipes omit retired concepts and warn about retained retired references. An
