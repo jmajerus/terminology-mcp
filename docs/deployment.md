@@ -51,6 +51,17 @@ These commands preview changes. Append `--yes` to apply. Run them on the server
 as the service account so the database and its SQLite journal retain the correct
 ownership. Rename changes the display name and preserves the scheme ID.
 
+The npm shortcuts also use the compiled CLI. Run them with the deployment’s
+Node.js runtime on `PATH` (the system Node.js may be an older, incompatible
+version), as the service account, with the production database selected:
+
+```sh
+sudo -u terminology-mcp env PATH=/opt/terminology-mcp/runtime/bin:/usr/local/bin:/usr/bin:/bin npm --prefix /opt/terminology-mcp/current run scheme:delete -- my-scheme --db /var/lib/terminology-mcp/terminology.sqlite
+```
+
+Append `--yes` to apply. `scheme:rename` uses the same invocation followed by
+the scheme ID and quoted new name. No installation of `tsx` is needed.
+
 ## VS Code deployment controls
 
 Install this workspace's recommended **Task Buttons**

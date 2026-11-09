@@ -83,6 +83,9 @@ To delete a concept scheme from the command line, run these commands on the
 machine hosting its database, from the application directory. Use the server’s
 existing Node.js runtime; npm and development dependencies are not needed to
 run these commands. The normal application build produces `dist/cli.js`.
+The npm shortcuts `npm run scheme:delete -- ...` and
+`npm run scheme:rename -- ...` use this same compiled CLI and also work after
+development dependencies have been removed. Build first when working from source.
 
 ```sh
 node dist/cli.js delete my-scheme
