@@ -78,6 +78,37 @@ show a review dialog; the changelog records each applied change. The UI
 also checks for conflicting edits from another tab.
 
 Move, Merge, Split, and Retire have explicit impact previews and atomic commits.
+
+To delete a concept scheme from the command line, run these commands on the
+machine hosting its database, from the application directory. Use the server’s
+existing Node.js runtime; npm and development dependencies are not needed to
+run these commands. The normal application build produces `dist/cli.js`.
+
+```sh
+node dist/cli.js delete my-scheme
+node dist/cli.js delete my-scheme --yes
+```
+
+The first command previews the deletion; `--yes` applies it atomically. This
+removes the scheme, all its terms and concept sets from current reads, and
+removes relations to its terms from other schemes. Historical versions and
+source provenance remain available, and the deleted scheme ID stays reserved.
+The deletion is recorded as a breaking `scheme-deleted` change. Use
+`--db /path/to/terminology.sqlite` or `TERMINOLOGY_DB` to select a database;
+the default is `data/terminology.sqlite` (use `--db data/demo.sqlite` for the demo).
+
+To rename a scheme’s display name, preview and apply with:
+
+```sh
+node dist/cli.js rename my-scheme "New scheme name"
+node dist/cli.js rename my-scheme "New scheme name" --yes
+```
+
+This supports the same `--db` option and preserves the scheme ID. In the editor,
+open **Scheme settings** to edit the scheme name and description, including
+clearing the description. Changes preserve historical versions and appear in
+the changelog.
+
 Use **Import SKOS…** to add a scheme from a Turtle file or SPARQL endpoint,
 and **Export SKOS ↓** to download the current scheme. Imports preserve source
 IRIs and all five SKOS mapping types; preview reports omitted data before saving.

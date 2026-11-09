@@ -375,6 +375,8 @@ $('#new-scheme').onclick = () => openCreate('scheme');
 $('#scheme-settings').onclick = () => {
   if (!allowLeave()) return;
   $('#scheme-dialog-title').textContent = scheme().label;
+  $('#scheme-label').value = scheme().label;
+  $('#scheme-description').value = scheme().description ?? '';
   $('#scheme-max-depth').value = scheme().maxDepth ?? '';
   $('#scheme-slug-scope').value = scheme().slugScope ?? 'siblings';
   $('#scheme-proposal-source').value = scheme().proposalSource ?? 'required';
@@ -387,7 +389,8 @@ $('#scheme-form').addEventListener('submit', async event => {
   const value = $('#scheme-max-depth').value;
   $('#save-scheme').disabled = true;
   try {
-    await api(`schemes/${encodeURIComponent(schemeId)}`, { method: 'PATCH', body: JSON.stringify({ maxDepth: value === '' ? null : Number(value),
+    await api(`schemes/${encodeURIComponent(schemeId)}`, { method: 'PATCH', body: JSON.stringify({ label: $('#scheme-label').value, description: $('#scheme-description').value,
+      maxDepth: value === '' ? null : Number(value),
       slugScope: $('#scheme-slug-scope').value, proposalSource: $('#scheme-proposal-source').value, expectedVersion: state.version }) });
     $('#scheme-dialog').close();
     await refresh(selectedId);

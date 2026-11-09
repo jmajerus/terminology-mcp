@@ -59,6 +59,8 @@
   <dialog id="scheme-dialog">
     <form id="scheme-form">
       <div class="dialog-heading"><span class="eyebrow">Scheme settings</span><h2 id="scheme-dialog-title"></h2></div>
+      <label class="field"><span class="field-label">Scheme name</span><input id="scheme-label" required maxlength="200"></label>
+      <label class="field"><span class="field-label">Description</span><textarea id="scheme-description" rows="4" maxlength="10000"></textarea></label>
       <label class="field"><span class="field-label">Maximum depth</span><input id="scheme-max-depth" type="number" min="0" max="500" placeholder="No limit"><span class="help">Top terms are depth 0, so 2 allows three levels. Leave empty for no limit. Active and provisional terms must already fit; retired terms keep their place.</span></label>
       <label class="field"><span class="field-label">Slugs unique</span><select id="scheme-slug-scope"><option value="siblings">Among siblings</option><option value="scheme">Across the scheme</option></select><span class="help">Across the scheme suits consumers that key on a bare slug, such as quote-mcp. Existing slugs must already be unique.</span></label>
       <label class="field"><span class="field-label">Proposals</span><select id="scheme-proposal-source"><option value="required">Copy a term from a reference vocabulary</option><option value="optional">May cite evidence instead, such as a quote</option></select><span class="help">How consumers and agents propose new terms through the API and MCP.</span></label>

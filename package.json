@@ -18,6 +18,8 @@
     "test:deploy": "python3 -m unittest discover -s test -p '*_test.py'",
     "deploy": "python3 tools/deploy.py",
     "status": "node tools/terminology-status.mjs",
+    "scheme:delete": "node --import tsx src/cli.ts delete",
+    "scheme:rename": "node --import tsx src/cli.ts rename",
     "test:ui": "playwright test",
     "test:oxigraph": "node --import tsx experiments/oxigraph/run.ts",
     "test:oxigraph-import": "node --import tsx experiments/oxigraph/import.ts"

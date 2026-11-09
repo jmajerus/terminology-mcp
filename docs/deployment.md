@@ -39,6 +39,18 @@ For subsequent deployments with the runtime already present:
 python3 tools/deploy.py
 ```
 
+Scheme administration uses the server’s existing runtime directly, with no npm
+needed to run the commands. After deploying a release containing the CLI:
+
+```sh
+sudo -u terminology-mcp /opt/terminology-mcp/runtime/bin/node /opt/terminology-mcp/current/dist/cli.js rename my-scheme "New name" --db /var/lib/terminology-mcp/terminology.sqlite
+sudo -u terminology-mcp /opt/terminology-mcp/runtime/bin/node /opt/terminology-mcp/current/dist/cli.js delete my-scheme --db /var/lib/terminology-mcp/terminology.sqlite
+```
+
+These commands preview changes. Append `--yes` to apply. Run them on the server
+as the service account so the database and its SQLite journal retain the correct
+ownership. Rename changes the display name and preserves the scheme ID.
+
 ## VS Code deployment controls
 
 Install this workspace's recommended **Task Buttons**

@@ -97,7 +97,8 @@ them can ignore both.
 | `split` | The source retired into two or more new terms | yes |
 | `retired` | The term retired, optionally with replacements | yes |
 | `slugged` | The slug changed; the old one moved to `formerSlugs` | yes |
-| `scheme-changed` | A scheme setting (its maximum depth) changed | no |
+| `scheme-changed` | A scheme’s name, description or settings changed | no |
+| `scheme-deleted` | A scheme and its terms and sets left current state; incoming relations were removed. `beforeTerms` includes removed and updated terms; `afterTerms` contains surviving updated terms only. Historical reads remain available. | yes |
 | `set-added` | A concept set was created | no |
 | `set-changed` | A set's definition changed | when its label, order or recipe changed, or a member was removed |
 | `set-deleted` | A set was deleted | yes |

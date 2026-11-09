@@ -71,7 +71,7 @@ export const schemeSchema = z.object({
   sourceUri: iriSchema.optional(),
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
 }).strict();
-export type Scheme = z.infer<typeof schemeSchema> & { created: number };
+export type Scheme = z.infer<typeof schemeSchema> & { created: number; deleted?: boolean };
 export type CreateTerm = z.infer<typeof createTermSchema>;
 export type EditTerm = z.infer<typeof editTermSchema>;
 const evidenceSchema = z.record(z.string(), z.unknown()).refine(value => JSON.stringify(value).length <= 4096, 'Evidence is limited to 4 KiB of JSON.');
@@ -93,6 +93,7 @@ export const proposeTermSchema = z.object({
   proposer: text.optional(), evidence: evidenceSchema.optional(), requestId: z.string().trim().min(1).max(200).optional(),
 }).strict();
 export const schemeSettingsSchema = z.object({
+  label: schemeSchema.shape.label.optional(), description: schemeSchema.shape.description.removeDefault().optional(),
   maxDepth: z.number().int().min(0).max(500).nullable().optional(),
   slugScope: schemeSchema.shape.slugScope.unwrap().optional(), proposalSource: schemeSchema.shape.proposalSource.unwrap().optional(),
   expectedVersion: z.number().int().nonnegative(),
@@ -122,7 +123,7 @@ export const conceptSetSchema = z.object({
 }).strict();
 export type ConceptSet = z.infer<typeof conceptSetSchema> & { id: string; created: number; changed: number; deleted?: boolean };
 export type Change = {
-  n: number; kind: 'scheme-added' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'slugged' | 'imported' | 'scheme-changed' | 'set-added' | 'set-changed' | 'set-deleted';
+  n: number; kind: 'scheme-added' | 'scheme-deleted' | 'added' | 'labelled' | 'noted' | 'updated' | 'moved' | 'merged' | 'split' | 'retired' | 'slugged' | 'imported' | 'scheme-changed' | 'set-added' | 'set-changed' | 'set-deleted';
   terms: string[]; before: Term | Scheme | ConceptSet | null; after: Term | Scheme | ConceptSet;
   breaking: boolean; author: string; reason: string; at: string;
   beforeTerms?: Term[]; afterTerms?: Term[];

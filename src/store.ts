@@ -110,7 +110,7 @@ export class Store {
     return (this.db.prepare(`SELECT r.body FROM scheme_revisions r
       JOIN (SELECT scheme_id, MAX(n) AS n FROM scheme_revisions WHERE n <= ? GROUP BY scheme_id) latest
       ON r.scheme_id = latest.scheme_id AND r.n = latest.n ORDER BY r.scheme_id`)
-      .all(this.atVersion(at)) as { body: string }[]).map(row => ({ notations: [], slugUniqueDepths: [], ...JSON.parse(row.body) }));
+      .all(this.atVersion(at)) as { body: string }[]).map(row => ({ notations: [], slugUniqueDepths: [], ...JSON.parse(row.body) })).filter(scheme => !scheme.deleted);
   }
   sets(scheme?: string, at?: number): ConceptSet[] {
     return (this.db.prepare(`SELECT r.body FROM set_revisions r JOIN
@@ -279,7 +279,7 @@ export class Store {
   }
   private scheme(id: string): Scheme {
     const row = this.db.prepare('SELECT body FROM schemes WHERE id = ?').get(id) as { body: string } | undefined;
-    if (!row) throw new DomainError(404, 'Scheme not found.');
+    if (!row || JSON.parse(row.body).deleted) throw new DomainError(404, 'Scheme not found.');
     return { notations: [], slugUniqueDepths: [], ...JSON.parse(row.body) };
   }
   addScheme(input: unknown): Scheme {
@@ -304,8 +304,31 @@ export class Store {
       return scheme;
     })();
   }
+  /** Deletes the current scheme while keeping its revisions and identities reserved. */
+  deleteScheme(id: string, expectedVersion: number) {
+    return this.db.transaction(() => {
+      this.expectVersion(expectedVersion);
+      const before = this.scheme(id), all = this.rawTerms();
+      const removed = all.filter(term => term.scheme === id), ids = new Set(removed.map(term => term.id));
+      const beforeTerms = all.filter(term => term.scheme !== id && term.relations.some(relation => ids.has(relation.target)));
+      const n = this.version + 1;
+      const afterTerms = beforeTerms.map(term => ({ ...term, changed: n,
+        relations: term.relations.filter(relation => !ids.has(relation.target)) }));
+      const beforeSets = this.sets(id), afterSets = beforeSets.map(set => ({ ...set, deleted: true, changed: n }));
+      const after = { ...before, deleted: true };
+      this.log({ kind: 'scheme-deleted', before, after, terms: [...ids, ...beforeTerms.map(term => term.id)],
+        beforeTerms: [...removed, ...beforeTerms], afterTerms, beforeSets, afterSets,
+        breaking: true, reason: `Deleted scheme ${before.label}` });
+      for (const term of afterTerms) this.persist(term, n);
+      for (const set of afterSets) this.persistSet(set);
+      this.db.prepare('UPDATE schemes SET body = ? WHERE id = ?').run(JSON.stringify(after), id);
+      this.db.prepare('INSERT INTO scheme_revisions VALUES (?, ?, ?)').run(id, n, JSON.stringify(after));
+      return { version: n, scheme: id, terms: removed.length, sets: beforeSets.length, relatedTerms: afterTerms.length };
+    })();
+  }
+
   /**
-   * Changes a scheme's settings: its maximum depth, slug scope and proposal source rule. Settings left out keep
+   * Changes a scheme's name, description, maximum depth, slug scope and proposal source rule. Settings left out keep
    * their value. Existing terms must already fit a new depth limit, and their slugs a wider slug scope. Slugs unique
    * across the scheme cover every depth, so the switch drops the scheme's slug depths.
    */
@@ -316,10 +339,14 @@ export class Store {
       const before = this.scheme(id);
       const { maxDepth: _old, ...rest } = before;
       const after: Scheme = { ...(data.maxDepth === null ? rest : { ...rest, maxDepth: data.maxDepth ?? before.maxDepth }),
-        ...(data.slugScope ? { slugScope: data.slugScope } : {}), ...(data.proposalSource ? { proposalSource: data.proposalSource } : {}) };
+        ...(data.slugScope ? { slugScope: data.slugScope } : {}), ...(data.proposalSource ? { proposalSource: data.proposalSource } : {}),
+        ...(data.label !== undefined ? { label: data.label } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}) };
       if (after.maxDepth === undefined) delete after.maxDepth;
       if (after.slugScope === 'scheme') after.slugUniqueDepths = [];
       const reasons = [
+        after.label !== before.label && `Renamed scheme from “${before.label}” to “${after.label}”`,
+        after.description !== before.description && 'Updated the scheme description',
         after.maxDepth !== before.maxDepth && (after.maxDepth === undefined ? 'Removed the maximum depth' : `Maximum depth ${after.maxDepth}`),
         (after.slugScope ?? 'siblings') !== (before.slugScope ?? 'siblings')
           && (after.slugScope === 'scheme' ? `Slugs unique across the scheme${before.slugUniqueDepths.length
@@ -339,15 +366,15 @@ export class Store {
     })();
   }
   private rawTerms(at?: number): Term[] {
-    const version = this.atVersion(at);
+    const version = this.atVersion(at), schemes = new Set(this.schemes(version).map(scheme => scheme.id));
     return (this.db.prepare(`SELECT r.body FROM term_revisions r
       JOIN (SELECT term_id, MAX(n) AS n FROM term_revisions WHERE n <= ? GROUP BY term_id) latest
       ON r.term_id = latest.term_id AND r.n = latest.n`).all(version) as { body: string }[])
-      .map(row => ({ replacedBy: [], notations: [], formerSlugs: [], ...JSON.parse(row.body) }));
+      .map(row => ({ replacedBy: [], notations: [], formerSlugs: [], ...JSON.parse(row.body) })).filter(term => schemes.has(term.scheme));
   }
-  private views(terms: Term[]): TermView[] {
+  private views(terms: Term[], at?: number): TermView[] {
     const byId = new Map(terms.map(term => [term.id, term]));
-    const schemes = new Map(this.schemes().map(scheme => [scheme.id, scheme]));
+    const schemes = new Map(this.schemes(at).map(scheme => [scheme.id, scheme]));
     const cache = new Map<string, { path: string | null; depth: number }>();
     const derive = (term: Term): { path: string | null; depth: number } => {
       const saved = cache.get(term.id);
@@ -367,7 +394,7 @@ export class Store {
     return terms.map(term => ({ ...term, ...derive(term), narrower: children.get(term.id) ?? [] }));
   }
   terms(scheme?: string, at?: number): TermView[] {
-    const terms = this.views(this.rawTerms(at));
+    const terms = this.views(this.rawTerms(at), at);
     return terms.filter(term => !scheme || term.scheme === scheme)
       .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
   }
@@ -402,7 +429,7 @@ export class Store {
   /** Changes after `since` touching any of `schemes` (all changes when empty). */
   private changesIn(since: number, schemes: string[], term?: string): Change[] {
     this.atVersion(since);
-    const known = new Set(this.schemes().map(item => item.id));
+    const known = new Set((this.db.prepare('SELECT id FROM schemes').all() as { id: string }[]).map(item => item.id));
     if (schemes.some(id => !known.has(id))) throw new DomainError(404, 'Scheme not found.');
     const wanted = new Set(schemes);
     const inScheme = (change: Change) => [change.before, change.after, ...change.beforeTerms ?? [], ...change.afterTerms ?? [],
@@ -695,7 +722,7 @@ export class Store {
       if (data.through > this.version) throw new DomainError(400, 'Progress cannot be beyond the current changelog number.');
       if (data.blocked && (data.blocked.at <= data.through || data.blocked.at > this.version))
         throw new DomainError(422, 'A blocking change must be after the reported progress and no later than the head.');
-      const known = new Set(this.schemes().map(scheme => scheme.id));
+      const known = new Set((this.db.prepare('SELECT id FROM schemes').all() as { id: string }[]).map(scheme => scheme.id));
       if (data.schemes?.some(scheme => !known.has(scheme))) throw new DomainError(404, 'Scheme not found.');
       const row = this.db.prepare('SELECT body FROM subscribers WHERE id = ?').get(id) as { body: string } | undefined;
       const prior = row ? JSON.parse(row.body) as Subscriber : undefined;
@@ -718,7 +745,7 @@ export class Store {
     return this.subscriberView(JSON.parse(row.body) as Subscriber);
   }
   private subscriberView(subscriber: Subscriber) {
-    const pending = this.changesIn(Math.min(subscriber.through, this.version), subscriber.schemes.filter(id => this.schemes().some(s => s.id === id)));
+    const pending = this.changesIn(Math.min(subscriber.through, this.version), subscriber.schemes);
     return { ...subscriber, head: this.version, pending: pending.length, pendingBreaking: pending.filter(change => change.breaking).length,
       pendingTerms: [...new Set(pending.flatMap(change => change.terms))] };
   }
