@@ -113,10 +113,12 @@ export class Store {
       .all(this.atVersion(at)) as { body: string }[]).map(row => ({ notations: [], slugUniqueDepths: [], ...JSON.parse(row.body) })).filter(scheme => !scheme.deleted);
   }
   sets(scheme?: string, at?: number): ConceptSet[] {
+    const schemes = new Map(this.schemes(at).map(item => [item.id, item]));
     return (this.db.prepare(`SELECT r.body FROM set_revisions r JOIN
       (SELECT set_id, MAX(n) AS n FROM set_revisions WHERE n <= ? GROUP BY set_id) latest
       ON r.set_id = latest.set_id AND r.n = latest.n`).all(this.atVersion(at)) as { body: string }[])
-      .map(row => JSON.parse(row.body) as ConceptSet).filter(set => !set.deleted && (!scheme || set.scheme === scheme))
+      .map(row => JSON.parse(row.body) as ConceptSet).filter(set => !set.deleted && (!scheme || set.scheme === scheme)
+        && schemes.has(set.scheme) && set.created >= schemes.get(set.scheme)!.created)
       .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
   }
   conceptSet(id: string, at?: number): ConceptSet {
@@ -141,9 +143,11 @@ export class Store {
     })) };
   }
   private collectionSourceUris(): Map<string, string> {
-    // Tombstones retain their source identity even though normal set reads hide them.
+    // Set tombstones reserve source identities only within the current scheme incarnation.
+    const schemes = new Map(this.schemes().map(scheme => [scheme.id, scheme]));
     const sets = (this.db.prepare('SELECT body FROM concept_sets').all() as { body: string }[])
-      .map(row => JSON.parse(row.body) as ConceptSet);
+      .map(row => JSON.parse(row.body) as ConceptSet)
+      .filter(set => schemes.has(set.scheme) && set.created >= schemes.get(set.scheme)!.created);
     return new Map(sets.flatMap(set => set.sourceUri ? [[set.sourceUri, set.id] as const] : []));
   }
   private validateSets(sets: ConceptSet[], terms = this.rawTerms()) {
@@ -285,7 +289,8 @@ export class Store {
   addScheme(input: unknown): Scheme {
     const data = schemeSchema.parse(input);
     return this.db.transaction(() => {
-      if (this.db.prepare('SELECT 1 FROM schemes WHERE id = ?').get(data.id))
+      const prior = this.db.prepare('SELECT body FROM schemes WHERE id = ?').get(data.id) as { body: string } | undefined;
+      if (prior && !JSON.parse(prior.body).deleted)
         throw new DomainError(409, 'That scheme ID already exists.');
       if (data.sourceUri && this.schemes().some(scheme => scheme.sourceUri === data.sourceUri))
         throw new DomainError(409, 'That source scheme is already imported.');
@@ -299,12 +304,13 @@ export class Store {
       const scheme = { ...data, notations: uniqueNotations(data.notations),
         slugUniqueDepths: [...new Set(data.slugUniqueDepths)].sort((a, b) => a - b), created: n };
       this.log({ kind: 'scheme-added', terms: [], before: null, after: scheme, breaking: false, reason: '' });
-      this.db.prepare('INSERT INTO schemes VALUES (?, ?, ?)').run(scheme.id, n, JSON.stringify(scheme));
+      this.db.prepare(`INSERT INTO schemes VALUES (?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET created = excluded.created, body = excluded.body`).run(scheme.id, n, JSON.stringify(scheme));
       this.db.prepare('INSERT INTO scheme_revisions VALUES (?, ?, ?)').run(scheme.id, n, JSON.stringify(scheme));
       return scheme;
     })();
   }
-  /** Deletes the current scheme while keeping its revisions and identities reserved. */
+  /** Deletes the current scheme while keeping its revisions for historical reads. */
   deleteScheme(id: string, expectedVersion: number) {
     return this.db.transaction(() => {
       this.expectVersion(expectedVersion);
@@ -366,11 +372,11 @@ export class Store {
     })();
   }
   private rawTerms(at?: number): Term[] {
-    const version = this.atVersion(at), schemes = new Set(this.schemes(version).map(scheme => scheme.id));
+    const version = this.atVersion(at), schemes = new Map(this.schemes(version).map(scheme => [scheme.id, scheme]));
     return (this.db.prepare(`SELECT r.body FROM term_revisions r
       JOIN (SELECT term_id, MAX(n) AS n FROM term_revisions WHERE n <= ? GROUP BY term_id) latest
       ON r.term_id = latest.term_id AND r.n = latest.n`).all(version) as { body: string }[])
-      .map(row => ({ replacedBy: [], notations: [], formerSlugs: [], ...JSON.parse(row.body) })).filter(term => schemes.has(term.scheme));
+      .map(row => ({ replacedBy: [], notations: [], formerSlugs: [], ...JSON.parse(row.body) })).filter(term => schemes.has(term.scheme) && term.created >= schemes.get(term.scheme)!.created);
   }
   private views(terms: Term[], at?: number): TermView[] {
     const byId = new Map(terms.map(term => [term.id, term]));
@@ -576,7 +582,14 @@ export class Store {
     this.db.prepare('INSERT INTO term_revisions VALUES (?, ?, ?)').run(term.id, n, JSON.stringify(term));
     for (const alias of term.aliases) {
       const owner = this.db.prepare('SELECT term_id FROM aliases WHERE alias = ?').get(alias) as { term_id: string } | undefined;
-      if (owner && owner.term_id !== term.id) throw new DomainError(409, `Alias “${alias}” belongs to another term.`);
+      if (owner && owner.term_id !== term.id) {
+        const row = this.db.prepare(`SELECT t.body AS term, s.body AS scheme FROM terms t
+          JOIN schemes s ON s.id = t.scheme WHERE t.id = ?`).get(owner.term_id) as { term: string; scheme: string };
+        const prior = JSON.parse(row.term) as Term, scheme = JSON.parse(row.scheme) as Scheme;
+        if (!scheme.deleted && prior.created >= scheme.created)
+          throw new DomainError(409, `Alias “${alias}” belongs to another term.`);
+        this.db.prepare('DELETE FROM aliases WHERE alias = ?').run(alias);
+      }
       if (this.db.prepare('SELECT id FROM terms WHERE id = ? AND id != ?').get(alias, term.id))
         throw new DomainError(409, 'An alias cannot shadow a term ID.');
       this.db.prepare('INSERT OR IGNORE INTO aliases VALUES (?, ?)').run(alias, term.id);

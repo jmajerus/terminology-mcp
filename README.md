@@ -95,10 +95,15 @@ node dist/cli.js delete my-scheme --yes
 The first command previews the deletion; `--yes` applies it atomically. This
 removes the scheme, all its terms and concept sets from current reads, and
 removes relations to its terms from other schemes. Historical versions and
-source provenance remain available, and the deleted scheme ID stays reserved.
+source provenance remain available. You can import the scheme again using the
+same scheme ID; the new import gets new term and concept set IDs. Historical
+reads retain the original terms, and old terms do not reappear in the new scheme.
 The deletion is recorded as a breaking `scheme-deleted` change. Use
 `--db /path/to/terminology.sqlite` or `TERMINOLOGY_DB` to select a database;
-the default is `data/terminology.sqlite` (use `--db data/demo.sqlite` for the demo).
+the default is `data/terminology.sqlite` locally (use `--db data/demo.sqlite` for
+the demo). Deployed releases, identified by their `deployed.json` record, default
+to `/var/lib/terminology-mcp/terminology.sqlite`. Run deployed commands as the
+`terminology-mcp` service account; see [deployment](docs/deployment.md).
 
 To rename a scheme’s display name, preview and apply with:
 

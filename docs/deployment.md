@@ -61,6 +61,10 @@ sudo -u terminology-mcp env PATH=/opt/terminology-mcp/runtime/bin:/usr/local/bin
 
 Append `--yes` to apply. `scheme:rename` uses the same invocation followed by
 the scheme ID and quoted new name. No installation of `tsx` is needed.
+The CLI recognizes deployed releases by their `deployed.json` record and defaults
+to `/var/lib/terminology-mcp/terminology.sqlite`; `--db` and `TERMINOLOGY_DB`
+override that default. Shell sessions do not inherit the systemd service’s
+environment or database permissions.
 
 ## VS Code deployment controls
 

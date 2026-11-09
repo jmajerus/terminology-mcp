@@ -103,6 +103,12 @@ them can ignore both.
 | `set-changed` | A set's definition changed | when its label, order or recipe changed, or a member was removed |
 | `set-deleted` | A set was deleted | yes |
 
+A deleted scheme ID may be reused by a later import. Treat its `scheme-added`
+and `imported` changes as a new scheme instance: terms and sets have new IDs.
+Historical reads before deletion still return the previous instance; reads
+between deletion and recreation return no scheme or members. Reimport does not
+restore relations removed from other schemes by the deletion.
+
 `breaking` means the change may break some consumer, not that every
 consumer must stop. A consumer keyed on term ids only sees a rename as a new
 label, while a consumer keyed on labels or slugs needs to act on `labelled`

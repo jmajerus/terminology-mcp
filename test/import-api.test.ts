@@ -7,6 +7,40 @@ import { Store } from '../src/store.js';
 import { createApp } from '../src/server.js';
 import { parseRdf, SKOS } from '../src/skos.js';
 
+test('UI import preview and apply accept a previously deleted scheme identifier', async t => {
+  const store = new Store(':memory:');
+  const server = createApp(store);
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); store.close(); });
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const post = (path: string, data: unknown) => fetch(`${base}/api/imports/${path}`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  const input = { format: 'turtle', schemeId: 'research', sourceScheme: 'https://example.org/scheme', language: 'en', hierarchy: 'tree',
+    data: readFileSync(new URL('./fixtures/research.ttl', import.meta.url), 'utf8') };
+  let previewResponse = await post('preview', input);
+  assert.equal(previewResponse.status, 200);
+  let preview = await previewResponse.json();
+  assert.equal((await post('apply', { plan: preview.plan, expectedVersion: preview.expectedVersion })).status, 201);
+  const oldRoot = store.lookup('https://example.org/root');
+  const originalVersion = store.version;
+  store.deleteScheme('research', store.version);
+  const deletedVersion = store.version;
+  previewResponse = await post('preview', input);
+  assert.equal(previewResponse.status, 200, await previewResponse.clone().text());
+  preview = await previewResponse.json();
+  assert.equal(store.version, deletedVersion);
+  assert.equal(store.schemes().length, 0);
+  assert.equal((await post('apply', { plan: preview.plan, expectedVersion: preview.expectedVersion })).status, 201);
+  assert.notEqual(store.lookup('https://example.org/root').id, oldRoot.id);
+  assert.equal(store.lookup('https://example.org/root', originalVersion).id, oldRoot.id);
+  const state = await (await fetch(`${base}/api/state?scheme=research`)).json();
+  assert.equal(state.terms.length, 3);
+  const health = await (await fetch(`${base}/health`)).json();
+  assert.equal(health.schemes, 1);
+  assert.equal(health.terms, 3);
+});
+
 test('file import and structural preview API enforce atomic writes, stale preview rejection, and versioned export', async t => {
   const store = new Store(':memory:');
   const server = createApp(store); server.listen(0, '127.0.0.1'); await once(server, 'listening');

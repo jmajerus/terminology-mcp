@@ -96,7 +96,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
       if (req.method === 'GET' && url.pathname === '/health') {
         const count = (table: 'schemes' | 'terms') => (store.db.prepare(table === 'schemes'
           ? "SELECT COUNT(*) AS n FROM schemes WHERE COALESCE(json_extract(body, '$.deleted'), 0) = 0"
-          : "SELECT COUNT(*) AS n FROM terms t JOIN schemes s ON t.scheme = s.id WHERE COALESCE(json_extract(s.body, '$.deleted'), 0) = 0").get() as { n: number }).n;
+          : "SELECT COUNT(*) AS n FROM terms t JOIN schemes s ON t.scheme = s.id WHERE COALESCE(json_extract(s.body, '$.deleted'), 0) = 0 AND json_extract(t.body, '$.created') >= s.created").get() as { n: number }).n;
         json(res, 200, { ok: true, log: store.logId, version: store.version, schemes: count('schemes'), terms: count('terms'),
           deployed: await deploymentRecord(options.deploymentFile) });
         return;

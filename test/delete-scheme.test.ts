@@ -6,6 +6,53 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../src/store.js';
 
+test('deleted schemes can be reimported with their IDs, source IRIs, aliases and collections', t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  const plan = {
+    scheme: { id: 'example', label: 'Example', hierarchy: 'tree', sourceUri: 'https://example.org/scheme' },
+    terms: [{ key: 'https://example.org/root', label: 'Root', aliases: ['external-root'] },
+      { key: 'https://example.org/old', label: 'Old child', broader: ['https://example.org/root'] }],
+    sets: [{ key: 'https://example.org/collection', slug: 'selected', label: 'Selected', members: ['https://example.org/root'] }],
+  };
+  const first = store.importScheme(plan, store.version);
+  const original = store.lookup('external-root'), oldChild = store.lookup('https://example.org/old');
+  const originalVersion = store.version;
+  store.deleteScheme('example', store.version);
+  const deletedVersion = store.version;
+  const replacement = { ...plan, terms: [plan.terms[0]] };
+  store.preview(() => store.importScheme(replacement, store.version));
+  assert.equal(store.version, deletedVersion);
+  assert.equal(store.schemes().length, 0);
+  assert.throws(() => store.lookup('external-root'), /not found/);
+  assert.equal(store.lookup('external-root', originalVersion).id, original.id);
+  // A failed reimport must restore the tombstone and all old history.
+  assert.throws(() => store.importScheme({ ...replacement, sets: [{ ...plan.sets[0], members: ['https://example.org/missing'] }] }, store.version), /Unresolved/);
+  assert.equal(store.version, deletedVersion);
+  assert.equal(store.schemes().length, 0);
+  const second = store.importScheme(replacement, store.version);
+  const current = store.lookup('external-root');
+  assert.notEqual(current.id, original.id);
+  assert.equal(store.lookup('https://example.org/root').id, current.id);
+  assert.equal(store.lookup('example:root').id, current.id);
+  assert.equal(store.terms().length, 1);
+  assert.throws(() => store.lookup(oldChild.id), /not found/);
+  assert.throws(() => store.lookup(original.id), /not found/);
+  assert.equal(store.terms('example', originalVersion).length, 2);
+  assert.equal(store.terms('example', deletedVersion).length, 0);
+  assert.equal(store.schemes(deletedVersion).length, 0);
+  assert.equal(store.lookup('example:root', originalVersion).id, original.id);
+  assert.notEqual(first.sets[0].id, second.sets[0].id);
+  assert.deepEqual(store.expandSet(second.sets[0].id).terms.map(term => term.id), [current.id]);
+  assert.equal(store.conceptSet(first.sets[0].id, originalVersion).members[0], original.id);
+  assert.throws(() => store.addScheme(plan.scheme), /already exists/);
+  store.deleteScheme('example', store.version);
+  store.addScheme({ id: 'example', label: 'Empty replacement', hierarchy: 'graph' });
+  assert.equal(store.terms('example').length, 0);
+  assert.equal(store.sets('example').length, 0);
+  assert.equal(store.lookup(current.id, second.version).id, current.id);
+});
+
 test('scheme deletion is atomic, versioned and visible to subscribed consumers', t => {
   const store = new Store(':memory:');
   t.after(() => store.close());
@@ -33,7 +80,6 @@ test('scheme deletion is atomic, versioned and visible to subscribed consumers',
   assert.equal(store.sets().length, 0);
   assert.throws(() => store.lookup(child.id), /not found/);
   assert.throws(() => store.addTerm({ scheme: 'one', label: 'No' }), /not found/);
-  assert.throws(() => store.addScheme({ id: 'one', label: 'No', hierarchy: 'tree' }), /already exists/);
   assert.equal(store.lookup(child.id, before).path, 'root/child');
   assert.equal(store.schemes(before).length, 2);
   assert.equal(store.conceptSet(set.id, before).members[0], child.id);
