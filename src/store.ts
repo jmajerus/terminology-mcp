@@ -692,8 +692,8 @@ export class Store {
     })();
   }
   private proposalResult(term: Term) {
-    const keys = this.termKeys(), view = keys.resolve(term.id).term;
-    return { id: view.id, key: keys.key(view), slug: view.slug, status: view.status, change: term.created, version: this.version, term: view };
+    const keys = this.termKeys(), found = keys.resolve(term.id).term, view = { ...found, key: keys.key(found) };
+    return { id: view.id, key: view.key, slug: view.slug, status: view.status, change: term.created, version: this.version, term: view };
   }
   private termSource(target: string, ref: string, scheme: string | undefined, match: TermSource['match']): TermSource {
     const origin = this.resolveSource(target, ref, scheme);

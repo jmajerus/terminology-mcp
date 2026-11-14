@@ -65,6 +65,25 @@ test('a slug that repeats below its scheme-wide depth needs its parent slug or p
   assert.equal(store.lookup('subjects:humanities/history/method').id, historyMethod.id);
   assert.throws(() => store.lookup('subjects:humanities/method'), /not found/);
   assert.equal(store.termKeys().key(store.lookup(physicsMethod.id)), 'subjects:physics/method');
+  // A former slug anywhere in the path still resolves, and is reported as not current.
+  store.operate(history.id, { kind: 'slug', slug: 'past', expectedVersion: store.version });
+  const former = store.resolve('subjects:history/method');
+  assert.equal(former.term.id, historyMethod.id); assert.equal(former.current, false);
+  assert.equal(store.resolve('subjects:past/method').current, true);
+  assert.equal(store.termKeys().key(store.lookup(historyMethod.id)), 'subjects:past/method');
+});
+
+test('a key takes the shortest path through any broader term, not only the first', t => {
+  const store = new Store(':memory:'); t.after(() => store.close());
+  store.addScheme({ id: 'poly', label: 'Poly', hierarchy: 'poly' });
+  const a = store.addTerm({ scheme: 'poly', label: 'A' }), b = store.addTerm({ scheme: 'poly', label: 'B' });
+  const q = store.addTerm({ scheme: 'poly', label: 'Q' });
+  const pa = store.addTerm({ scheme: 'poly', label: 'P', broader: [a.id] }), pb = store.addTerm({ scheme: 'poly', label: 'P', broader: [b.id] });
+  // poly:x and poly:p/x each name two terms; only the path through the second broader term, Q, is unique at that length.
+  const x = store.addTerm({ scheme: 'poly', label: 'X', broader: [pa.id, q.id] });
+  store.addTerm({ scheme: 'poly', label: 'X', broader: [pb.id] });
+  assert.equal(store.termKeys().key(store.lookup(x.id)), 'poly:q/x');
+  assert.equal(store.lookup('poly:q/x').id, x.id);
 });
 
 test('MCP tools take scheme:slug wherever a term is taken, return keys, and note an alias that shadows a slug', async t => {
@@ -95,9 +114,9 @@ test('MCP tools take scheme:slug wherever a term is taken, return keys, and note
   const ambiguous = await client.callTool({ name: 'get_term', arguments: { ref: 'subjects:method' } });
   assert.equal(ambiguous.isError, true);
   assert.match(JSON.stringify(ambiguous.content), /subjects:history\/method.*subjects:physics\/method|subjects:physics\/method.*subjects:history\/method/);
-  const proposed = await call<{ key: string; term: { broader: string[] } }>('propose_term', { scheme: 'human-work', broader: 'human-work:conflict',
+  const proposed = await call<{ key: string; term: { key: string; broader: string[] } }>('propose_term', { scheme: 'human-work', broader: 'human-work:conflict',
     label: 'Blame', evidence: { quote: 1 }, proposer: 'test' });
-  assert.deepEqual([proposed.key, proposed.term.broader], ['human-work:blame', [conflict.id]]);
+  assert.deepEqual([proposed.key, proposed.term.key, proposed.term.broader], ['human-work:blame', 'human-work:blame', [conflict.id]]);
   // The alias wins over the scheme:slug and the answer says which term the slug would have named.
   const truce = store.addTerm({ scheme: 'human-work', label: 'Truce', aliases: ['human-work:conflict'] });
   const shadow = await call<{ term: Keyed; notices: { ref: string; message: string }[] }>('get_term', { ref: 'human-work:conflict' });
