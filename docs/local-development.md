@@ -117,7 +117,7 @@ conflicts 409, and missing resources 404, with `{ "error": "…" }` bodies.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/state?at=N&scheme=ID` | Schemes, terms and sets at N, including derived hierarchy; optional scheme filter |
-| GET | `/api/terms/:id-or-alias?at=N` | Lookup by stable ID or URL-encoded alias |
+| GET | `/api/terms/:ref?at=N` | Lookup by stable ID, URL-encoded alias, or `scheme:slug` (see [term references](mcp.md#term-references)) |
 | GET | `/api/changes?since=N&term=ID&scheme=ID` | Ordered changes after N; optional affected-term and scheme filters (unknown scheme: 404) |
 | GET | `/api/schemes/:id/slugs/:slug?parent=REF&depth=D&at=N` | Resolve a current or former slug; `parent` (ID, alias or slug) or `depth` narrows it |
 | POST | `/api/schemes` | Create `{id, label, hierarchy, description?, admissionTest?, slugUniqueDepths?, maxDepth?, slugScope?, proposalSource?}` |

@@ -78,25 +78,57 @@ arguments. Unknown versions, schemes and sets produce explicit errors.
 | Tool | Purpose |
 |---|---|
 | `list_schemes` | List scheme definitions with their declared structure. |
-| `search_terms` | Browse/search labels, alternative labels, notation values, aliases and source IRIs. Filter by scheme (or `excludeScheme`), expanded set and/or status. Each hit carries its `iri`. |
-| `get_term` | Resolve a stable ID or exact alias; return fields, replacements and connections in all four directions. |
-| `get_graph` | Active nodes and typed edges within a scheme, set or neighbourhood. Supports `around`, `depth` (0–5) and `types`. |
+| `search_terms` | Browse/search labels, alternative labels, notation values, aliases and source IRIs. Filter by scheme (or `excludeScheme`), expanded set and/or status. Each hit carries its `iri` and `key`. |
+| `get_term` | Resolve a [term reference](#term-references); return fields (with `key`), replacements and connections in all four directions. |
+| `get_graph` | Active nodes and typed edges within a scheme, set or neighbourhood. Supports `around` (any term reference), `depth` (0–5) and `types`. Each concept carries its `key`. |
 | `list_sets` | List collection definitions, optionally within a scheme. |
 | `get_set` | Get a collection definition by stable set ID. |
-| `expand_set` | Expand explicit, ordered, nested or recipe membership; preserve ordered collection order and retirement warnings. |
-| `get_term_collections` | Same-scheme collections with direct, inherited, calculated and included flags. Includes collections the term is outside. |
-| `validate_term` | Check existence, retirement and optional expanded-set membership; return replacements for retired terms. Provisional terms count as valid. |
-| `subsumes` | Compare two terms through transitive broader links, including every parent. Related/opposite and mappings do not imply subsumption. |
+| `expand_set` | Expand explicit, ordered, nested or recipe membership; preserve ordered collection order and retirement warnings. Each term carries its `key`. |
+| `get_term_collections` | Same-scheme collections with direct, inherited, calculated and included flags. Includes collections the term is outside. Returns the term's `id` and `key`. |
+| `validate_term` | Check existence, retirement and optional expanded-set membership; return the term's `id`, `key` and replacements for retired terms. Provisional terms count as valid. |
+| `subsumes` | Compare two terms through transitive broader links, including every parent. Related/opposite and mappings do not imply subsumption. Returns both IDs and their `keys`. |
 | `get_changes` | Read change summaries after `since`, optionally filtered by stable term ID or by `scheme`. Request full revision bodies with `includeSnapshots: true`. |
 | `export_skos` | Export a scheme and its collections as Turtle, preserving notations, mappings and collection definitions. |
 | `list_subscribers` | Each consumer's reported progress through the changelog, what is pending for its schemes (and how much of it is breaking), and any change it is held at. |
-| `propose_term` | Add a provisional term under an existing broader term (ID, alias or slug), copied from a `source` term in a reference vocabulary and linked to it with `match`. Find the source with `search_terms` first. Where the scheme's `proposalSource` is `optional` (`human-work`), pass `label` and `evidence` instead; in a concept graph, `broader` is optional. See [proposals](following-changes.md#proposing-terms). |
+| `propose_term` | Add a provisional term under an existing broader term (any term reference, or a bare slug in the target scheme), copied from a `source` term in a reference vocabulary and linked to it with `match`. Find the source with `search_terms` first. Where the scheme's `proposalSource` is `optional` (`human-work`), pass `label` and `evidence` instead; in a concept graph, `broader` is optional. See [proposals](following-changes.md#proposing-terms). |
+
+## Term references
+
+Wherever a tool takes a term (`ref` in `get_term`, `validate_term` and
+`get_term_collections`; `a` and `b` in `subsumes`; `around` in `get_graph`;
+`broader` in `propose_term`), it accepts, tried in this order:
+
+1. a stable ID (`t_…`);
+2. an exact alias, including a tree term's `scheme:path` and imported
+   aliases such as `quote-mcp:human-work:blame`;
+3. a concept key, `scheme:slug`, as essay sources and quote-mcp name
+   concepts (`human-work:conflict`). It resolves as
+   `GET /api/schemes/:scheme/slugs/:slug` does, former slugs included.
+
+An earlier kind that matches decides, so a string that is both an alias of
+one term and the `scheme:slug` of another resolves to the alias; the answer
+then carries `notices` naming the other term and the key that reaches it. A
+former slug resolves too, with a notice; the term's `key` gives its current
+form.
+
+Where slugs are unique only among siblings or at some depths
+(`slugUniqueDepths`), a slug can repeat in a scheme. Narrow it with the slugs
+of its broader terms, `scheme:parent/slug` (as many levels as needed), or
+use the tree path alias. A bare `scheme:slug` that names several terms is
+an error listing each candidate's ID, key, label, status, path and broader
+terms.
+
+Every term in a result carries `key`: the shortest `scheme:…slug` that
+resolves back to it (its stable ID when no slug form does). Reuse it in later
+calls and in documents. The REST term routes (`/api/terms/:ref`) resolve
+the same references.
 
 Search uses case-insensitive NFKC-normalized substring matching, without
 fuzzy matching or full-text syntax. It includes active and provisional terms
 by default; `status: "all"` also includes retired terms. `get_term` and
-`validate_term` resolve retired identities and their aliases. Labels are not
-unique identifiers; use search to find a term's stable ID.
+`validate_term` resolve retired identities, their aliases and their slugs.
+Labels are not unique identifiers; use search to find a term's stable ID or
+key.
 
 `subsumes` returns `equivalent` for the same ID, `subsumes` when `a` is an
 ancestor of `b`, `subsumed-by` for the inverse, and `not-subsumed` otherwise.
@@ -119,8 +151,9 @@ the set definition and warnings. For example:
 {"query":"psychic prison","scheme":"human-work","limit":10}
 ```
 
-Pass a returned ID to `get_term` with the returned version as `at`, or
-to `get_graph` as `around` to explore its typed neighbourhood.
+Pass a returned ID or key to `get_term` with the returned version as `at`,
+or to `get_graph` as `around` to explore its typed neighbourhood. A known
+concept key needs no search: `{"ref":"human-work:conflict"}`.
 
 For changelog catch-up, call `get_changes` with your saved `since` cursor.
 Keep its `version` as `at` and continue with `nextSince` until null. Once
@@ -152,6 +185,7 @@ continue through the editor and its existing validation/preview controls.
 uses the official SDK client to initialize, discover and call the tools.
 It covers paging across concurrent edits, historical reads, multi-parent
 and cross-scheme relationships, collection order/membership, retirement,
-SKOS, output limits and HTTP host/origin protections. `test/subscribers.test.ts`
+SKOS, output limits and HTTP host/origin protections. `test/concept-keys.test.ts`
+covers term references and keys. `test/subscribers.test.ts`
 covers `propose_term` and `list_subscribers`. The suite also runs
 with `npm test`.
