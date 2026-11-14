@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import { createTermSchema, editTermSchema, schemeSchema, operationSchema, importPlanSchema, uniqueNotations, DomainError,
   conceptSetSchema, pathLabel as slug, slugify, slugSchema, proposeTermSchema, schemeSettingsSchema, progressSchema, termIri,
   type ConceptSet, type Scheme, type Term, type TermView, type Change, type Subscriber, type TermSource } from './model.js';
+import { TermKeys, type Resolution } from './keys.js';
 
 const setReferences = (set: Pick<ConceptSet, 'members' | 'recipe'>) => [...set.members,
   ...set.recipe?.concepts ?? [], ...set.recipe?.narrower ?? [], ...set.recipe?.exclude ?? [], ...set.recipe?.around.map(rule => rule.term) ?? []];
@@ -404,11 +405,18 @@ export class Store {
     return terms.filter(term => !scheme || term.scheme === scheme)
       .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
   }
+  /** Resolves a stable ID, exact alias, or `scheme:slug` (former slugs included; see TermKeys). */
   lookup(ref: string, at?: number): TermView {
+    return this.resolve(ref, at).term;
+  }
+  /** As lookup, saying how the reference matched. */
+  resolve(ref: string, at?: number): Resolution {
     // Resolve against the historical term bodies, never today's alias index.
-    const term = this.terms(undefined, at).find(term => term.id === ref || term.aliases.includes(ref));
-    if (!term) throw new DomainError(404, 'Term not found at this version.');
-    return term;
+    return this.termKeys(at).resolve(ref);
+  }
+  /** Concept keys (`scheme:slug`) for the terms at a version. */
+  termKeys(at?: number): TermKeys {
+    return new TermKeys(this.terms(undefined, at));
   }
   /** Resolves a current or former slug within a scheme; `parent` (an ID, alias or slug) or `depth` narrows the match. */
   slugLookup(scheme: string, value: string, filter: { parent?: string; depth?: number } = {}, at?: number): { version: number; term: TermView; current: boolean } {
@@ -684,8 +692,8 @@ export class Store {
     })();
   }
   private proposalResult(term: Term) {
-    const view = this.lookup(term.id);
-    return { id: view.id, slug: view.slug, status: view.status, change: term.created, version: this.version, term: view };
+    const keys = this.termKeys(), found = keys.resolve(term.id).term, view = { ...found, key: keys.key(found) };
+    return { id: view.id, key: view.key, slug: view.slug, status: view.status, change: term.created, version: this.version, term: view };
   }
   private termSource(target: string, ref: string, scheme: string | undefined, match: TermSource['match']): TermSource {
     const origin = this.resolveSource(target, ref, scheme);
