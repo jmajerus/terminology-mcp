@@ -227,9 +227,13 @@ function renderRelations() {
 function addLink(link, changed = true) {
   const row = document.createElement('div');
   row.className = 'relation-add link-row';
-  row.innerHTML = `<select aria-label="Reference match"><option value="exactMatch" ${link.match === 'exactMatch' ? 'selected' : ''}>Exact match</option><option value="closeMatch" ${link.match === 'closeMatch' ? 'selected' : ''}>Close match</option>${['broadMatch', 'narrowMatch', 'relatedMatch'].map(match => `<option value="${match}" ${link.match === match ? 'selected' : ''}>${match.replace('Match', ' match')}</option>`).join('')}</select><input class="target" type="text" aria-label="Reference URL" value="${escape(link.uri)}" placeholder="https://…" required><button type="button" class="button small" aria-label="Remove reference">×</button>`;
+  row.innerHTML = `<select aria-label="Reference match"><option value="exactMatch" ${link.match === 'exactMatch' ? 'selected' : ''}>Exact match</option><option value="closeMatch" ${link.match === 'closeMatch' ? 'selected' : ''}>Close match</option>${['broadMatch', 'narrowMatch', 'relatedMatch'].map(match => `<option value="${match}" ${link.match === match ? 'selected' : ''}>${match.replace('Match', ' match')}</option>`).join('')}</select><input class="target" type="text" aria-label="Reference URL" value="${escape(link.uri)}" placeholder="https://…" required><a class="button small link-open" target="_blank" rel="noopener noreferrer" aria-label="Open reference in a new tab" title="Open in a new tab">↗</a><button type="button" class="button small" aria-label="Remove reference">×</button>`;
   row.querySelector('button').onclick = () => { row.remove(); markDirty(); };
   const gloss = document.createElement('p'); gloss.className = 'help link-gloss'; gloss.hidden = true; row.append(gloss);
+  // The reference opens in a new tab; only http(s) URLs get a link, so a pasted javascript: URL never becomes one.
+  const open = row.querySelector('.link-open'), input = row.querySelector('input');
+  const updateOpen = () => { const uri = input.value.trim(), web = /^https?:\/\/\S+$/i.test(uri); open.hidden = !web; if (web) open.href = uri; else open.removeAttribute('href'); };
+  input.addEventListener('input', updateOpen); updateOpen();
   row.querySelector('input').addEventListener('change', () => describeLink(row));
   $('#links').append(row);
   describeLink(row);

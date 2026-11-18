@@ -32,10 +32,18 @@ test('WordNet links show their synset gloss, flag unknown ids, and ignore late a
   await expect(gloss(1)).toHaveText('Open English WordNet has no synset with this id.');
   await expect(gloss(1)).toHaveClass(/form-error/);
   await expect(gloss(2)).toBeHidden();
+  const open = (i: number) => rows.nth(i).getByRole('link', { name: 'Open reference in a new tab' });
+  await expect(open(0)).toHaveAttribute('href', ANGER);
+  await expect(open(0)).toHaveAttribute('target', '_blank');
+  await expect(open(2)).toHaveAttribute('href', 'https://example.org/anger');
 
   // Changed to a slow id and then away from WordNet before it answers: the row stays without a gloss.
   const url = rows.nth(0).getByLabel('Reference URL');
   await url.fill(SLOW); await url.press('Tab');
+  await url.fill('https://example.org/elsewhere'); await url.press('Tab');
+  await expect(open(0)).toHaveAttribute('href', 'https://example.org/elsewhere');
+  await url.fill('javascript:alert(1)');
+  await expect(rows.nth(0).locator('.link-open')).toBeHidden();
   await url.fill('https://example.org/elsewhere'); await url.press('Tab');
   await expect(gloss(0)).toBeHidden();
   await slowDone;
