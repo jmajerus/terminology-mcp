@@ -9,7 +9,7 @@ synchronization or an update/merge of an existing local scheme.
 ## Editor workflow
 
 1. Choose **Import SKOS…** in the outline.
-2. Select an RDF file (`.ttl`, `.nt`, `.rdf`, `.owl`), or enter a SPARQL **query endpoint** and optional
+2. Select an RDF file (`.ttl`, `.nt`, `.rdf`, `.owl`, or BioPortal's `.xrdf`), or enter a SPARQL **query endpoint** and optional
    named graph. For the local server use `http://oxigraph.localdomain:7878/query`.
    An omitted graph uses the endpoint's default graph, not every named graph.
 3. Click **Find schemes** and choose a declared `skos:ConceptScheme`.
