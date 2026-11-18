@@ -86,7 +86,9 @@ export function createMcpServer(store: Store, options: { caller?: string; wordne
       .map(edge => ({ type: edge.type, target: edge.to })) }, [notice(args.ref, found)]);
   }));
   server.registerTool('search_wordnet', { description: 'Find Open English WordNet synsets for a word or phrase (whole words, any case; e.g. "anger" or "see red"), to judge or suggest a WordNet closeMatch for a concept. Each result has the synset uri (https://en-word.net/id/…, the form links use), its words, part of speech and definition; nouns come first. Read-only: links are added in the web editor.',
-    inputSchema: z.object({ word: z.string().trim().min(1).max(100) }).strict(), annotations }, args => run(async () => {
+    inputSchema: z.object({ word: z.string().trim().min(1).max(100) }).strict(),
+    // It asks the WordNet server, outside this vocabulary.
+    annotations: { ...annotations, openWorldHint: true } }, args => run(async () => {
     const results = await options.wordnetSearch?.(args.word);
     if (!results) throw new DomainError(503, 'The WordNet server is unavailable or lookups are turned off.');
     return { word: args.word, results };

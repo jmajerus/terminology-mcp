@@ -144,3 +144,25 @@ test('GET /api/wordnet/search and MCP search_wordnet return the matches, or say 
   assert.equal(off.isError, true);
   assert.match((off.content as { text: string }[])[0].text, /unavailable/);
 });
+
+test('a slow failure never evicts a newer cache entry for the same word or id', async () => {
+  for (const kind of ['search', 'lookup'] as const) {
+    let calls = 0, failFirst!: (error: Error) => void;
+    const fetchImpl = (async () => {
+      calls++;
+      if (calls === 1) return new Promise<Response>((_, reject) => { failFirst = reject; });
+      return new Response(JSON.stringify({ results: { bindings: [kind === 'search' ? hit('oewn-2-n', 'noun', 'anger') : row('anger')] } }));
+    }) as typeof fetch;
+    // A cache of one entry: asking for "other" evicts the first, pending, request.
+    const ask = kind === 'search' ? (() => { const s = wordnetSearch(config, fetchImpl, 1); return (k: string) => s(k === 'a' ? 'anger' : 'other'); })()
+      : (() => { const l = wordnetLookup(config, fetchImpl, 1); return (k: string) => l(k === 'a' ? ANGER : ID_BASE + 'oewn-1-n'); })();
+    const first = ask('a');
+    await ask('b');
+    await ask('a');
+    failFirst(new Error('down'));
+    assert.equal(await first, null);
+    const before = calls;
+    await ask('a');
+    assert.equal(calls, before, `${kind}: the newer answer should still be cached`);
+  }
+});

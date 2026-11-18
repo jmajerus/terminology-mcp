@@ -50,6 +50,11 @@ export function synsetFrom(uri: string, rows: Binding[]): Synset {
   return { uri, found: true, words, pos, definition: rows[0].def?.value };
 }
 
+/** Drops a failed answer so the next request asks again, unless a newer request has already replaced it. */
+function forget<T>(cache: Map<string, Promise<T>>, key: string, answer: Promise<T>) {
+  if (cache.get(key) === answer) cache.delete(key);
+}
+
 /**
  * A cached lookup. Answers (found or not) are kept per id, up to `limit` ids; a failure is not kept, so the next
  * request tries the server again. Resolves null for a link that isn't a synset id or when the server can't answer.
@@ -61,7 +66,7 @@ export function wordnetLookup(config: WordnetConfig | null, fetchImpl: typeof fe
     if (!config || !id) return Promise.resolve(null);
     const cached = cache.get(id);
     if (cached) return cached.then(synset => synset && { ...synset, uri });
-    const answer = (async () => {
+    const answer: Promise<Synset | null> = (async () => {
       const response = await fetchImpl(`${config.baseUrl}/query`, {
         method: 'POST', body: new URLSearchParams({ query: synsetQuery(id, config.graph) }),
         headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/sparql-results+json' },
@@ -70,7 +75,7 @@ export function wordnetLookup(config: WordnetConfig | null, fetchImpl: typeof fe
       if (!response.ok) throw new Error(`WordNet server answered ${response.status}`);
       const body = await response.json() as { results: { bindings: Binding[] } };
       return synsetFrom(uri, body.results.bindings);
-    })().catch(() => { cache.delete(id); return null; });
+    })().catch(() => { forget(cache, id, answer); return null; });
     if (cache.size >= limit) cache.delete(cache.keys().next().value!);
     cache.set(id, answer);
     return answer;
@@ -126,7 +131,7 @@ export function wordnetSearch(config: WordnetConfig | null, fetchImpl: typeof fe
     const key = forms[0].toLowerCase();
     const cached = cache.get(key);
     if (cached) return cached;
-    const answer = (async () => {
+    const answer: Promise<Synset[] | null> = (async () => {
       const response = await fetchImpl(`${config.baseUrl}/query`, {
         method: 'POST', body: new URLSearchParams({ query: searchQuery(forms, config.graph) }),
         headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/sparql-results+json' },
@@ -135,7 +140,7 @@ export function wordnetSearch(config: WordnetConfig | null, fetchImpl: typeof fe
       if (!response.ok) throw new Error(`WordNet server answered ${response.status}`);
       const body = await response.json() as { results: { bindings: Binding[] } };
       return searchResults(body.results.bindings);
-    })().catch(() => { cache.delete(key); return null; });
+    })().catch(() => { forget(cache, key, answer); return null; });
     if (cache.size >= limit) cache.delete(cache.keys().next().value!);
     cache.set(key, answer);
     return answer;
