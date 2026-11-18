@@ -66,3 +66,28 @@ test('GET /api/wordnet describes a link, and answers null when lookups are off',
   const off = await (await fetch(`${origins[1]}/api/wordnet?uri=${encodeURIComponent(ANGER)}`)).json();
   assert.equal(off.synset, null);
 });
+
+test('MCP get_term adds the synset gloss to a WordNet link and leaves other links alone', async t => {
+  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { createMcpServer } = await import('../src/mcp.js');
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  store.addScheme({ id: 'subjects', label: 'Subjects', hierarchy: 'tree' });
+  const term = store.addTerm({ scheme: 'subjects', label: 'Anger', links: [
+    { uri: ANGER, match: 'closeMatch' }, { uri: 'https://example.org/anger', match: 'relatedMatch' }] });
+  const read = async (wordnet?: ReturnType<typeof wordnetLookup>) => {
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '1' });
+    await Promise.all([createMcpServer(store, { wordnet }).connect(a), client.connect(b)]);
+    const result = await client.callTool({ name: 'get_term', arguments: { ref: term.id } });
+    await client.close();
+    return (result.structuredContent as { term: { links: Record<string, unknown>[] } }).term.links;
+  };
+  assert.deepEqual(await read(wordnetLookup(config, answering([row('anger')]))), [
+    { uri: ANGER, match: 'closeMatch', wordnet: { found: true, words: ['anger'], pos: 'noun', definition: 'a strong emotion' } },
+    { uri: 'https://example.org/anger', match: 'relatedMatch' }]);
+  assert.deepEqual((await read(wordnetLookup(config, (async () => { throw new Error('down'); }) as typeof fetch)))[0],
+    { uri: ANGER, match: 'closeMatch' });
+  assert.deepEqual((await read())[0], { uri: ANGER, match: 'closeMatch' });
+});

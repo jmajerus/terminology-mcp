@@ -6,6 +6,7 @@ import { DomainError, termIri, type TermView } from './model.js';
 import { conceptGraph, graphEdges, graphTypes } from './graph.js';
 import { exportSkos } from './skos.js';
 import { notice, type TermKeys } from './keys.js';
+import type { WordnetLookup } from './wordnet.js';
 
 const at = z.number().int().nonnegative().optional().describe('Changelog version. Omit for current; reuse a returned version to pin subsequent reads.');
 const ref = z.string().min(1).max(2000).describe('Stable term ID, exact alias (including scheme:path), or scheme:slug such as "human-work:conflict" (former slugs too; scheme:parent-slug/slug where a slug repeats). Labels are searched with search_terms.');
@@ -37,7 +38,7 @@ async function run(work: () => unknown | Promise<unknown>): Promise<CallToolResu
 }
 
 /** Each HTTP request owns a server/transport; every tool captures one changelog version. */
-export function createMcpServer(store: Store, options: { caller?: string } = {}): McpServer {
+export function createMcpServer(store: Store, options: { caller?: string; wordnet?: WordnetLookup } = {}): McpServer {
   const server = new McpServer({ name: 'terminology-mcp', version: '0.1.0' }, { instructions:
     'Read the master terminology vocabulary. Start with list_schemes or search_terms, then use stable IDs or concept keys (scheme:slug, e.g. human-work:conflict) for lookup, graphs and concept sets. '
     + 'A term reference is tried as a stable ID, then an exact alias, then scheme:slug; each term carries its key. '
@@ -72,9 +73,15 @@ export function createMcpServer(store: Store, options: { caller?: string } = {})
     const found = slice(terms, args.offset, args.limit), key = keyed(store.termKeys(v));
     return { version: v, ...found, items: found.items.map(t => ({ ...key(t), iri: termIri(t) })) };
   }));
-  server.registerTool('get_term', { description: 'Resolve a stable ID, exact alias or scheme:slug (e.g. human-work:conflict), including retired terms, replacements and all incoming/outgoing typed connections. The term carries its key (scheme:slug) for reuse.',
-    inputSchema: z.object({ ref, at }).strict(), annotations }, args => run(() => {
-    const v = version(args.at), keys = store.termKeys(v), found = keys.resolve(args.ref), term = keyed(keys)(found.term);
+  server.registerTool('get_term', { description: 'Resolve a stable ID, exact alias or scheme:slug (e.g. human-work:conflict), including retired terms, replacements and all incoming/outgoing typed connections. The term carries its key (scheme:slug) for reuse. A link to an Open English WordNet synset (https://en-word.net/id/…) carries wordnet: the synset\'s words, part of speech and definition, or found=false when WordNet has no such synset; it is absent when the WordNet server cannot be reached.',
+    inputSchema: z.object({ ref, at }).strict(), annotations }, args => run(async () => {
+    const v = version(args.at), keys = store.termKeys(v), found = keys.resolve(args.ref), keyedTerm = keyed(keys)(found.term);
+    const term = { ...keyedTerm, links: await Promise.all(keyedTerm.links.map(async link => {
+      const synset = await options.wordnet?.(link.uri);
+      if (!synset) return link;
+      const { uri: _uri, ...wordnet } = synset;
+      return { ...link, wordnet };
+    })) };
     return noted({ version: v, term, connections: graphEdges(store.terms(undefined, v)).filter(edge => edge.from === term.id)
       .map(edge => ({ type: edge.type, target: edge.to })) }, [notice(args.ref, found)]);
   }));

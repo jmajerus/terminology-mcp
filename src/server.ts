@@ -87,7 +87,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 405, { error: 'MCP uses stateless Streamable HTTP POST requests.' }); return;
         }
         const input = await body(req);
-        const mcp = createMcpServer(store, { caller });
+        const mcp = createMcpServer(store, { caller, wordnet: options.wordnet });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on('close', () => { void mcp.close().catch(error => console.error('MCP cleanup failed:', error)); });
         try { await mcp.connect(transport); await transport.handleRequest(req, res, input); }
