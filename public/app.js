@@ -627,7 +627,7 @@ $('#import-scheme').onclick = () => {
 };
 $('#import-format').onchange = () => {
   $('#import-dialog h2').textContent = $('#import-format').value === 'graph-json' ? 'Import a concept graph' : 'Import a SKOS scheme';
-  $('#import-file-field .field-label').textContent = $('#import-format').value === 'graph-json' ? 'Graph JSON file' : 'Turtle file';
+  $('#import-file-field .field-label').textContent = $('#import-format').value === 'graph-json' ? 'Graph JSON file' : 'RDF file';
   $('#import-file-field').hidden = $('#import-format').value === 'sparql';
   $('#import-hierarchy').value = 'auto';
   $('#import-sparql-fields').hidden = $('#import-format').value !== 'sparql';

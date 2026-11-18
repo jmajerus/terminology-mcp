@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The same vocabulary as research.ttl, in RDF/XML. -->
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:skos="http://www.w3.org/2004/02/skos/core#"
+         xmlns:dct="http://purl.org/dc/terms/"
+         xml:base="https://example.org/">
+  <skos:ConceptScheme rdf:about="scheme">
+    <skos:prefLabel xml:lang="en">Research</skos:prefLabel>
+    <dct:description xml:lang="en">A vocabulary</dct:description>
+    <skos:notation rdf:datatype="https://example.org/SchemeCode">RES</skos:notation>
+  </skos:ConceptScheme>
+  <skos:Concept rdf:about="root">
+    <skos:inScheme rdf:resource="scheme"/>
+    <skos:prefLabel xml:lang="en">Root</skos:prefLabel>
+    <skos:prefLabel xml:lang="fr">Racine</skos:prefLabel>
+    <skos:narrower rdf:resource="child"/>
+    <skos:narrower rdf:resource="peer"/>
+  </skos:Concept>
+  <skos:Concept rdf:about="peer">
+    <skos:inScheme rdf:resource="scheme"/>
+    <skos:prefLabel xml:lang="en">Peer</skos:prefLabel>
+  </skos:Concept>
+  <skos:Concept rdf:about="child">
+    <skos:inScheme rdf:resource="scheme"/>
+    <skos:prefLabel xml:lang="en">Child</skos:prefLabel>
+    <skos:altLabel xml:lang="en">Alternative</skos:altLabel>
+    <skos:scopeNote xml:lang="en">A "quoted" note</skos:scopeNote>
+    <skos:related rdf:resource="peer"/>
+    <skos:exactMatch rdf:resource="exact"/>
+    <skos:closeMatch rdf:resource="close"/>
+    <skos:broadMatch rdf:resource="broad"/>
+    <skos:narrowMatch rdf:resource="narrow"/>
+    <skos:relatedMatch rdf:resource="related"/>
+    <skos:notation rdf:datatype="https://example.org/DecimalCode">001.20</skos:notation>
+    <skos:notation rdf:datatype="https://example.org/OtherCode">001.20</skos:notation>
+    <skos:notation>007</skos:notation>
+  </skos:Concept>
+</rdf:RDF>

@@ -92,8 +92,8 @@
   <dialog id="import-dialog" class="wide-dialog">
     <form id="import-form">
       <div class="dialog-heading"><span class="eyebrow">Bring in a vocabulary</span><h2>Import a SKOS scheme</h2></div>
-      <label class="field"><span class="field-label">Source</span><select id="import-format"><option value="turtle">Turtle file</option><option value="sparql">SPARQL endpoint</option><option value="graph-json">Concept graph JSON · quote-mcp or terminology</option></select></label>
-      <label class="field" id="import-file-field"><span class="field-label">Turtle file</span><input type="file" id="import-file" accept=".ttl,.nt,.json,text/turtle,application/json"></label>
+      <label class="field"><span class="field-label">Source</span><select id="import-format"><option value="turtle">RDF file · Turtle, RDF/XML or OWL</option><option value="sparql">SPARQL endpoint</option><option value="graph-json">Concept graph JSON · quote-mcp or terminology</option></select></label>
+      <label class="field" id="import-file-field"><span class="field-label">RDF file</span><input type="file" id="import-file" accept=".ttl,.nt,.rdf,.owl,.xrdf,.xml,.json,text/turtle,application/rdf+xml,application/json"></label>
       <div id="import-sparql-fields" hidden>
         <label class="field"><span class="field-label">SPARQL query endpoint</span><input type="url" id="import-endpoint" value="http://oxigraph.localdomain:7878/query"></label>
         <label class="field"><span class="field-label">Named graph <span class="help">optional</span></span><input id="import-graph" placeholder="Leave empty for the endpoint’s default graph"></label>

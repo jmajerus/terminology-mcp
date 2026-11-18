@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<!DOCTYPE rdf:RDF>
+<!-- A small OWL class hierarchy: what owlAsSkos reads, and what it reports leaving out. -->
+<rdf:RDF xmlns="https://example.org/feelings#"
+         xml:base="https://example.org/feelings"
+         xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#"
+         xmlns:skos="http://www.w3.org/2004/02/skos/core#"
+         xmlns:obo="http://purl.obolibrary.org/obo/"
+         xmlns:oboInOwl="http://www.geneontology.org/formats/oboInOwl#">
+  <owl:Ontology rdf:about="https://example.org/feelings">
+    <rdfs:label xml:lang="en">Feelings</rdfs:label>
+  </owl:Ontology>
+  <owl:ObjectProperty rdf:about="#causedBy"/>
+  <owl:Class rdf:about="#Feeling">
+    <rdfs:label xml:lang="en">feeling</rdfs:label>
+    <rdfs:comment xml:lang="en">A conscious affective state.</rdfs:comment>
+    <rdfs:subClassOf rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+    <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/BFO_0000019"/>
+  </owl:Class>
+  <owl:Class rdf:about="#Anger">
+    <rdfs:label xml:lang="en">anger</rdfs:label>
+    <rdfs:label xml:lang="en">wrath</rdfs:label>
+    <rdfs:label xml:lang="fr">colère</rdfs:label>
+    <obo:IAO_0000115 xml:lang="en">A strong feeling of grievance.</obo:IAO_0000115>
+    <rdfs:comment xml:lang="en">Not used: a definition comes first.</rdfs:comment>
+    <oboInOwl:hasExactSynonym>ire</oboInOwl:hasExactSynonym>
+    <skos:closeMatch rdf:resource="https://en-word.net/id/oewn-07531593-n"/>
+    <rdfs:subClassOf rdf:resource="#Feeling"/>
+    <rdfs:subClassOf>
+      <owl:Restriction>
+        <owl:onProperty rdf:resource="#causedBy"/>
+        <owl:someValuesFrom rdf:resource="#Grievance"/>
+      </owl:Restriction>
+    </rdfs:subClassOf>
+    <owl:deprecated rdf:datatype="http://www.w3.org/2001/XMLSchema#boolean">false</owl:deprecated>
+  </owl:Class>
+  <owl:Class rdf:about="#Rage">
+    <rdfs:subClassOf rdf:resource="#Anger"/>
+  </owl:Class>
+</rdf:RDF>

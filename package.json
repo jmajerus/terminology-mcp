@@ -30,6 +30,7 @@
     "d3-force": "^3.0.0",
     "jose": "^6.2.14",
     "n3": "^2.13.12",
+    "rdfxml-streaming-parser": "^3.3.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
