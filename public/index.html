@@ -68,6 +68,16 @@
       <div class="dialog-actions"><button type="button" class="button" id="cancel-scheme">Cancel</button><button type="submit" class="button primary" id="save-scheme">Save</button></div>
     </form>
   </dialog>
+  <dialog id="wordnet-dialog" class="wide-dialog">
+    <form id="wordnet-form">
+      <div class="dialog-heading"><span class="eyebrow">External reference</span><h2>Find a WordNet match</h2></div>
+      <div class="wordnet-search"><input id="wordnet-word" aria-label="Word or phrase" maxlength="100" required placeholder="A word or phrase, e.g. anger"><button class="button primary" type="submit">Search</button></div>
+      <p class="help">Open English WordNet, whole words only. Choose a meaning to add it as a close match.</p>
+    </form>
+    <p id="wordnet-status" class="help" role="status"></p>
+    <div id="wordnet-results" class="wordnet-results"></div>
+    <div class="dialog-actions"><button id="close-wordnet" type="button" class="button">Close</button></div>
+  </dialog>
   <dialog id="revision-dialog"><div id="revision-content"></div><div class="dialog-actions"><button id="close-revision" class="button">Close</button></div></dialog>
   <dialog id="operation-dialog" class="wide-dialog">
     <form id="operation-form">

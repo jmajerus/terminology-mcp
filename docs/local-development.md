@@ -91,6 +91,14 @@ be saved. `WORDNET_SPARQL` sets the server (default
 `urn:wordnet:graph:oewn-2025`). The WordNet server itself is described in
 quote-mcp's `docs/wordnet.md`.
 
+**+ WordNet** beside **+ Reference** finds a link without leaving the editor.
+It searches WordNet for the term's label, or for any word or phrase you type,
+and lists each meaning with its words, part of speech and definition. Choosing
+one adds it as a close match, and a meaning the term already links to can't be
+chosen again. Search matches whole words in any case ("anger", "see red"), not
+the start of a word. The same search is `GET /api/wordnet/search?q=…`, and
+agents get it as the MCP tool `search_wordnet`.
+
 Every edit sends `expectedChanged`. If another edit changed that term,
 the server returns 409, and the UI retains the unsaved text. Renames and
 removed relations are marked breaking and reviewed before applying locally.

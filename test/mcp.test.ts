@@ -43,7 +43,7 @@ type Page<T> = { version: number; total: number; items: T[]; nextOffset: number 
 test('MCP discovery and search work over stateless HTTP with validated paging and snapshot versions', async t => {
   const { store, client, call, error } = await fixture(t), before = store.version;
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 14);
+  assert.equal(tools.length, 15);
   for (const tool of tools.filter(tool => tool.name !== 'propose_term'))
     assert.deepEqual(tool.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
   assert.equal(tools.find(tool => tool.name === 'propose_term')?.annotations?.readOnlyHint, false);

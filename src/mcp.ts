@@ -6,7 +6,7 @@ import { DomainError, termIri, type TermView } from './model.js';
 import { conceptGraph, graphEdges, graphTypes } from './graph.js';
 import { exportSkos } from './skos.js';
 import { notice, type TermKeys } from './keys.js';
-import type { WordnetLookup } from './wordnet.js';
+import type { WordnetLookup, WordnetSearch } from './wordnet.js';
 
 const at = z.number().int().nonnegative().optional().describe('Changelog version. Omit for current; reuse a returned version to pin subsequent reads.');
 const ref = z.string().min(1).max(2000).describe('Stable term ID, exact alias (including scheme:path), or scheme:slug such as "human-work:conflict" (former slugs too; scheme:parent-slug/slug where a slug repeats). Labels are searched with search_terms.');
@@ -38,7 +38,7 @@ async function run(work: () => unknown | Promise<unknown>): Promise<CallToolResu
 }
 
 /** Each HTTP request owns a server/transport; every tool captures one changelog version. */
-export function createMcpServer(store: Store, options: { caller?: string; wordnet?: WordnetLookup } = {}): McpServer {
+export function createMcpServer(store: Store, options: { caller?: string; wordnet?: WordnetLookup; wordnetSearch?: WordnetSearch } = {}): McpServer {
   const server = new McpServer({ name: 'terminology-mcp', version: '0.1.0' }, { instructions:
     'Read the master terminology vocabulary. Start with list_schemes or search_terms, then use stable IDs or concept keys (scheme:slug, e.g. human-work:conflict) for lookup, graphs and concept sets. '
     + 'A term reference is tried as a stable ID, then an exact alias, then scheme:slug; each term carries its key. '
@@ -84,6 +84,12 @@ export function createMcpServer(store: Store, options: { caller?: string; wordne
     })) };
     return noted({ version: v, term, connections: graphEdges(store.terms(undefined, v)).filter(edge => edge.from === term.id)
       .map(edge => ({ type: edge.type, target: edge.to })) }, [notice(args.ref, found)]);
+  }));
+  server.registerTool('search_wordnet', { description: 'Find Open English WordNet synsets for a word or phrase (whole words, any case; e.g. "anger" or "see red"), to judge or suggest a WordNet closeMatch for a concept. Each result has the synset uri (https://en-word.net/id/…, the form links use), its words, part of speech and definition; nouns come first. Read-only: links are added in the web editor.',
+    inputSchema: z.object({ word: z.string().trim().min(1).max(100) }).strict(), annotations }, args => run(async () => {
+    const results = await options.wordnetSearch?.(args.word);
+    if (!results) throw new DomainError(503, 'The WordNet server is unavailable or lookups are turned off.');
+    return { word: args.word, results };
   }));
   server.registerTool('get_graph', { description: 'Read active concept nodes and typed edges, optionally within a scheme/set or around a term (stable ID, alias or scheme:slug). Each concept carries its key. Depth (0–5) applies only with around. All four edge types are included unless types is supplied. Results over 200 nodes or 1000 directed edges require a narrower selection; nothing is silently dropped.',
     inputSchema: z.object({ scheme, set: z.string().min(1).max(200).optional(), around: ref.optional(),

@@ -15,7 +15,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createMcpServer } from './mcp.js';
 import { AccessError, authorizeRequest, proxiedRequest, requestAccessConfig, type RequestAccessConfig } from './access.js';
 import type { JWTVerifyGetKey } from 'jose';
-import type { WordnetLookup } from './wordnet.js';
+import type { WordnetLookup, WordnetSearch } from './wordnet.js';
 
 async function body(req: IncomingMessage, limit = 128 * 1024): Promise<unknown> {
   if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json')
@@ -47,7 +47,7 @@ function json(res: ServerResponse, status: number, value: unknown) {
 }
 
 export function createApp(store: Store, options: { demo?: boolean; origins?: string[]; deploymentFile?: string;
-  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey; editUrl?: string; wordnet?: WordnetLookup } = {}) {
+  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey; editUrl?: string; wordnet?: WordnetLookup; wordnetSearch?: WordnetSearch } = {}) {
   const origins = allowedOrigins(options.origins);
   const access = options.access ?? requestAccessConfig({}, ['terminology-mcp', 'terminology-mcp.localdomain']);
   return createServer(async (req, res) => {
@@ -87,7 +87,7 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 405, { error: 'MCP uses stateless Streamable HTTP POST requests.' }); return;
         }
         const input = await body(req);
-        const mcp = createMcpServer(store, { caller, wordnet: options.wordnet });
+        const mcp = createMcpServer(store, { caller, wordnet: options.wordnet, wordnetSearch: options.wordnetSearch });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on('close', () => { void mcp.close().catch(error => console.error('MCP cleanup failed:', error)); });
         try { await mcp.connect(transport); await transport.handleRequest(req, res, input); }
@@ -165,6 +165,11 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 200, store.setRelation(input.from, input.to, input.type, req.method === 'POST', input.expectedVersion)); return;
         }
         // A WordNet link's words and definition, for display only; synset is null when there is nothing to show.
+        // Synsets with a lemma spelled as q (whole words only); results is null when the WordNet server can't answer.
+        if (req.method === 'GET' && url.pathname === '/api/wordnet/search') {
+          const q = url.searchParams.get('q') ?? '';
+          json(res, 200, { results: options.wordnetSearch && q.length <= 100 ? await options.wordnetSearch(q) : null }); return;
+        }
         if (req.method === 'GET' && url.pathname === '/api/wordnet') {
           const uri = url.searchParams.get('uri') ?? '';
           json(res, 200, { synset: options.wordnet && uri.length <= 2000 ? await options.wordnet(uri) : null }); return;

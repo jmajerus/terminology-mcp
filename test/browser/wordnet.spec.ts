@@ -63,3 +63,49 @@ test('WordNet links show their synset gloss, flag unknown ids, and ignore late a
   const saved = (await (await request.get(`/api/terms/${term.id}`)).json()).term;
   expect(saved.links.map((link: { uri: string }) => link.uri)).toEqual([ANGER, UNKNOWN, 'https://example.org/anger']);
 });
+
+test('the WordNet picker searches by the term label and adds the chosen meaning as a close match', async ({ page, request }) => {
+  await request.post('/api/schemes', { data: { id: 'wordnet-pick', label: 'WordNet picker', hierarchy: 'tree' } });
+  const { term } = await (await request.post('/api/terms', { data: { scheme: 'wordnet-pick', label: 'Anger',
+    links: [{ uri: ANGER, match: 'closeMatch' }] } })).json();
+  const STATE = ID + 'oewn-14060021-n';
+  const searched: string[] = [];
+  await page.route('**/api/wordnet/search?*', async route => {
+    const q = new URL(route.request().url()).searchParams.get('q')!;
+    searched.push(q);
+    const results = q === 'Anger' ? [
+      { uri: STATE, found: true, words: ['anger', 'angriness'], pos: 'noun', definition: 'the state of being angry' },
+      { uri: ANGER, found: true, words: ['anger', 'choler', 'ire'], pos: 'noun', definition: 'a strong emotion' }]
+      : q === 'down' ? null : [];
+    await route.fulfill({ json: { results } });
+  });
+  await page.route('**/api/wordnet?*', route => route.fulfill({ json: { synset: {
+    uri: STATE, found: true, words: ['anger', 'angriness'], pos: 'noun', definition: 'the state of being angry' } } }));
+  await page.goto(`/#${term.id}`);
+  await page.locator('#scheme').selectOption('wordnet-pick');
+  await page.getByRole('button', { name: '+ WordNet', exact: true }).click();
+  const dialog = page.locator('#wordnet-dialog');
+  await expect(dialog.getByLabel('Word or phrase')).toHaveValue('Anger');
+  await expect(dialog.locator('#wordnet-status')).toHaveText('2 meanings of “Anger”');
+  const results = dialog.locator('.wordnet-result');
+  await expect(results.nth(1)).toBeDisabled();
+  await expect(results.nth(1)).toContainText('already linked');
+
+  await dialog.getByLabel('Word or phrase').fill('zzz'); await dialog.getByRole('button', { name: 'Search' }).click();
+  await expect(dialog.locator('#wordnet-status')).toHaveText('WordNet has no word “zzz”. Try another form, such as the singular.');
+  await dialog.getByLabel('Word or phrase').fill('down'); await dialog.getByRole('button', { name: 'Search' }).click();
+  await expect(dialog.locator('#wordnet-status')).toContainText('unavailable');
+  await dialog.getByLabel('Word or phrase').fill('Anger'); await dialog.getByRole('button', { name: 'Search' }).click();
+  await results.nth(0).click();
+  await expect(dialog).toBeHidden();
+
+  const row = page.locator('.link-row').nth(1);
+  await expect(row.getByLabel('Reference URL')).toHaveValue(STATE);
+  await expect(row.getByLabel('Reference match')).toHaveValue('closeMatch');
+  await expect(row.locator('.link-gloss')).toHaveText('anger, angriness (noun): the state of being angry');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.locator('#save-state')).toHaveText(/Saved at/);
+  const saved = (await (await request.get(`/api/terms/${term.id}`)).json()).term;
+  expect(saved.links).toEqual([{ uri: ANGER, match: 'closeMatch' }, { uri: STATE, match: 'closeMatch' }]);
+  expect(searched).toEqual(['Anger', 'zzz', 'down', 'Anger']);
+});
