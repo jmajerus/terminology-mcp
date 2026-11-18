@@ -173,7 +173,7 @@ function renderDetail() {
         <div class="relation-add" data-write><select id="relation-type" aria-label="Relation type"><option value="related">Related</option><option value="opposite">Opposite</option></select><select id="relation-target" class="target" aria-label="Related term"></select><button type="button" class="button small" id="add-relation">+ Link</button></div>
         <p class="help">Related connects terms across schemes. Opposite stays within this scheme.</p>
       </div>
-      <div class="section-line field"><span class="field-label">External references <button type="button" class="text-button" id="add-link" data-write>+ Reference</button></span><div id="links" class="relations-list"></div><p class="help">Link to an equivalent or closely matching concept in another vocabulary.</p></div>
+      <div class="section-line field"><span class="field-label">External references <span><button type="button" class="text-button" id="add-wordnet" data-write>+ WordNet</button><button type="button" class="text-button" id="add-link" data-write>+ Reference</button></span></span><div id="links" class="relations-list"></div><p class="help">Link to an equivalent or closely matching concept in another vocabulary.</p></div>
       <div class="section-line field"><span class="field-label">Aliases</span><div class="alias-list">${term.aliases.map(alias => `<span class="alias">${escape(alias)}</span>`).join('') || '<span class="help">No aliases yet.</span>'}</div><p class="help">Historical names continue to resolve to this term.</p></div>
       ${collectionPanel(term)}<label class="field" data-write><span class="field-label">Change note <span class="help">optional</span></span><input id="reason" name="reason" maxlength="2000" placeholder="Why are you making this change?"></label>
       <p id="save-error" class="form-error" role="alert"></p>
@@ -205,6 +205,7 @@ function renderDetail() {
     draftRelations.push({ type, target }); markDirty(); renderRelations();
   };
   $('#add-link').onclick = () => addLink({ uri: '', match: 'exactMatch' });
+  $('#add-wordnet').onclick = () => openWordnet($('#label').value.trim());
   if (term.status === 'retired') {
     $('#new-child').disabled = true;
     $('#term-form').querySelectorAll('input,textarea,select,button').forEach(control => { control.disabled = true; });
@@ -239,6 +240,33 @@ function addLink(link, changed = true) {
   describeLink(row);
   if (changed) { markDirty(); row.querySelector('input').focus(); }
 }
+// The WordNet picker: searches by word (the term's label to start) and adds the chosen synset as a close match.
+let wordnetGeneration = 0;
+function openWordnet(word) {
+  $('#wordnet-word').value = word;
+  $('#wordnet-results').innerHTML = ''; $('#wordnet-status').textContent = '';
+  $('#wordnet-dialog').showModal();
+  if (word) searchWordnet(word); else $('#wordnet-word').focus();
+}
+async function searchWordnet(word) {
+  const generation = ++wordnetGeneration;
+  $('#wordnet-status').textContent = 'Searching…'; $('#wordnet-results').innerHTML = '';
+  let results = null;
+  try { ({ results } = await api(`wordnet/search?q=${encodeURIComponent(word)}`)); } catch { results = null; }
+  if (generation !== wordnetGeneration) return;
+  const linked = new Set([...document.querySelectorAll('.link-row input')].map(input => input.value.trim()));
+  $('#wordnet-status').textContent = results === null ? 'The WordNet server is unavailable. Try again later, or paste a link with + Reference.'
+    : results.length ? `${results.length} meaning${results.length === 1 ? '' : 's'} of “${word}”` : `WordNet has no word “${word}”. Try another form, such as the singular.`;
+  $('#wordnet-results').innerHTML = (results ?? []).map(synset => `<button type="button" class="wordnet-result" data-uri="${escape(synset.uri)}" ${linked.has(synset.uri) ? 'disabled' : ''}><span class="wordnet-words">${escape(synset.words.join(', '))} <span class="relation-type">${escape(synset.pos ?? '')}</span>${linked.has(synset.uri) ? ' <span class="help">already linked</span>' : ''}</span><span class="wordnet-definition">${escape(synset.definition ?? '')}</span></button>`).join('');
+}
+$('#wordnet-form').onsubmit = event => { event.preventDefault(); const word = $('#wordnet-word').value.trim(); if (word) searchWordnet(word); };
+$('#close-wordnet').onclick = () => $('#wordnet-dialog').close();
+$('#wordnet-results').onclick = event => {
+  const choice = event.target.closest('.wordnet-result');
+  if (!choice || choice.disabled) return;
+  $('#wordnet-dialog').close();
+  addLink({ uri: choice.dataset.uri, match: 'closeMatch' });
+};
 // Shows an Open English WordNet link's words, part of speech and definition under it. Display only: the term
 // has already loaded, and if the WordNet server can't answer the bare link stays as it is.
 async function describeLink(row) {

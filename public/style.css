@@ -88,3 +88,4 @@
 .graph-export-list .help { padding:4px 10px 2px; margin:0; }
 .link-gloss{flex-basis:100%;margin:0 0 4px;overflow-wrap:anywhere}
 .link-open{text-decoration:none;color:inherit;align-self:center}.link-open[hidden]{display:none}
+.wordnet-search{display:flex;gap:8px}.wordnet-search input{flex:1;min-width:0;border:1px solid #d9dfd5;border-radius:5px;padding:10px 11px;font-size:13px}.wordnet-results{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow-y:auto}.wordnet-result{display:flex;flex-direction:column;gap:4px;text-align:left;border:1px solid var(--line);background:#fcfdfb;border-radius:5px;padding:10px 12px;font-size:12px}.wordnet-result:hover:not(:disabled){background:#eef2e7;border-color:#c5d3ba}.wordnet-result:disabled{opacity:.6}.wordnet-words{font-weight:600;color:#31543c;overflow-wrap:anywhere}.wordnet-definition{color:#596652;line-height:1.6}

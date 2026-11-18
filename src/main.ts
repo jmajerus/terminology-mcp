@@ -3,7 +3,7 @@ import { Store } from './store.js';
 import { seedDemo } from './seed.js';
 import { createApp } from './server.js';
 import { requestAccessConfig } from './access.js';
-import { wordnetConfig, wordnetLookup } from './wordnet.js';
+import { wordnetConfig, wordnetLookup, wordnetSearch } from './wordnet.js';
 
 const demo = process.argv.includes('--demo');
 const filename = resolve(process.env.TERMINOLOGY_DB ?? (demo ? 'data/demo.sqlite' : 'data/terminology.sqlite'));
@@ -13,7 +13,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT m
 const store = new Store(filename);
 if (demo) seedDemo(store);
 const editUrl = process.env.TERMINOLOGY_EDIT_URL ? new URL(process.env.TERMINOLOGY_EDIT_URL).origin : undefined;
-const server = createApp(store, { demo, deploymentFile: resolve('deployed.json'), editUrl, wordnet: wordnetLookup(wordnetConfig()),
+const server = createApp(store, { demo, deploymentFile: resolve('deployed.json'), editUrl, wordnet: wordnetLookup(wordnetConfig()), wordnetSearch: wordnetSearch(wordnetConfig()),
   access: requestAccessConfig(process.env, ['terminology-mcp', 'terminology-mcp.localdomain']),
   // Comma-separated origins for direct requests: the deploy-managed LAN ones, and any optional extras. Requests
   // through Cloudflare are served under their own hostname and need no entry.

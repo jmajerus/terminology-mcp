@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { Store } from '../src/store.js';
 import { createApp } from '../src/server.js';
-import { synsetId, synsetQuery, wordnetConfig, wordnetLookup, type WordnetConfig } from '../src/wordnet.js';
+import { searchForms, searchQuery, synsetId, synsetQuery, wordnetConfig, wordnetLookup, wordnetSearch, type WordnetConfig } from '../src/wordnet.js';
 
 const ANGER = 'https://en-word.net/id/oewn-07531593-n';
 const config: WordnetConfig = { baseUrl: 'http://wordnet.test', graph: 'urn:wordnet:graph:oewn-2025', timeoutMs: 1000 };
@@ -90,4 +90,79 @@ test('MCP get_term adds the synset gloss to a WordNet link and leaves other link
   assert.deepEqual((await read(wordnetLookup(config, (async () => { throw new Error('down'); }) as typeof fetch)))[0],
     { uri: ANGER, match: 'closeMatch' });
   assert.deepEqual((await read())[0], { uri: ANGER, match: 'closeMatch' });
+});
+
+const hit = (synset: string, pos: string, word: string, def = 'a meaning') => ({ synset: { value: ID_BASE + synset },
+  pos: { value: 'https://globalwordnet.github.io/schemas/wn#' + pos }, def: { value: def }, word: { value: word } });
+const ID_BASE = 'https://en-word.net/id/';
+
+test('searchForms and searchQuery: whole words in the cases WordNet uses, quoted as literals', () => {
+  assert.deepEqual(searchForms('  see   red '), ['see red', 'See red']);
+  assert.deepEqual(searchForms('Anger'), ['Anger', 'anger']);
+  assert.deepEqual(searchForms(''), []);
+  assert.deepEqual(searchForms('x'.repeat(101)), []);
+  assert.match(searchQuery(searchForms('say "hi"'), config.graph), /VALUES \?rep \{ "say \\"hi\\""@en "Say \\"hi\\""@en \}/);
+});
+
+test('search folds rows into synsets, nouns first, caches by word, and reports an unreachable server as null', async () => {
+  const calls: string[] = [];
+  const search = wordnetSearch(config, answering([hit('oewn-1-v', 'verb', 'anger'), hit('oewn-2-n', 'noun', 'ire'),
+    hit('oewn-2-n', 'noun', 'anger'), hit('oewn-1-v', 'verb', 'see red')], calls));
+  assert.deepEqual(await search('Anger'), [
+    { uri: ID_BASE + 'oewn-2-n', found: true, words: ['anger', 'ire'], pos: 'noun', definition: 'a meaning' },
+    { uri: ID_BASE + 'oewn-1-v', found: true, words: ['anger', 'see red'], pos: 'verb', definition: 'a meaning' }]);
+  await search('anger');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(await search('  '), []);
+  assert.equal(await wordnetSearch(null)('anger'), null);
+  assert.equal(await wordnetSearch(config, (async () => { throw new Error('down'); }) as typeof fetch)('anger'), null);
+});
+
+test('GET /api/wordnet/search and MCP search_wordnet return the matches, or say the server is unavailable', async t => {
+  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { createMcpServer } = await import('../src/mcp.js');
+  const store = new Store(':memory:');
+  const search = wordnetSearch(config, answering([hit('oewn-2-n', 'noun', 'anger')]));
+  const server = createApp(store, { wordnetSearch: search });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); store.close(); });
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const body = await (await fetch(`${origin}/api/wordnet/search?q=anger`)).json();
+  assert.deepEqual(body.results.map((r: { uri: string }) => r.uri), [ID_BASE + 'oewn-2-n']);
+  const call = async (wordnetSearch?: typeof search) => {
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '1' });
+    await Promise.all([createMcpServer(store, { wordnetSearch }).connect(a), client.connect(b)]);
+    const result = await client.callTool({ name: 'search_wordnet', arguments: { word: 'anger' } });
+    await client.close();
+    return result;
+  };
+  const found = await call(search);
+  assert.deepEqual((found.structuredContent as { results: { words: string[] }[] }).results[0].words, ['anger']);
+  const off = await call();
+  assert.equal(off.isError, true);
+  assert.match((off.content as { text: string }[])[0].text, /unavailable/);
+});
+
+test('a slow failure never evicts a newer cache entry for the same word or id', async () => {
+  for (const kind of ['search', 'lookup'] as const) {
+    let calls = 0, failFirst!: (error: Error) => void;
+    const fetchImpl = (async () => {
+      calls++;
+      if (calls === 1) return new Promise<Response>((_, reject) => { failFirst = reject; });
+      return new Response(JSON.stringify({ results: { bindings: [kind === 'search' ? hit('oewn-2-n', 'noun', 'anger') : row('anger')] } }));
+    }) as typeof fetch;
+    // A cache of one entry: asking for "other" evicts the first, pending, request.
+    const ask = kind === 'search' ? (() => { const s = wordnetSearch(config, fetchImpl, 1); return (k: string) => s(k === 'a' ? 'anger' : 'other'); })()
+      : (() => { const l = wordnetLookup(config, fetchImpl, 1); return (k: string) => l(k === 'a' ? ANGER : ID_BASE + 'oewn-1-n'); })();
+    const first = ask('a');
+    await ask('b');
+    await ask('a');
+    failFirst(new Error('down'));
+    assert.equal(await first, null);
+    const before = calls;
+    await ask('a');
+    assert.equal(calls, before, `${kind}: the newer answer should still be cached`);
+  }
 });
