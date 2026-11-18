@@ -48,6 +48,14 @@ test('+ Term links a term to one in another scheme, names it, and shows the matc
   await expect(second.getByLabel('Reference match')).toHaveValue('closeMatch');
   await expect(second.locator('.link-gloss')).toHaveText('Depression, major · tm-theirs');
 
+  // A reference back to this same term, by its URN, is named and flagged rather than left as a bare IRI.
+  await page.getByRole('button', { name: '+ Reference', exact: true }).click();
+  const selfRow = page.locator('.link-row').nth(2), selfUrl = selfRow.getByLabel('Reference URL');
+  await selfUrl.fill(`urn:terminology-mcp:term:${mine.id}`); await selfUrl.press('Tab');
+  await expect(selfRow.locator('.link-gloss')).toHaveText('Depression · tm-mine · this term');
+  await expect(selfRow.locator('.link-gloss')).toHaveClass(/form-error/);
+  await selfRow.getByRole('button', { name: 'Remove reference' }).click();
+
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.locator('#save-state')).toHaveText(/Saved at/);
   const saved = (await (await request.get(`/api/terms/${mine.id}`)).json()).term;

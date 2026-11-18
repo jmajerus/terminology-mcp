@@ -322,9 +322,12 @@ async function describeLink(row) {
   const input = row.querySelector('input'), gloss = row.querySelector('.link-gloss'), uri = input.value.trim();
   gloss.hidden = true; gloss.classList.remove('form-error');
   // A link to a term in this vocabulary names it, and its label jumps there.
+  // A reference back to this same term is almost certainly a slip, so it is named and flagged.
   const local = uri && termByIri(uri);
-  if (local && local.id !== selectedId) {
-    gloss.innerHTML = `<button type="button" class="text-button" data-pick="${escape(local.id)}">${escape(local.label)}</button> · ${escape(local.scheme)}${local.status === 'retired' ? ' · retired' : ''}`;
+  if (local) {
+    const self = local.id === selectedId;
+    gloss.innerHTML = `<button type="button" class="text-button" data-pick="${escape(local.id)}">${escape(local.label)}</button> · ${escape(local.scheme)}${local.status === 'retired' ? ' · retired' : ''}${self ? ' · this term' : ''}`;
+    gloss.classList.toggle('form-error', self);
     gloss.hidden = false; return;
   }
   if (!uri.startsWith('https://en-word.net/id/')) return;
