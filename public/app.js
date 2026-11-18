@@ -173,7 +173,7 @@ function renderDetail() {
         <div class="relation-add" data-write><select id="relation-type" aria-label="Relation type"><option value="related">Related</option><option value="opposite">Opposite</option></select><select id="relation-target" class="target" aria-label="Related term"></select><button type="button" class="button small" id="add-relation">+ Link</button></div>
         <p class="help">Related connects terms across schemes. Opposite stays within this scheme.</p>
       </div>
-      <div class="section-line field"><span class="field-label">External references <span><button type="button" class="text-button" id="add-wordnet" data-write>+ WordNet</button><button type="button" class="text-button" id="add-link" data-write>+ Reference</button></span></span><div id="links" class="relations-list"></div><p class="help">Link to an equivalent or closely matching concept in another vocabulary.</p></div>
+      <div class="section-line field"><span class="field-label">External references <span><button type="button" class="text-button" id="add-term-match" data-write>+ Term</button><button type="button" class="text-button" id="add-wordnet" data-write>+ WordNet</button><button type="button" class="text-button" id="add-link" data-write>+ Reference</button></span></span><div id="links" class="relations-list"></div><div id="incoming-links" class="relations-list"></div><p class="help">Link to an equivalent or closely matching concept in another vocabulary, or in another scheme here with + Term.</p></div>
       <div class="section-line field"><span class="field-label">Aliases</span><div class="alias-list">${term.aliases.map(alias => `<span class="alias">${escape(alias)}</span>`).join('') || '<span class="help">No aliases yet.</span>'}</div><p class="help">Historical names continue to resolve to this term.</p></div>
       ${collectionPanel(term)}<label class="field" data-write><span class="field-label">Change note <span class="help">optional</span></span><input id="reason" name="reason" maxlength="2000" placeholder="Why are you making this change?"></label>
       <p id="save-error" class="form-error" role="alert"></p>
@@ -183,6 +183,7 @@ function renderDetail() {
   loadCalculatedCollections(term, collectionToken);
   updateRelationTargets();
   term.links.forEach(link => addLink(link, false));
+  renderIncomingLinks(term);
   (term.notations ?? []).forEach(notation => addNotation(notation, false));
   $('#add-notation').onclick = () => { if (document.querySelectorAll('.notation-row').length < 100) addNotation({ value: '', datatype: 'http://www.w3.org/2001/XMLSchema#string' }); };
   $('#term-form').addEventListener('input', markDirty);
@@ -206,6 +207,7 @@ function renderDetail() {
   };
   $('#add-link').onclick = () => addLink({ uri: '', match: 'exactMatch' });
   $('#add-wordnet').onclick = () => openWordnet($('#label').value.trim());
+  $('#add-term-match').onclick = () => openTermMatch($('#label').value.trim());
   if (term.status === 'retired') {
     $('#new-child').disabled = true;
     $('#term-form').querySelectorAll('input,textarea,select,button').forEach(control => { control.disabled = true; });
@@ -240,6 +242,53 @@ function addLink(link, changed = true) {
   describeLink(row);
   if (changed) { markDirty(); row.querySelector('input').focus(); }
 }
+// Every IRI a term answers to (termIri, below, is the one new links use), so a link written with any of them finds it.
+function termIris(term) { return new Set([termIri(term), `urn:terminology-mcp:term:${term.id}`, ...(term.sourceUri ? [term.sourceUri] : []), ...term.aliases]); }
+function termByIri(uri) { return state.terms.find(term => termIris(term).has(uri)); }
+// Terms in other schemes whose references point at this one, listed like incoming relations.
+function renderIncomingLinks(term) {
+  const iris = termIris(term);
+  $('#incoming-links').innerHTML = state.terms.filter(other => other.id !== term.id).flatMap(other => other.links
+    .filter(link => iris.has(link.uri))
+    .map(link => `<div class="relation-row"><span class="relation-type">${escape(link.match)}</span><button type="button" class="relation-pick" data-pick="${escape(other.id)}">${escape(other.label)} · ${escape(other.scheme)}</button><span class="help">matched from</span></div>`)).join('');
+}
+
+// The term-match picker: finds terms in the other schemes by label and adds a reference to the chosen one's IRI.
+function openTermMatch(text) {
+  $('#term-match-text').value = text; $('#term-match-type').value = 'exactMatch';
+  $('#term-match-dialog').showModal();
+  searchTermMatches(); $('#term-match-text').focus();
+}
+function searchTermMatches() {
+  const text = $('#term-match-text').value.trim().toLowerCase();
+  const linked = new Set([...document.querySelectorAll('.link-row input')].map(input => input.value.trim()));
+  const score = term => {
+    const names = [term.label, ...term.altLabels].map(name => name.toLowerCase());
+    return names.includes(text) ? 0 : names.some(name => name.startsWith(text)) ? 1 : names.some(name => name.includes(text)) ? 2 : -1;
+  };
+  const found = !text ? [] : state.terms.filter(term => term.scheme !== schemeId && term.status !== 'retired')
+    .map(term => [term, score(term)]).filter(([, rank]) => rank >= 0)
+    .sort(([a, x], [b, y]) => x - y || a.label.localeCompare(b.label) || a.scheme.localeCompare(b.scheme)).map(([term]) => term);
+  const shown = found.slice(0, 50);
+  $('#term-match-status').textContent = !text ? 'Type a label to search the other schemes.'
+    : found.length ? `${found.length} term${found.length === 1 ? '' : 's'} in other schemes${found.length > shown.length ? `; showing the first ${shown.length}, so narrow the search` : ''}`
+    : `No term in another scheme is called “${$('#term-match-text').value.trim()}”.`;
+  $('#term-match-results').innerHTML = shown.map(term => {
+    const already = [...termIris(term)].some(iri => linked.has(iri));
+    return `<button type="button" class="wordnet-result" data-term-match="${escape(term.id)}" ${already ? 'disabled' : ''}><span class="wordnet-words">${escape(term.label)} <span class="relation-type">${escape(term.scheme)}</span>${already ? ' <span class="help">already linked</span>' : ''}</span>${term.path?.includes('/') ? `<span class="help">${escape(term.path)}</span>` : ''}${term.scopeNote ? `<span class="wordnet-definition">${escape(term.scopeNote.length > 200 ? term.scopeNote.slice(0, 200) + '…' : term.scopeNote)}</span>` : ''}</button>`;
+  }).join('');
+}
+$('#term-match-text').oninput = searchTermMatches;
+$('#term-match-form').onsubmit = event => event.preventDefault();
+$('#close-term-match').onclick = () => $('#term-match-dialog').close();
+$('#term-match-results').onclick = event => {
+  const choice = event.target.closest('[data-term-match]');
+  if (!choice || choice.disabled) return;
+  const term = byId(choice.dataset.termMatch);
+  $('#term-match-dialog').close();
+  addLink({ uri: termIri(term), match: $('#term-match-type').value });
+};
+
 // The WordNet picker: searches by word (the term's label to start) and adds the chosen synset as a close match.
 let wordnetGeneration = 0;
 function openWordnet(word) {
@@ -272,6 +321,15 @@ $('#wordnet-results').onclick = event => {
 async function describeLink(row) {
   const input = row.querySelector('input'), gloss = row.querySelector('.link-gloss'), uri = input.value.trim();
   gloss.hidden = true; gloss.classList.remove('form-error');
+  // A link to a term in this vocabulary names it, and its label jumps there.
+  // A reference back to this same term is almost certainly a slip, so it is named and flagged.
+  const local = uri && termByIri(uri);
+  if (local) {
+    const self = local.id === selectedId;
+    gloss.innerHTML = `<button type="button" class="text-button" data-pick="${escape(local.id)}">${escape(local.label)}</button> · ${escape(local.scheme)}${local.status === 'retired' ? ' · retired' : ''}${self ? ' · this term' : ''}`;
+    gloss.classList.toggle('form-error', self);
+    gloss.hidden = false; return;
+  }
   if (!uri.startsWith('https://en-word.net/id/')) return;
   let synset = null;
   try { ({ synset } = await api(`wordnet?uri=${encodeURIComponent(uri)}`)); } catch { return; }

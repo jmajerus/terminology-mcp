@@ -68,6 +68,16 @@
       <div class="dialog-actions"><button type="button" class="button" id="cancel-scheme">Cancel</button><button type="submit" class="button primary" id="save-scheme">Save</button></div>
     </form>
   </dialog>
+  <dialog id="term-match-dialog" class="wide-dialog">
+    <form id="term-match-form">
+      <div class="dialog-heading"><span class="eyebrow">External reference</span><h2>Match a term in another scheme</h2></div>
+      <div class="wordnet-search"><select id="term-match-type" aria-label="Match type"><option value="exactMatch">Exact match</option><option value="closeMatch">Close match</option><option value="broadMatch">Broad match</option><option value="narrowMatch">Narrow match</option><option value="relatedMatch">Related match</option></select><input id="term-match-text" aria-label="Term label" maxlength="200" placeholder="A label or alternative label" autocomplete="off"></div>
+      <p class="help">Choose a term to add a reference to its IRI. Same-scheme connections belong under Relations.</p>
+    </form>
+    <p id="term-match-status" class="help" role="status"></p>
+    <div id="term-match-results" class="wordnet-results"></div>
+    <div class="dialog-actions"><button id="close-term-match" type="button" class="button">Close</button></div>
+  </dialog>
   <dialog id="wordnet-dialog" class="wide-dialog">
     <form id="wordnet-form">
       <div class="dialog-heading"><span class="eyebrow">External reference</span><h2>Find a WordNet match</h2></div>
