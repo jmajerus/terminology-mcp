@@ -1,14 +1,15 @@
 # SKOS import and export
 
 SQLite remains the authoritative store. The editor can import a **new scheme**
-from a Turtle file or a SPARQL query endpoint, and export any scheme as Turtle.
+from an RDF file (Turtle, N-Triples or RDF/XML) or a SPARQL query endpoint, and
+export any scheme as Turtle.
 Importing is a read-only operation on the source server. It is not continuous
 synchronization or an update/merge of an existing local scheme.
 
 ## Editor workflow
 
 1. Choose **Import SKOS…** in the outline.
-2. Select a Turtle file, or enter a SPARQL **query endpoint** and optional
+2. Select an RDF file (`.ttl`, `.nt`, `.rdf`, `.owl`), or enter a SPARQL **query endpoint** and optional
    named graph. For the local server use `http://oxigraph.localdomain:7878/query`.
    An omitted graph uses the endpoint's default graph, not every named graph.
 3. Click **Find schemes** and choose a declared `skos:ConceptScheme`.
@@ -32,6 +33,31 @@ Use **Export SKOS ↓** for the selected scheme. The HTTP endpoint also supports
 historical exports via `?at=N`. The export includes retired terms and replacement
 metadata, so historical identities remain available. Local stable IDs are never
 derived from imported labels or paths.
+
+## RDF/XML and OWL files
+
+The format is read from the file itself: one that opens with an XML
+declaration, doctype, comment or `rdf:RDF` element is parsed as RDF/XML, and
+anything else as Turtle. The 5 MiB and 100,000-triple limits apply to both.
+
+A file that declares no `skos:ConceptScheme` but has OWL or RDFS classes, such
+as an ontology's class hierarchy, is read as one scheme:
+
+| OWL / RDFS | Becomes |
+| --- | --- |
+| `owl:Ontology` (exactly one) | the scheme; else the namespace the classes share |
+| its `rdfs:label`, `dct:title` or `dc:title` | the scheme name; else the IRI's last segment |
+| each named `owl:Class` or `rdfs:Class` | a concept, keeping its IRI |
+| `skos:prefLabel`, else `rdfs:label` | the preferred label, one per language; extras become alternative labels |
+| `skos:altLabel`, oboInOwl synonyms | alternative labels |
+| `skos:scopeNote`, `skos:definition`, IAO definition (`IAO_0000115`), else `rdfs:comment` | the scope note |
+| `rdfs:subClassOf` another class in the file | broader |
+| SKOS mapping properties, `skos:notation` | kept as they are |
+
+The preview lists what was left out: class restrictions (anonymous
+superclasses), superclasses not declared in the file (`owl:Thing` is
+ignored silently), unlabelled classes, other predicates, and properties
+and individuals. A class with no label is named by its IRI's last segment.
 
 ## Structure recommendations and overrides
 

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { ZodError } from 'zod';
 import { Store } from './store.js';
 import { DomainError } from './model.js';
-import { exportSkos, importRequestSchema, planSkos, rdfSchemes } from './skos.js';
+import { exportSkos, importRequestSchema, planSkos, rdfSchemes, readRdf } from './skos.js';
 import { discoverSchemes, fetchScheme } from './sparql.js';
 import { z } from 'zod';
 import { allowedOrigins, requestOrigin } from './http-config.js';
@@ -114,14 +114,14 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
         if (req.method === 'POST' && url.pathname === '/api/imports/schemes') {
           const input = z.object({ format: z.enum(['turtle', 'sparql', 'graph-json']), data: z.string().optional(),
             endpoint: z.string().optional(), graph: z.string().optional() }).strict().parse(await body(req, 6 * 1024 * 1024));
-          const schemes = input.format === 'graph-json' ? graphSchemes(input.data ?? '') : input.format === 'turtle' ? rdfSchemes(input.data ?? '')
+          const schemes = input.format === 'graph-json' ? graphSchemes(input.data ?? '') : input.format === 'turtle' ? rdfSchemes(await readRdf(input.data ?? ''))
             : await discoverSchemes(input.endpoint ?? '', input.graph);
           json(res, 200, { schemes }); return;
         }
         if (req.method === 'POST' && url.pathname === '/api/imports/preview') {
           const input = importRequestSchema.parse(await body(req, 6 * 1024 * 1024));
           const data = input.format !== 'sparql' ? input.data ?? '' : await fetchScheme(input.endpoint ?? '', input.sourceScheme, input.graph);
-          const { plan, warnings, analysis } = input.format === 'graph-json' ? planGraph(store, data, input) : planSkos(store, data, input);
+          const { plan, warnings, analysis } = input.format === 'graph-json' ? planGraph(store, data, input) : planSkos(store, await readRdf(data), input);
           if (!analysis.compatible) {
             json(res, 200, { plan, warnings, analysis, expectedVersion: store.version, count: plan.terms.length, sets: plan.sets,
               terms: plan.terms.map(term => ({ label: term.label, broader: term.broader.length })) }); return;

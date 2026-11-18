@@ -1,5 +1,6 @@
 import { Parser, Writer, Store as RdfStore, DataFactory, type Quad, type Term as RdfTerm } from 'n3';
 import { z } from 'zod';
+import { RdfXmlParser } from 'rdfxml-streaming-parser';
 import { DomainError, iriSchema, importPlanSchema, termIri as publicIri, type ImportPlan, type Notation } from './model.js';
 import type { Store } from './store.js';
 import { readCollections } from './collections.js';
@@ -30,31 +31,167 @@ export const importRequestSchema = z.object({
 }).strict();
 export type ImportRequest = z.infer<typeof importRequestSchema>;
 
-export function parseRdf(data: string): RdfStore {
-  if (Buffer.byteLength(data) > 5 * 1024 * 1024) throw new DomainError(413, 'RDF is limited to 5 MiB.');
+const RDFS = 'http://www.w3.org/2000/01/rdf-schema#';
+const OWL = 'http://www.w3.org/2002/07/owl#';
+const MAX_BYTES = 5 * 1024 * 1024, MAX_TRIPLES = 100000;
+const tooBig = () => new DomainError(413, `RDF is limited to ${MAX_TRIPLES.toLocaleString('en')} triples.`);
+
+/** RDF/XML opens with an XML declaration, doctype, comment or rdf:RDF element; Turtle never does. */
+export const isRdfXml = (data: string) => /^﻿?\s*(?:<\?xml|<!DOCTYPE|<!--|<[\w.-]+:RDF[\s>/])/i.test(data);
+
+/** Parses Turtle (or N-Triples). RDF/XML needs readRdf, whose parser is asynchronous. */
+export function parseRdf(data: string | RdfStore): RdfStore {
+  if (typeof data !== 'string') return data;
+  if (Buffer.byteLength(data) > MAX_BYTES) throw new DomainError(413, 'RDF is limited to 5 MiB.');
+  if (isRdfXml(data)) throw new DomainError(422, 'RDF/XML has to be read with readRdf.');
   try {
     const quads = new Parser({ format: 'text/turtle' }).parse(data);
-    if (quads.length > 100000) throw new DomainError(413, 'RDF is limited to 100,000 triples.');
+    if (quads.length > MAX_TRIPLES) throw tooBig();
     return new RdfStore(quads);
   } catch (error) {
     if (error instanceof DomainError) throw error;
     throw new DomainError(422, `Invalid Turtle: ${error instanceof Error ? error.message : error}`);
   }
 }
-export function rdfSchemes(data: string) {
+
+// The parser never closes its XML reader, so a file cut off inside an element would parse without complaint;
+// closing it at the end of input reports the unclosed elements as an error.
+class ClosingRdfXmlParser extends RdfXmlParser {
+  override _flush(callback: (error?: Error | null) => void) {
+    (this as unknown as { saxParser: { close(): void } }).saxParser.close();
+    callback();
+  }
+}
+
+/** Parses an uploaded file as RDF/XML or Turtle, telling them apart by how the file opens. */
+export async function readRdf(data: string): Promise<RdfStore> {
+  if (!isRdfXml(data)) return parseRdf(data);
+  if (Buffer.byteLength(data) > MAX_BYTES) throw new DomainError(413, 'RDF is limited to 5 MiB.');
+  const quads: Quad[] = [];
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const parser = new ClosingRdfXmlParser({ dataFactory: DataFactory as never });
+      parser.on('data', (q: Quad) => { quads.push(q); if (quads.length > MAX_TRIPLES) parser.destroy(tooBig()); });
+      parser.on('error', reject);
+      parser.on('end', resolve);
+      parser.end(data);
+    });
+  } catch (error) {
+    if (error instanceof DomainError) throw error;
+    throw new DomainError(422, `Invalid RDF/XML: ${error instanceof Error ? error.message : error}`);
+  }
+  return new RdfStore(quads);
+}
+
+/** The namespace every IRI shares (up to its last # or /), if it names more than a host. */
+function sharedNamespace(iris: string[]) {
+  let prefix = iris[0];
+  for (const iri of iris) while (!iri.startsWith(prefix)) prefix = prefix.slice(0, -1);
+  const namespace = prefix.slice(0, Math.max(prefix.lastIndexOf('#'), prefix.lastIndexOf('/')) + 1);
+  return /^[a-z][\w+.-]*:\/\/[^/#]+[/#]/i.test(namespace) ? namespace : undefined;
+}
+
+const OBO_DEFINITION = 'http://purl.obolibrary.org/obo/IAO_0000115';
+const OBO_SYNONYMS = ['hasExactSynonym', 'hasRelatedSynonym', 'hasNarrowSynonym', 'hasBroadSynonym']
+  .map(name => 'http://www.geneontology.org/formats/oboInOwl#' + name);
+const DC_TITLE = ['http://purl.org/dc/terms/title', 'http://purl.org/dc/elements/1.1/title'];
+
+/**
+ * A file with no skos:ConceptScheme but OWL or RDFS classes, such as an OWL ontology's class hierarchy, is read as
+ * one scheme: each named class becomes a concept, rdfs:subClassOf between classes becomes broader, labels, synonyms
+ * and definitions carry over, and everything else is reported. The scheme is the owl:Ontology, or else the
+ * namespace the classes share. Returns null when the file is already SKOS or declares no classes.
+ */
+export function owlAsSkos(rdf: RdfStore): { rdf: RdfStore; warnings: string[] } | null {
+  if (rdf.countQuads(null, nn(RDF + 'type'), nn(SKOS + 'ConceptScheme'), null)) return null;
+  const classes = [...new Set([OWL + 'Class', RDFS + 'Class'].flatMap(type => rdf.getSubjects(nn(RDF + 'type'), nn(type), null))
+    .filter(term => term.termType === 'NamedNode' && term.value !== OWL + 'Thing').map(term => term.value))];
+  if (!classes.length) return null;
+  const members = new Set(classes), warnings: string[] = [];
+  const ontologies = rdf.getSubjects(nn(RDF + 'type'), nn(OWL + 'Ontology'), null).filter(term => term.termType === 'NamedNode');
+  const schemeIri = ontologies.length === 1 ? ontologies[0].value : sharedNamespace(classes);
+  if (!schemeIri) throw new DomainError(422, 'These OWL classes share no namespace to name a scheme by. Declare one owl:Ontology in the file.');
+  const scheme = nn(schemeIri), out = new RdfStore();
+  const literals = (subject: RdfTerm, predicates: string[]) => predicates.flatMap(p => rdf.getObjects(subject, nn(p), null))
+    .filter(value => value.termType === 'Literal') as import('n3').Literal[];
+  // One value per language: the first is kept, the rest returned for the caller to place or report.
+  const perLanguage = (values: import('n3').Literal[]) => {
+    const kept = new Map<string, import('n3').Literal>(), rest: import('n3').Literal[] = [];
+    for (const value of values) if (kept.has(value.language)) rest.push(value); else kept.set(value.language, value);
+    return { kept: [...kept.values()], rest };
+  };
+  out.addQuad(scheme, nn(RDF + 'type'), nn(SKOS + 'ConceptScheme'));
+  const schemeLabels = ontologies.length === 1 ? perLanguage(literals(scheme, [SKOS + 'prefLabel', RDFS + 'label', ...DC_TITLE])).kept : [];
+  if (ontologies.length !== 1) warnings.push(`No single owl:Ontology is declared, so the scheme is identified by the classes' namespace, ${schemeIri}.`);
+  if (schemeLabels.length) schemeLabels.forEach(v => out.addQuad(scheme, nn(SKOS + 'prefLabel'), v));
+  else {
+    const name = decodeURIComponent(schemeIri.replace(/[/#]+$/, '').replace(/^.*[/#]/, '')) || schemeIri;
+    out.addQuad(scheme, nn(SKOS + 'prefLabel'), lit(name));
+    warnings.push(`The ontology has no label, so the scheme is called “${name}” unless you give it a name.`);
+  }
+  const used = new Set([RDF + 'type', RDFS + 'subClassOf', RDFS + 'label', RDFS + 'comment', SKOS + 'prefLabel', SKOS + 'altLabel',
+    SKOS + 'definition', SKOS + 'scopeNote', SKOS + 'notation', OBO_DEFINITION, ...OBO_SYNONYMS, ...matches.map(match => SKOS + match)]);
+  let restrictions = 0, outside = 0, unlabelled = 0, extraNotes = 0;
+  const omitted = new Set<string>();
+  for (const iri of classes) {
+    const c = nn(iri);
+    out.addQuad(c, nn(RDF + 'type'), nn(SKOS + 'Concept'));
+    out.addQuad(c, nn(SKOS + 'inScheme'), scheme);
+    const prefs = literals(c, [SKOS + 'prefLabel']);
+    const labels = perLanguage(prefs.length ? prefs : literals(c, [RDFS + 'label']));
+    if (!labels.kept.length) {
+      unlabelled++;
+      out.addQuad(c, nn(SKOS + 'prefLabel'), lit(decodeURIComponent(iri.slice(Math.max(iri.lastIndexOf('#'), iri.lastIndexOf('/')) + 1)) || iri));
+    }
+    labels.kept.forEach(v => out.addQuad(c, nn(SKOS + 'prefLabel'), v));
+    [...labels.rest, ...(prefs.length ? literals(c, [RDFS + 'label']) : []), ...literals(c, [SKOS + 'altLabel', ...OBO_SYNONYMS])]
+      .forEach(v => out.addQuad(c, nn(SKOS + 'altLabel'), v));
+    const notePredicate = [SKOS + 'scopeNote', SKOS + 'definition', OBO_DEFINITION, RDFS + 'comment'].find(p => literals(c, [p]).length);
+    if (notePredicate) {
+      const notes = perLanguage(literals(c, [notePredicate]));
+      notes.kept.forEach(v => out.addQuad(c, nn(SKOS + 'scopeNote'), v));
+      extraNotes += notes.rest.length;
+    }
+    for (const parent of rdf.getObjects(c, nn(RDFS + 'subClassOf'), null)) {
+      if (parent.termType === 'BlankNode') restrictions++;
+      else if (members.has(parent.value)) out.addQuad(c, nn(SKOS + 'broader'), parent);
+      else if (parent.value !== OWL + 'Thing') outside++;
+    }
+    for (const match of matches) rdf.getObjects(c, nn(SKOS + match), null).forEach(v => out.addQuad(c, nn(SKOS + match), v));
+    rdf.getObjects(c, nn(SKOS + 'notation'), null).forEach(v => out.addQuad(c, nn(SKOS + 'notation'), v));
+    for (const q of rdf.getQuads(c, null, null, null)) if (!used.has(q.predicate.value)) omitted.add(q.predicate.value);
+  }
+  warnings.unshift(`Read as an OWL class hierarchy: ${classes.length} classes became concepts, and rdfs:subClassOf became broader.`);
+  if (restrictions) warnings.push(`${restrictions} class restriction${restrictions === 1 ? '' : 's'} (anonymous superclasses) omitted.`);
+  if (outside) warnings.push(`${outside} superclass link${outside === 1 ? '' : 's'} to classes not declared in this file omitted.`);
+  if (unlabelled) warnings.push(`${unlabelled} class${unlabelled === 1 ? ' has' : 'es have'} no label and ${unlabelled === 1 ? 'is' : 'are'} named by ${unlabelled === 1 ? 'its' : 'their'} IRI's last segment.`);
+  if (extraNotes) warnings.push(`${extraNotes} additional definition${extraNotes === 1 ? '' : 's'} in a language already covered omitted.`);
+  omitted.forEach(p => warnings.push(`Unsupported predicate omitted: ${p}`));
+  const others = new Set(rdf.getSubjects(null, null, null).filter(t => !members.has(t.value) && !t.equals(scheme) && t.termType === 'NamedNode').map(t => t.value)).size;
+  if (others) warnings.push(`${others} other resource${others === 1 ? '' : 's'} (properties, individuals and the like) omitted.`);
+  return { rdf: out, warnings };
+}
+
+/** The file as SKOS: as written, or read from its OWL class hierarchy (see owlAsSkos). */
+function asSkos(data: string | RdfStore) {
   const rdf = parseRdf(data);
+  return owlAsSkos(rdf) ?? { rdf, warnings: [] as string[] };
+}
+
+export function rdfSchemes(data: string | RdfStore) {
+  const { rdf } = asSkos(data);
   return rdf.getSubjects(nn(RDF + 'type'), nn(SKOS + 'ConceptScheme'), null)
     .filter(term => term.termType === 'NamedNode').map(term => ({ uri: term.value,
       labels: rdf.getObjects(term, nn(SKOS + 'prefLabel'), null).filter(v => v.termType === 'Literal')
         .map(v => ({ value: v.value, language: v.termType === 'Literal' ? v.language : '' })) }));
 }
 
-export function planSkos(store: Store, data: string, request: ImportRequest) {
-  const rdf = parseRdf(data);
+export function planSkos(store: Store, data: string | RdfStore, request: ImportRequest) {
+  const { rdf, warnings: read } = asSkos(data);
   const scheme = nn(request.sourceScheme);
   if (!rdf.countQuads(scheme, nn(RDF + 'type'), nn(SKOS + 'ConceptScheme'), null))
     throw new DomainError(422, 'The selected IRI is not a declared skos:ConceptScheme.');
-  const warnings = new Set<string>();
+  const warnings = new Set<string>(read);
   const objects = (s: RdfTerm, p: string) => rdf.getObjects(s, nn(p), null);
   const notations = (subject: RdfTerm): Notation[] => objects(subject, SKOS + 'notation').map(value => {
     if (value.termType !== 'Literal') throw new DomainError(422, 'SKOS notations must be RDF literals.');
