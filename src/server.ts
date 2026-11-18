@@ -15,6 +15,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createMcpServer } from './mcp.js';
 import { AccessError, authorizeRequest, proxiedRequest, requestAccessConfig, type RequestAccessConfig } from './access.js';
 import type { JWTVerifyGetKey } from 'jose';
+import type { WordnetLookup } from './wordnet.js';
 
 async function body(req: IncomingMessage, limit = 128 * 1024): Promise<unknown> {
   if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json')
@@ -46,7 +47,7 @@ function json(res: ServerResponse, status: number, value: unknown) {
 }
 
 export function createApp(store: Store, options: { demo?: boolean; origins?: string[]; deploymentFile?: string;
-  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey; editUrl?: string } = {}) {
+  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey; editUrl?: string; wordnet?: WordnetLookup } = {}) {
   const origins = allowedOrigins(options.origins);
   const access = options.access ?? requestAccessConfig({}, ['terminology-mcp', 'terminology-mcp.localdomain']);
   return createServer(async (req, res) => {
@@ -162,6 +163,11 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           const input = z.object({ from: z.string(), to: z.string(), type: z.enum(['related', 'opposite']),
             expectedVersion: z.number().int().nonnegative() }).strict().parse(await body(req));
           json(res, 200, store.setRelation(input.from, input.to, input.type, req.method === 'POST', input.expectedVersion)); return;
+        }
+        // A WordNet link's words and definition, for display only; synset is null when there is nothing to show.
+        if (req.method === 'GET' && url.pathname === '/api/wordnet') {
+          const uri = url.searchParams.get('uri') ?? '';
+          json(res, 200, { synset: options.wordnet && uri.length <= 2000 ? await options.wordnet(uri) : null }); return;
         }
         if (req.method === 'GET' && url.pathname === '/api/changes') {
           json(res, 200, { log: store.logId, version: store.version, changes: store.changes(numberParam(url, 'since') ?? 0,

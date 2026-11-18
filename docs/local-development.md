@@ -78,6 +78,19 @@ term for editing. No inverse edges or inferred relations are stored.
 External references support absolute IRIs and all five SKOS mapping types.
 See [SKOS interchange](skos.md) for supported fields and import limits.
 
+An Open English WordNet link (`https://en-word.net/id/oewn-07531593-n`) shows
+its synset's words, part of speech and definition under it, for example
+"anger, choler, ire (noun): a strong emotion; …". The editor asks
+`GET /api/wordnet?uri=…` once the term has loaded, and the server looks the id
+up on the WordNet server, keeping each answer in memory. Only the id is
+stored. If the server is unreachable, the bare link is shown and nothing
+else changes. A pasted id that WordNet doesn't have is flagged but can still
+be saved. `WORDNET_SPARQL` sets the server (default
+`http://wordnet.localdomain:7878`; `off` turns lookups off), and
+`WORDNET_GRAPH` sets the edition's graph (default
+`urn:wordnet:graph:oewn-2025`). The WordNet server itself is described in
+quote-mcp's `docs/wordnet.md`.
+
 Every edit sends `expectedChanged`. If another edit changed that term,
 the server returns 409, and the UI retains the unsaved text. Renames and
 removed relations are marked breaking and reviewed before applying locally.

@@ -86,3 +86,4 @@
 .graph-export-list button { border:0; background:none; text-align:left; font-size:12px; padding:8px 10px; border-radius:4px; }
 .graph-export-list button:hover, .graph-export-list button:focus-visible { background:#eef2e7; }
 .graph-export-list .help { padding:4px 10px 2px; margin:0; }
+.link-gloss{flex-basis:100%;margin:0 0 4px;overflow-wrap:anywhere}
