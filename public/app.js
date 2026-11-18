@@ -229,8 +229,26 @@ function addLink(link, changed = true) {
   row.className = 'relation-add link-row';
   row.innerHTML = `<select aria-label="Reference match"><option value="exactMatch" ${link.match === 'exactMatch' ? 'selected' : ''}>Exact match</option><option value="closeMatch" ${link.match === 'closeMatch' ? 'selected' : ''}>Close match</option>${['broadMatch', 'narrowMatch', 'relatedMatch'].map(match => `<option value="${match}" ${link.match === match ? 'selected' : ''}>${match.replace('Match', ' match')}</option>`).join('')}</select><input class="target" type="text" aria-label="Reference URL" value="${escape(link.uri)}" placeholder="https://…" required><button type="button" class="button small" aria-label="Remove reference">×</button>`;
   row.querySelector('button').onclick = () => { row.remove(); markDirty(); };
+  const gloss = document.createElement('p'); gloss.className = 'help link-gloss'; gloss.hidden = true; row.append(gloss);
+  row.querySelector('input').addEventListener('change', () => describeLink(row));
   $('#links').append(row);
+  describeLink(row);
   if (changed) { markDirty(); row.querySelector('input').focus(); }
+}
+// Shows an Open English WordNet link's words, part of speech and definition under it. Display only: the term
+// has already loaded, and if the WordNet server can't answer the bare link stays as it is.
+async function describeLink(row) {
+  const input = row.querySelector('input'), gloss = row.querySelector('.link-gloss'), uri = input.value.trim();
+  gloss.hidden = true; gloss.classList.remove('form-error');
+  if (!uri.startsWith('https://en-word.net/id/')) return;
+  let synset = null;
+  try { ({ synset } = await api(`wordnet?uri=${encodeURIComponent(uri)}`)); } catch { return; }
+  if (!synset || input.value.trim() !== uri) return;
+  gloss.textContent = synset.found
+    ? `${synset.words.join(', ')}${synset.pos ? ` (${synset.pos})` : ''}: ${synset.definition ?? ''}`
+    : 'Open English WordNet has no synset with this id.';
+  gloss.classList.toggle('form-error', !synset.found);
+  gloss.hidden = false;
 }
 function addNotation(notation, changed = true) {
   const row = document.createElement('div'); row.className = 'notation-row';
