@@ -37,7 +37,8 @@ const MAX_BYTES = 5 * 1024 * 1024, MAX_TRIPLES = 100000;
 const tooBig = () => new DomainError(413, `RDF is limited to ${MAX_TRIPLES.toLocaleString('en')} triples.`);
 
 /** RDF/XML opens with an XML declaration, doctype, comment or rdf:RDF element; Turtle never does. */
-export const isRdfXml = (data: string) => /^﻿?\s*(?:<\?xml|<!DOCTYPE|<!--|<[\w.-]+:RDF[\s>/])/i.test(data);
+// An unprefixed <RDF> root counts only with an xmlns attribute, so Turtle opening with the relative IRI <RDF> stays Turtle.
+export const isRdfXml = (data: string) => /^﻿?\s*(?:<\?xml|<!DOCTYPE|<!--|<[\w.-]+:RDF[\s>/]|<RDF\s[^>]*\bxmlns\s*=)/i.test(data);
 
 /** Parses Turtle (or N-Triples). RDF/XML needs readRdf, whose parser is asynchronous. */
 export function parseRdf(data: string | RdfStore): RdfStore {
@@ -117,7 +118,11 @@ export function owlAsSkos(rdf: RdfStore): { rdf: RdfStore; warnings: string[] } 
   // One value per language: the first is kept, the rest returned for the caller to place or report.
   const perLanguage = (values: import('n3').Literal[]) => {
     const kept = new Map<string, import('n3').Literal>(), rest: import('n3').Literal[] = [];
-    for (const value of values) if (kept.has(value.language)) rest.push(value); else kept.set(value.language, value);
+    // Language tags are case-insensitive: "en" and "EN" are one language.
+    for (const value of values) {
+      const language = value.language.toLowerCase();
+      if (kept.has(language)) rest.push(value); else kept.set(language, value);
+    }
     return { kept: [...kept.values()], rest };
   };
   out.addQuad(scheme, nn(RDF + 'type'), nn(SKOS + 'ConceptScheme'));

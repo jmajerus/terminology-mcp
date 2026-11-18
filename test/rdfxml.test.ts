@@ -12,9 +12,10 @@ const request = (sourceScheme: string, schemeId: string, label?: string) =>
   importRequestSchema.parse({ format: 'turtle', sourceScheme, schemeId, hierarchy: 'auto', ...(label ? { label } : {}) });
 
 test('isRdfXml tells RDF/XML from Turtle by how the file opens', () => {
-  for (const xml of ['<?xml version="1.0"?><rdf:RDF/>', '﻿  <rdf:RDF xmlns:rdf="x">', '<!DOCTYPE rdf:RDF>', '<!-- c --><rdf:RDF>', '<RDF:RDF>'])
+  for (const xml of ['<?xml version="1.0"?><rdf:RDF/>', '﻿  <rdf:RDF xmlns:rdf="x">', '<!DOCTYPE rdf:RDF>', '<!-- c --><rdf:RDF>', '<RDF:RDF>',
+    '<RDF xmlns="http://www.w3.org/1999/02/22-rdf-syntax-ns#">', '<RDF\n  xmlns:x="urn:x:" xmlns="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'])
     assert.equal(isRdfXml(xml), true, xml);
-  for (const turtle of ['@prefix x: <urn:x:> .', '<https://example.org/a> a <https://example.org/B> .', 'PREFIX x: <urn:x:>', '# comment\n<urn:a> <urn:b> <urn:c> .'])
+  for (const turtle of ['@prefix x: <urn:x:> .', '<https://example.org/a> a <https://example.org/B> .', 'PREFIX x: <urn:x:>', '# comment\n<urn:a> <urn:b> <urn:c> .', '<RDF> <p> <o> .'])
     assert.equal(isRdfXml(turtle), false, turtle);
 });
 
@@ -88,4 +89,32 @@ test('the import API finds and previews schemes in an RDF/XML upload', async t =
   const bad = await post('/api/imports/schemes', { format: 'turtle', data: '<?xml version="1.0"?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><oops' });
   assert.equal(bad.status, 422);
   assert.match((await bad.json()).error, /Invalid RDF\/XML/);
+});
+
+test('an RDF/XML file with the RDF namespace as its default is read as RDF/XML', async () => {
+  // Attributes take no default namespace, so rdf:about and rdf:resource still need the prefix.
+  const rdf = await readRdf(`<RDF xmlns="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <Description rdf:about="https://example.org/s"><type rdf:resource="http://www.w3.org/2004/02/skos/core#ConceptScheme"/>
+    <skos:prefLabel>Default namespace</skos:prefLabel></Description></RDF>`);
+  assert.deepEqual(rdfSchemes(rdf), [{ uri: 'https://example.org/s', labels: [{ value: 'Default namespace', language: '' }] }]);
+});
+
+test('OWL labels in one language with different tag case give one preferred label and the rest as alternatives', async () => {
+  const rdf = await readRdf(`<?xml version="1.0"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#">
+  <owl:Ontology rdf:about="https://example.org/case"><rdfs:label>Case</rdfs:label></owl:Ontology>
+  <owl:Class rdf:about="https://example.org/case#A">
+    <rdfs:label xml:lang="en">first</rdfs:label><rdfs:label xml:lang="EN">second</rdfs:label><rdfs:label xml:lang="en-GB">third</rdfs:label>
+    <rdfs:comment xml:lang="en">one</rdfs:comment><rdfs:comment xml:lang="En">two</rdfs:comment>
+  </owl:Class>
+</rdf:RDF>`);
+  const store = new Store(':memory:');
+  const { plan, warnings } = planSkos(store, rdf, request('https://example.org/case', 'case'));
+  assert.equal(plan.terms[0].label, 'first');
+  assert.deepEqual(plan.terms[0].altLabels, ['second']);
+  assert.equal(plan.terms[0].scopeNote, 'one');
+  assert.ok(warnings.some(w => /1 additional definition/.test(w)), JSON.stringify(warnings));
+  store.close();
 });
