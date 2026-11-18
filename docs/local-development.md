@@ -78,6 +78,16 @@ term for editing. No inverse edges or inferred relations are stored.
 External references support absolute IRIs and all five SKOS mapping types.
 See [SKOS interchange](skos.md) for supported fields and import limits.
 
+**+ Term** links to a term in another scheme here, the way **+ Reference**
+links outside. It searches the other schemes' labels and alternative labels
+(exact matches first, then labels that start with or contain the text), and
+adds the chosen term's public IRI with the match type picked in the dialog
+(exact by default): its source IRI for an imported term, else its URN. Any
+reference that resolves to a term here shows that term's label and scheme
+under it, and clicking the label opens the term. The term at the other end lists
+the reference under **External references** as "matched from". Nothing is
+added to it automatically, so a two-way match needs a reference on each side.
+
 An Open English WordNet link (`https://en-word.net/id/oewn-07531593-n`) shows
 its synset's words, part of speech and definition under it, for example
 "anger, choler, ire (noun): a strong emotion; …". The editor asks
