@@ -12,6 +12,8 @@ let saving = false;
 let draftRelations = [];
 let expanded = new Set();
 let allExpanded = true;
+let linksOpen = new Set();
+let unplacedOpen = true;
 let createMode = null;
 let createSource = null;
 let parentId = null;
@@ -97,7 +99,7 @@ function renderTree() {
     childMap.get(parent).push(term);
   }
   $('#scheme-settings').hidden = !schemeId;
-  $('#scheme-kind').textContent = scheme()?.hierarchy === 'graph' ? 'CONCEPT GRAPH' : scheme()?.hierarchy === 'poly' ? 'POLYHIERARCHY' : schemeId ? 'TREE SCHEME' : 'NO SCHEMES';
+  $('#scheme-kind').textContent = scheme()?.hierarchy === 'graph' ? scheme().outline === 'list' ? 'CONCEPT GRAPH · A–Z' : 'CONCEPT GRAPH' : scheme()?.hierarchy === 'poly' ? 'POLYHIERARCHY' : schemeId ? 'TREE SCHEME' : 'NO SCHEMES';
   $('#scheme-notations').innerHTML = (scheme()?.notations ?? []).map(notation => `<span class="alias" title="${escape(notation.datatype)}">${escape(notation.value)}</span>`).join('');
   $('#term-count').textContent = `${terms.length} ${terms.length === 1 ? 'term' : 'terms'}`;
   const query = $('#search').value.trim().toLocaleLowerCase();
@@ -106,10 +108,20 @@ function renderTree() {
     .some(value => value.toLocaleLowerCase().includes(query)));
   $('#new-root').textContent = scheme()?.hierarchy === 'graph' ? '+ Concept' : '+ Top-level term';
   $('#graph-view').href = `/graph?scheme=${encodeURIComponent(schemeId)}#${encodeURIComponent(selectedId)}`;
-  if (scheme()?.hierarchy === 'graph') {
-    $('#tree').innerHTML = matches.slice(0,5000).map(term => `<div class="tree-item ${term.id === selectedId ? 'selected' : ''}"><button type="button" class="tree-pick" data-pick="${escape(term.id)}">${escape(term.label)}</button><span class="status-dot ${escape(term.status)}"></span></div>`).join('') || '<p class="tree-empty">No concepts. Create or import a graph.</p>';
-    return;
+  const graph = scheme()?.hierarchy === 'graph';
+  // A graph scheme can opt out of the outline: its concepts are listed A–Z, with no hierarchy drawn.
+  const list = graph && scheme().outline === 'list';
+  // Related and opposite links, read from both ends, within this scheme. A pair can be both related and
+  // opposite, so each term keeps one entry per target and type.
+  const links = new Map();
+  for (const term of terms) for (const relation of term.relations ?? []) {
+    if (!termMap.has(relation.target) || relation.target === term.id) continue;
+    for (const [from, to] of [[term.id, relation.target], [relation.target, term.id]]) {
+      if (!links.has(from)) links.set(from, new Map());
+      links.get(from).set(`${relation.type} ${to}`, { to, type: relation.type });
+    }
   }
+  renderShape(terms, termMap, childMap, links);
   const visible = new Set(matches.map(term => term.id));
   if (query) {
     const addParents = id => { for (const parent of termMap.get(id)?.broader ?? []) { if (!visible.has(parent)) { visible.add(parent); addParents(parent); } } };
@@ -118,24 +130,85 @@ function renderTree() {
   const rows = [];
   const seen = new Set();
   let limited = false;
-  const walk = (term, level) => {
+  const full = () => { if (rows.length < 5000) return false; limited = true; return true; };
+  const selected = term => `${term.id === selectedId ? 'selected' : ''} ${term.status === 'retired' ? 'retired' : ''}`;
+  const pick = term => `<button type="button" class="tree-pick" data-pick="${escape(term.id)}" ${term.id === selectedId ? 'aria-current="true"' : ''}>${escape(term.label)}</button>`;
+  const status = term => `<span class="status-dot ${escape(term.status)}" title="${escape(term.status)}"><span class="sr-only">${escape(term.status)}</span></span>`;
+  const linksButton = term => {
+    const count = links.get(term.id)?.size ?? 0;
+    if (!count) return '';
+    const open = linksOpen.has(term.id);
+    return `<button type="button" class="tree-links" data-links="${escape(term.id)}" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} ${count} related or opposite ${count === 1 ? 'term' : 'terms'} of ${escape(term.label)}" title="Related and opposite terms: associations, shown beside the hierarchy, not in it">↔ ${count}</button>`;
+  };
+  // Related and opposite terms, opened by hand. Each is a link, not a narrower term; one already open
+  // above it in this branch is shown once more as ↺ and goes no further, so a cycle ends there.
+  const walkLinks = (term, level, path) => {
+    for (const { to: id, type } of links.get(term.id)?.values() ?? []) {
+      if (full()) return;
+      const other = termMap.get(id), cycle = path.has(id);
+      const kind = type === 'opposite' ? 'Opposite' : 'Related';
+      rows.push(`<div class="tree-item link-item ${selected(other)}" style="padding-left:${7 + level * 16}px" data-link-kind="${escape(type)}">
+        <span class="tree-glyph" title="${cycle ? 'Already open above in this branch, so not opened again' : `${kind} to ${escape(term.label)}: an association, not a narrower term`}">${cycle ? '↺' : type === 'opposite' ? '≠' : '↔'}</span>
+        <span class="sr-only">${cycle ? 'cycle,' : `${kind.toLowerCase()} term,`}</span>${pick(other)}${cycle ? '' : linksButton(other)}${status(other)}</div>`);
+      if (!cycle && linksOpen.has(id)) walkLinks(other, level + 1, new Set([...path, id]));
+    }
+  };
+  const walk = (term, level, path = new Set()) => {
     if (query && !visible.has(term.id)) return;
-    if (rows.length >= 5000) { limited = true; return; }
+    if (full()) return;
     const shared = seen.has(term.id);
     seen.add(term.id);
-    const children = childMap.get(term.id) ?? [];
+    const children = list ? [] : childMap.get(term.id) ?? [];
     const open = !!query || allExpanded || expanded.has(term.id);
-    rows.push(`<div class="tree-item ${term.id === selectedId ? 'selected' : ''} ${term.status === 'retired' ? 'retired' : ''}" style="padding-left:${7 + level * 16}px">
+    const parents = !list && term.broader.length > 1 && !shared ? term.broader.map(id => termMap.get(id)?.label).filter(Boolean) : [];
+    rows.push(`<div class="tree-item ${selected(term)}" style="padding-left:${7 + level * 16}px">
       <button type="button" class="tree-toggle" data-toggle="${escape(term.id)}" aria-label="${open ? 'Collapse' : 'Expand'} ${escape(term.label)}" ${children.length && !shared ? `aria-expanded="${open}"` : 'disabled'}>${shared ? '↗' : children.length ? open ? '▾' : '▸' : '·'}</button>
-      <button type="button" class="tree-pick" data-pick="${escape(term.id)}" ${term.id === selectedId ? 'aria-current="true"' : ''}>${escape(term.label)}</button>
+      ${pick(term)}
       ${pendingFor(term.id).length ? `<span class="pending-mark" title="Not yet applied by ${escape(pendingFor(term.id).join(', '))}">pending</span>` : ''}
+      ${parents.length ? `<span class="tree-badge" data-multi-parent title="${parents.length} broader terms (${escape(parents.join(', '))}). Its narrower terms are shown here, at its first place in the outline; elsewhere it appears as shared.">⑃<span class="sr-only"> ${parents.length} broader terms</span></span>` : ''}
       ${shared ? '<span class="help" data-shared-reference title="Shared concept; its children appear at its first occurrence">shared</span>' : ''}
-      <span class="status-dot ${escape(term.status)}" title="${escape(term.status)}"><span class="sr-only">${escape(term.status)}</span></span></div>`);
-    if (open && !shared) children.forEach(child => walk(child, level + 1));
+      ${linksButton(term)}
+      ${status(term)}</div>`);
+    // A shared occurrence leaves its narrower terms to the first one, but its links open here as everywhere.
+    const inner = new Set([...path, term.id]);
+    if (open && !shared) children.forEach(child => walk(child, level + 1, inner));
+    if (linksOpen.has(term.id)) walkLinks(term, level + 1, inner);
   };
-  terms.filter(term => !term.broader.length).forEach(term => walk(term, 0));
-  $('#tree').innerHTML = rows.join('') || `<p class="tree-empty">${query ? 'No terms match your search.' : schemeId ? 'A blank page for your vocabulary. Add your first top-level term below.' : 'Create a scheme to start organizing terms.'}</p>`;
+  // In a concept graph, a concept with no broader or narrower term has no place in the hierarchy:
+  // it is listed apart, not as a top-level term.
+  const unplaced = term => graph && !term.broader.length && !childMap.has(term.id);
+  if (list) [...matches].sort((a, b) => a.label.localeCompare(b.label)).forEach(term => walk(term, 0));
+  else terms.filter(term => !term.broader.length && !unplaced(term)).forEach(term => walk(term, 0));
+  const loose = list ? [] : terms.filter(term => unplaced(term) && (!query || visible.has(term.id)));
+  if (loose.length && !full()) {
+    rows.push(`<div class="tree-group" data-unplaced-group><button type="button" class="tree-toggle" data-unplaced aria-expanded="${unplacedOpen}" aria-label="${unplacedOpen ? 'Collapse' : 'Expand'} unplaced concepts">${unplacedOpen ? '▾' : '▸'}</button>
+      <span title="Concepts with no broader or narrower term: their place is in the network of related terms, not in the hierarchy">○ Unplaced · ${loose.length}</span></div>`);
+    if (unplacedOpen) loose.forEach(term => walk(term, 0));
+  }
+  $('#tree').innerHTML = rows.join('') || `<p class="tree-empty">${query ? 'No terms match your search.' : schemeId ? graph ? 'No concepts. Create or import a graph.' : 'A blank page for your vocabulary. Add your first top-level term below.' : 'Create a scheme to start organizing terms.'}</p>`;
   if (limited) $('#tree').insertAdjacentHTML('beforeend', '<p class="tree-empty">Showing the first 5,000 outline rows. Filter terms to narrow the view.</p>');
+}
+// The shape of the scheme's data, whatever hierarchy it was declared with: ⑂ a tree, ⑃ a polyhierarchy
+// (some terms have several broader terms), ⁂ links between related or opposite terms, ○ concepts outside
+// any hierarchy. Retired terms are left out.
+function renderShape(terms, termMap, childMap, links) {
+  const live = terms.filter(term => term.status !== 'retired'), ids = new Set(live.map(term => term.id));
+  const broader = live.flatMap(term => term.broader.filter(id => ids.has(id)));
+  const multi = live.filter(term => term.broader.filter(id => ids.has(id)).length > 1).length;
+  const pairs = { related: 0, opposite: 0 };
+  for (const [from, targets] of links) if (ids.has(from)) for (const { to, type } of targets.values()) if (ids.has(to) && from < to) pairs[type]++;
+  const pairCount = pairs.related + pairs.opposite;
+  const hasChildren = new Set(broader);
+  const unplaced = scheme()?.hierarchy === 'graph' ? live.filter(term => !term.broader.some(id => ids.has(id)) && !hasChildren.has(term.id)).length : 0;
+  const parts = [];
+  if (broader.length) parts.push(multi ? `⑃ polyhierarchy · ${multi} multi-parent` : '⑂ tree');
+  if (pairCount) parts.push(`⁂ ${pairCount} ${pairCount === 1 ? 'link' : 'links'}`);
+  if (unplaced) parts.push(`○ ${unplaced} unplaced`);
+  const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  $('#scheme-shape').textContent = live.length ? parts.join(' · ') || '· flat list' : '';
+  $('#scheme-shape').title = live.length ? `Shape of the data: ${plural(live.length, 'active term')}; ${plural(broader.length, 'broader link')}`
+    + `${multi ? `, ${plural(multi, 'term')} with several broader terms` : ''}; ${plural(pairs.related, 'related pair')}, ${plural(pairs.opposite, 'opposite pair')}`
+    + `${unplaced ? `; ${plural(unplaced, 'concept')} with no broader or narrower term` : ''}.` : '';
 }
 function crumbs(term) {
   if (scheme()?.hierarchy === 'graph') return escape(scheme()?.label);
@@ -488,6 +561,8 @@ $('#scheme-settings').onclick = () => {
   $('#scheme-max-depth').value = scheme().maxDepth ?? '';
   $('#scheme-slug-scope').value = scheme().slugScope ?? 'siblings';
   $('#scheme-proposal-source').value = scheme().proposalSource ?? 'required';
+  $('#scheme-outline-field').hidden = scheme().hierarchy !== 'graph';
+  $('#scheme-outline').value = scheme().outline ?? 'hierarchy';
   $('#scheme-error').textContent = '';
   $('#scheme-dialog').showModal();
 };
@@ -499,7 +574,8 @@ $('#scheme-form').addEventListener('submit', async event => {
   try {
     await api(`schemes/${encodeURIComponent(schemeId)}`, { method: 'PATCH', body: JSON.stringify({ label: $('#scheme-label').value, description: $('#scheme-description').value,
       maxDepth: value === '' ? null : Number(value),
-      slugScope: $('#scheme-slug-scope').value, proposalSource: $('#scheme-proposal-source').value, expectedVersion: state.version }) });
+      slugScope: $('#scheme-slug-scope').value, proposalSource: $('#scheme-proposal-source').value,
+      ...(scheme().hierarchy === 'graph' ? { outline: $('#scheme-outline').value } : {}), expectedVersion: state.version }) });
     $('#scheme-dialog').close();
     await refresh(selectedId);
     notice(`Saved the settings of ${scheme().label}.`);
@@ -533,6 +609,14 @@ document.addEventListener('click', event => {
     renderTree();
     [...document.querySelectorAll('[data-toggle]')].find(item => item.dataset.toggle === id)?.focus();
   }
+  const linkToggle = event.target.closest('[data-links]');
+  if (linkToggle) {
+    const id = linkToggle.dataset.links, row = [...document.querySelectorAll('#tree [data-links]')].indexOf(linkToggle);
+    if (linksOpen.has(id)) linksOpen.delete(id); else linksOpen.add(id);
+    renderTree();
+    document.querySelectorAll('#tree [data-links]')[row]?.focus();
+  }
+  if (event.target.closest('[data-unplaced]')) { unplacedOpen = !unplacedOpen; renderTree(); $('#tree [data-unplaced]')?.focus(); }
   const remove = event.target.closest('[data-remove-relation]');
   if (remove) { draftRelations.splice(Number(remove.dataset.removeRelation), 1); markDirty(); renderRelations(); }
   const revision = event.target.closest('[data-revision]');

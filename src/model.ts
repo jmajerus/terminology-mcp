@@ -68,6 +68,8 @@ export const schemeSchema = z.object({
   slugScope: z.enum(['siblings', 'scheme']).optional(),
   // 'optional': a proposal may cite evidence (a quote, say) instead of a source term. Absent means required.
   proposalSource: z.enum(['required', 'optional']).optional(),
+  // 'list': the editor lists a concept graph's concepts A–Z instead of outlining its broader links. Absent means outline.
+  outline: z.enum(['hierarchy', 'list']).optional(),
   sourceUri: iriSchema.optional(),
   language: z.string().regex(/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/).optional(),
 }).strict();
@@ -96,6 +98,7 @@ export const schemeSettingsSchema = z.object({
   label: schemeSchema.shape.label.optional(), description: schemeSchema.shape.description.removeDefault().optional(),
   maxDepth: z.number().int().min(0).max(500).nullable().optional(),
   slugScope: schemeSchema.shape.slugScope.unwrap().optional(), proposalSource: schemeSchema.shape.proposalSource.unwrap().optional(),
+  outline: schemeSchema.shape.outline.unwrap().optional(),
   expectedVersion: z.number().int().nonnegative(),
 }).strict();
 const marker = z.string().trim().max(2000);

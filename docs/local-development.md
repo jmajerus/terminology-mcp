@@ -39,8 +39,8 @@ aliases, and its numbered changelog entry in **one transaction**. A failed
 validation or alias collision rolls back the entire operation. A no-op save
 does not advance the changelog. Revisions are full term snapshots rather
 than event replay; historical reads select the last revision at or before N.
-Schemes have revisions too. Only the maximum depth, slug scope and proposal
-rule can change after creation: **Scheme settings** in the outline (or
+Schemes have revisions too. Only the name, description, maximum depth, slug
+scope, proposal rule and (for a concept graph) outline can change after creation: **Scheme settings** in the outline (or
 `PATCH /api/schemes/:id`) logs a `scheme-changed` change, and every active or
 provisional term must already fit a new depth limit. Retired terms are exempt: they are read-only and keep the place
 they retired from. Once set, adding, moving or importing a term deeper than
@@ -68,7 +68,9 @@ longest path for hierarchy and replacement validation, regardless of input order
 paths with 500 edges are accepted, and longer ones are rejected.
 
 The outline expands each concept's descendants once. Repeated occurrences in
-a polyhierarchy are selectable shared references. Rendering stops at 5,000
+a polyhierarchy are selectable shared references. Concept graphs use the same
+outline, with related and opposite terms opened beside it and the marks
+described in [concept graphs](concept-graphs.md#the-outline). Rendering stops at 5,000
 rows with a prompt to filter, preventing a large graph from freezing the editor.
 
 Relations are explicit typed edges. `related` can cross schemes; `opposite`
@@ -152,7 +154,7 @@ conflicts 409, and missing resources 404, with `{ "error": "…" }` bodies.
 | GET | `/api/changes?since=N&term=ID&scheme=ID` | Ordered changes after N; optional affected-term and scheme filters (unknown scheme: 404) |
 | GET | `/api/schemes/:id/slugs/:slug?parent=REF&depth=D&at=N` | Resolve a current or former slug; `parent` (ID, alias or slug) or `depth` narrows it |
 | POST | `/api/schemes` | Create `{id, label, hierarchy, description?, admissionTest?, slugUniqueDepths?, maxDepth?, slugScope?, proposalSource?}` |
-| PATCH | `/api/schemes/:id` | Change settings `{maxDepth?, slugScope?, proposalSource?, expectedVersion}`; settings left out keep their value, and `maxDepth: null` removes the limit |
+| PATCH | `/api/schemes/:id` | Change settings `{label?, description?, maxDepth?, slugScope?, proposalSource?, outline?, expectedVersion}` (`outline: "list"` only for a concept graph); settings left out keep their value, and `maxDepth: null` removes the limit |
 | POST | `/api/proposals` | Propose a provisional term `{scheme, broader?, source?, sourceScheme?, match?, label?, proposer, scopeNote?, altLabels?, slug?, evidence?, requestId?}`, copied from a term in another scheme. `broader` is optional only in a concept graph; `source` only where the scheme's `proposalSource` is `optional`, with `label` and `evidence` instead |
 | POST | `/api/subscribers/:id/progress` | Report `{log, through, schemes?, label?, blocked?, reset?}` |
 | GET | `/api/subscribers`, `/api/subscribers/:id` | Each subscriber's progress, pending changes and hold |
