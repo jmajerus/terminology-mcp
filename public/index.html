@@ -89,6 +89,16 @@
     <div id="term-match-results" class="wordnet-results"></div>
     <div class="dialog-actions"><button id="close-term-match" type="button" class="button">Close</button></div>
   </dialog>
+  <dialog id="puzzle-dialog" class="wide-dialog">
+    <form id="puzzle-form">
+      <div class="dialog-heading"><span class="eyebrow">External reference</span><h2>Find a Concept Clusters puzzle</h2></div>
+      <div class="wordnet-search"><select id="puzzle-match-type" aria-label="Match type"><option value="closeMatch">Close match</option><option value="relatedMatch">Related match</option><option value="broadMatch">Broad match</option><option value="narrowMatch">Narrow match</option><option value="exactMatch">Exact match</option></select><input id="puzzle-text" aria-label="Words to find" maxlength="100" required placeholder="Words, e.g. moral inversion"><button class="button primary" type="submit">Search</button></div>
+      <p class="help">Searches the clusters, board terms and bridges of published puzzles, by the words of their labels and facts. A close match is the same idea; a related match gives the concept context. Prefer a cluster when one fits.</p>
+    </form>
+    <p id="puzzle-status" class="help" role="status"></p>
+    <div id="puzzle-results" class="wordnet-results"></div>
+    <div class="dialog-actions"><button id="close-puzzle" type="button" class="button">Close</button></div>
+  </dialog>
   <dialog id="wordnet-dialog" class="wide-dialog">
     <form id="wordnet-form">
       <div class="dialog-heading"><span class="eyebrow">External reference</span><h2>Find a WordNet match</h2></div>

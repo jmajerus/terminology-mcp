@@ -16,6 +16,7 @@ import { createMcpServer } from './mcp.js';
 import { AccessError, authorizeRequest, proxiedRequest, requestAccessConfig, type RequestAccessConfig } from './access.js';
 import type { JWTVerifyGetKey } from 'jose';
 import type { WordnetLookup, WordnetSearch } from './wordnet.js';
+import type { CcLookup, CcSearch } from './concept-clusters.js';
 
 async function body(req: IncomingMessage, limit = 128 * 1024): Promise<unknown> {
   if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json')
@@ -47,7 +48,8 @@ function json(res: ServerResponse, status: number, value: unknown) {
 }
 
 export function createApp(store: Store, options: { demo?: boolean; origins?: string[]; deploymentFile?: string;
-  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey; editUrl?: string; wordnet?: WordnetLookup; wordnetSearch?: WordnetSearch } = {}) {
+  access?: RequestAccessConfig; accessKeys?: JWTVerifyGetKey; editUrl?: string; wordnet?: WordnetLookup; wordnetSearch?: WordnetSearch;
+  conceptClusters?: CcLookup; conceptClustersSearch?: CcSearch } = {}) {
   const origins = allowedOrigins(options.origins);
   const access = options.access ?? requestAccessConfig({}, ['terminology-mcp', 'terminology-mcp.localdomain']);
   return createServer(async (req, res) => {
@@ -87,7 +89,8 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           json(res, 405, { error: 'MCP uses stateless Streamable HTTP POST requests.' }); return;
         }
         const input = await body(req);
-        const mcp = createMcpServer(store, { caller, wordnet: options.wordnet, wordnetSearch: options.wordnetSearch });
+        const mcp = createMcpServer(store, { caller, wordnet: options.wordnet, wordnetSearch: options.wordnetSearch,
+          conceptClusters: options.conceptClusters, conceptClustersSearch: options.conceptClustersSearch });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on('close', () => { void mcp.close().catch(error => console.error('MCP cleanup failed:', error)); });
         try { await mcp.connect(transport); await transport.handleRequest(req, res, input); }
@@ -163,6 +166,16 @@ export function createApp(store: Store, options: { demo?: boolean; origins?: str
           const input = z.object({ from: z.string(), to: z.string(), type: z.enum(['related', 'opposite']),
             expectedVersion: z.number().int().nonnegative() }).strict().parse(await body(req));
           json(res, 200, store.setRelation(input.from, input.to, input.type, req.method === 'POST', input.expectedVersion)); return;
+        }
+        // A Concept Clusters link's puzzle, item and fact, for display only, and puzzle items whose label contains q;
+        // null when the graph server can't answer or lookups are off.
+        if (req.method === 'GET' && url.pathname === '/api/concept-clusters/search') {
+          const q = url.searchParams.get('q') ?? '';
+          json(res, 200, { results: options.conceptClustersSearch && q.length <= 100 ? await options.conceptClustersSearch(q) : null }); return;
+        }
+        if (req.method === 'GET' && url.pathname === '/api/concept-clusters') {
+          const uri = url.searchParams.get('uri') ?? '';
+          json(res, 200, { item: options.conceptClusters && uri.length <= 2000 ? await options.conceptClusters(uri) : null }); return;
         }
         // A WordNet link's words and definition, for display only; synset is null when there is nothing to show.
         // Synsets with a lemma spelled as q (whole words only); results is null when the WordNet server can't answer.

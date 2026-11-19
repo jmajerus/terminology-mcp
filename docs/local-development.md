@@ -111,6 +111,40 @@ chosen again. Search matches whole words in any case ("anger", "see red"), not
 the start of a word. The same search is `GET /api/wordnet/search?q=…`, and
 agents get it as the MCP tool `search_wordnet`.
 
+### Concept Clusters links
+
+A term can link to a Concept Clusters puzzle, or to one of its clusters, board
+terms or bridges, by Concept Clusters' IRI
+(`urn:concept-clusters:puzzle:<id>#<item>`). This is how one application's
+concept leads to another's: an agent drafting with the Dehumanization
+Frameworks reads DF6 with `get_term`, and its link to the cluster
+*Inverting moral value* gives the puzzle's title and public URL to cite.
+
+Such a link is named under it: "Cluster “Inverting moral value” in
+Moral disengagement and moral inversion ↗: …", with the puzzle title linking to
+the puzzle on the player site. The editor asks `GET /api/concept-clusters?uri=…`,
+and the server reads Concept Clusters' published graphs on the LAN Oxigraph
+server (Concept Clusters' `docs/ONTOLOGY.md`). It only reads, and only graphs
+under `urn:concept-clusters:graph:`. Answers are kept in memory for ten
+minutes, because puzzles are republished. A link to a puzzle or item that is
+no longer published is flagged but kept. `CC_SPARQL` sets the server (default
+`http://oxigraph.localdomain:7878`; `off` turns lookups off), and `CC_SITE`
+sets the player site that puzzle URLs point to (default
+`https://concept-clusters.jmajerus.workers.dev/`; a puzzle is
+`<site>?puzzle=<id>`).
+
+**+ Puzzle** finds a link without leaving the editor. It searches the
+clusters, board terms and bridges of published puzzles for the term's label,
+or for any words you type, matching the starts of words in labels and facts
+with common endings dropped, so "Inversion of Moral Orientation" finds
+"Inverting moral value". Results are best first: an exact label, then a label
+containing the whole text, then by how many words match, clusters before
+terms before bridges. Choose the match type first. A close match is the same
+idea; a related match gives the concept context. The same search is
+`GET /api/concept-clusters/search?q=…`, and agents get it as the MCP tool
+`search_concept_clusters`. To go the other way, from a puzzle to the terms that
+link to it, use `search_terms` with `linksTo`.
+
 Every edit sends `expectedChanged`. If another edit changed that term,
 the server returns 409, and the UI retains the unsaved text. Renames and
 removed relations are marked breaking and reviewed before applying locally.
