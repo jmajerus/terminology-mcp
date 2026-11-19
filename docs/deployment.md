@@ -39,21 +39,28 @@ For subsequent deployments with the runtime already present:
 python3 tools/deploy.py
 ```
 
-Scheme administration uses the server’s existing runtime directly, with no npm
-needed to run the commands. After deploying a release containing the CLI:
+Administer schemes on the server with `terminology-admin`, which each
+deployment installs in `/usr/local/bin`. It runs the compiled CLI with the
+deployment's own Node.js runtime, as the `terminology-mcp` service account
+(through `sudo` when needed), against the production database:
 
 ```sh
-sudo -u terminology-mcp /opt/terminology-mcp/runtime/bin/node /opt/terminology-mcp/current/dist/cli.js rename my-scheme "New name" --db /var/lib/terminology-mcp/terminology.sqlite
+terminology-admin delete my-scheme
+terminology-admin rename my-scheme "New name"
+```
+
+These commands preview changes. Append `--yes` to apply. Rename changes the
+display name and preserves the scheme ID.
+
+Don't run `npm run scheme:delete` with the system `node`: better-sqlite3 is
+built for the deployment's runtime, and another Node.js version can crash on
+loading it with only "Segmentation fault". The wrapper is equivalent to:
+
+```sh
 sudo -u terminology-mcp /opt/terminology-mcp/runtime/bin/node /opt/terminology-mcp/current/dist/cli.js delete my-scheme --db /var/lib/terminology-mcp/terminology.sqlite
 ```
 
-These commands preview changes. Append `--yes` to apply. Run them on the server
-as the service account so the database and its SQLite journal retain the correct
-ownership. Rename changes the display name and preserves the scheme ID.
-
-The npm shortcuts also use the compiled CLI. Run them with the deployment’s
-Node.js runtime on `PATH` (the system Node.js may be an older, incompatible
-version), as the service account, with the production database selected:
+The npm shortcuts work with the runtime first on `PATH`:
 
 ```sh
 sudo -u terminology-mcp env PATH=/opt/terminology-mcp/runtime/bin:/usr/local/bin:/usr/bin:/bin npm --prefix /opt/terminology-mcp/current run scheme:delete -- my-scheme --db /var/lib/terminology-mcp/terminology.sqlite

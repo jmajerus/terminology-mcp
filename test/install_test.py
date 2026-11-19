@@ -19,7 +19,7 @@ class InstallerTests(unittest.TestCase):
             data = base / 'var/lib/terminology-mcp'
             etc = base / 'etc/terminology-mcp'
             units = base / 'etc/systemd/system'
-            for path in [app / 'runtime/bin', app / 'releases/old', data, etc, units, base / 'var/lock', base / 'proc/123']:
+            for path in [app / 'runtime/bin', app / 'releases/old', data, etc, units, base / 'var/lock', base / 'proc/123', base / 'usr/local/bin']:
                 path.mkdir(parents=True, exist_ok=True)
             enabled = base / 'enabled'
             active = base / 'active'
@@ -68,7 +68,7 @@ esac''',
                 path.write_text('#!/bin/sh\n' + script + '\n')
                 path.chmod(0o755)
             template = (ROOT / 'deploy/install.sh').read_text()
-            for path in ['/opt/terminology-mcp', '/var/lib/terminology-mcp', '/etc/terminology-mcp', '/etc/systemd/system', '/var/lock', '/proc/']:
+            for path in ['/opt/terminology-mcp', '/var/lib/terminology-mcp', '/etc/terminology-mcp', '/etc/systemd/system', '/var/lock', '/proc/', '/usr/local/bin']:
                 template = template.replace(path, str(base) + path)
             result = subprocess.run(['sh'], input=template, text=True, capture_output=True,
                                     env={**os.environ, 'FAIL_MODE': mode, 'HOST_STATE': str(base), 'RELEASE': str(release),
@@ -88,6 +88,10 @@ esac''',
                 self.assertEqual(stat.S_IMODE((release / 'rollback').stat().st_mode), 0o700)
                 self.assertEqual(stat.S_IMODE(data.stat().st_mode), 0o700)
                 self.assertEqual(stat.S_IMODE((etc / 'env').stat().st_mode), 0o640)
+                admin = base / 'usr/local/bin/terminology-admin'
+                self.assertEqual(admin.resolve(), app / 'bin/terminology-admin')
+                self.assertIn('runtime/bin/node', admin.read_text())
+                self.assertEqual(stat.S_IMODE(admin.stat().st_mode), 0o755)
             elif first:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(active.exists(), result.stderr)

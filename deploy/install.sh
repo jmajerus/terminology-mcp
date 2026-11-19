@@ -114,4 +114,22 @@ fi
 rm -f /etc/terminology-mcp/environment
 install -m 0640 -o root -g terminology-mcp "$RELEASE/deployed.json" /var/lib/terminology-mcp/deployed.json.next
 mv -f /var/lib/terminology-mcp/deployed.json.next /var/lib/terminology-mcp/deployed.json
+# Scheme administration with the deployment's own Node.js runtime, as the
+# service account. The system Node.js may be a different version, and loading
+# better-sqlite3 built for this runtime into it can crash without a message.
+install -d -m 0755 /opt/terminology-mcp/bin
+cat > /opt/terminology-mcp/bin/terminology-admin.next <<'ADMIN'
+#!/bin/sh
+# terminology-admin delete|rename ... : the scheme CLI, run as terminology-mcp
+# with /opt/terminology-mcp/runtime/bin/node. Previews unless --yes is given.
+set -eu
+node=/opt/terminology-mcp/runtime/bin/node
+cli=/opt/terminology-mcp/current/dist/cli.js
+test -x "$node" && test -f "$cli" || { echo "terminology-admin: no deployed release in /opt/terminology-mcp" >&2; exit 1; }
+if test "$(id -un)" = terminology-mcp; then exec "$node" "$cli" "$@"; fi
+exec sudo -u terminology-mcp -- "$node" "$cli" "$@"
+ADMIN
+chmod 0755 /opt/terminology-mcp/bin/terminology-admin.next
+mv -f /opt/terminology-mcp/bin/terminology-admin.next /opt/terminology-mcp/bin/terminology-admin
+ln -sfn /opt/terminology-mcp/bin/terminology-admin /usr/local/bin/terminology-admin
 echo "Healthy release $RELEASE_ID ($COMMIT)"

@@ -86,6 +86,9 @@ run these commands. The normal application build produces `dist/cli.js`.
 The npm shortcuts `npm run scheme:delete -- ...` and
 `npm run scheme:rename -- ...` use this same compiled CLI and also work after
 development dependencies have been removed. Build first when working from source.
+On a deployed server, use `terminology-admin delete my-scheme` instead: it
+runs as the service account with the deployment's Node.js runtime (see
+[docs/deployment.md](docs/deployment.md)).
 
 ```sh
 node dist/cli.js delete my-scheme
