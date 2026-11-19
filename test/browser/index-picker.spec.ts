@@ -75,3 +75,28 @@ test('an index term leads the term pickers to the specific terms it maps as narr
   await expect(row.locator('.link-gloss')).toHaveText('Inversion of Moral Orientation · ix-df');
   expect(errors).toEqual([]);
 });
+
+test('the search shows at most 60 choices, even under one index term, and a new term is never offered a retired parent', async ({ page, request }) => {
+  for (const [id, label] of [['ix-cap', 'Many'], ['ix-cap-index', 'Many index']])
+    await request.post('/api/schemes', { data: { id, label, hierarchy: 'graph' } });
+  const add = async (data: object) => (await (await request.post('/api/terms', { data: { status: 'active', ...data } })).json()).term;
+  const many: { id: string }[] = [];
+  for (let i = 0; i < 65; i++) many.push(await add({ scheme: 'ix-cap', label: `Specific ${String(i).padStart(2, '0')}` }));
+  await add({ scheme: 'ix-cap-index', label: 'umbrella', links: many.map(term => ({ uri: `urn:terminology-mcp:term:${term.id}`, match: 'narrowMatch' })) });
+  const old = await add({ scheme: 'ix-cap', label: 'Old parent' });
+  const { version } = await (await request.get('/api/state')).json();
+  expect((await request.post(`/api/terms/${old.id}/operations/apply`, { data: { kind: 'retire', replacements: [], expectedVersion: version } })).ok()).toBe(true);
+
+  await page.goto('/?scheme=ix-cap');
+  await page.getByRole('button', { name: '+ Concept' }).click();
+  const broader = page.locator('#create-fields select[name=broader]');
+  await expect(broader.locator('option', { hasText: 'Specific 00' })).toHaveCount(1);
+  await expect(broader.locator('option', { hasText: 'Old parent' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Find a broader term by search' }).click();
+  const dialog = page.locator('#term-match-dialog');
+  await dialog.getByLabel('Term label').fill('umbrella');
+  await expect(dialog.locator('#term-match-results [data-term-match]')).toHaveCount(60);
+  await expect(dialog.locator('#term-match-status')).toHaveText('The first 60 terms; narrow the search to see the rest');
+  await dialog.getByLabel('Term label').fill('old parent');
+  await expect(dialog.locator('#term-match-status')).toHaveText('No term matches “old parent”.');
+});

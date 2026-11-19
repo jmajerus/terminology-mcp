@@ -366,17 +366,23 @@ function searchTerms(text, allowed) {
   const ranked = state.terms.filter(term => term.status !== 'retired')
     .map(term => [term, matchRank(term, text)]).filter(([, rank]) => rank >= 0)
     .sort(([a, x], [b, y]) => x - y || a.label.localeCompare(b.label) || a.scheme.localeCompare(b.scheme));
-  const rows = [], shown = new Set();
+  // At most `limit` choices, counting those under an index term; more says the rest were left out.
+  const rows = [], shown = new Set(), limit = 60;
+  let more = false;
   for (const [term] of ranked) {
     const under = narrowerMatches(term).filter(other => allowed(other) && !shown.has(other.id));
     const own = allowed(term) && !shown.has(term.id);
     if (!own && !under.length) continue;
+    if (shown.size >= limit) { more = true; break; }
     rows.push({ term, own, hub: under.length > 0 });
     if (own) shown.add(term.id);
-    for (const other of under) { rows.push({ term: other, own: true, under: term }); shown.add(other.id); }
-    if (shown.size >= 60) break;
+    for (const other of under) {
+      if (shown.size >= limit) { more = true; break; }
+      rows.push({ term: other, own: true, under: term }); shown.add(other.id);
+    }
+    if (more) break;
   }
-  return { rows, count: shown.size };
+  return { rows, count: shown.size, more };
 }
 function termResultHtml({ term, own, hub, under }, linked = () => false) {
   const already = own && linked(term);
@@ -412,10 +418,10 @@ function searchTermMatches() {
   const pick = termSearch.mode === 'pick';
   const linked = new Set([...document.querySelectorAll('#links .link-row input')].map(input => input.value.trim()));
   const allowed = pick ? term => termSearch.choices.has(term.id) : term => term.scheme !== schemeId;
-  const { rows, count } = text ? searchTerms(text, allowed) : { rows: [], count: 0 };
+  const { rows, count, more } = text ? searchTerms(text, allowed) : { rows: [], count: 0, more: false };
   const where = pick ? '' : ' in other schemes';
   $('#term-match-status').textContent = !text ? `Type a word to search labels, alternative labels and scope notes${where}. Index terms list the terms they map as narrower.`
-    : count ? `${count} term${count === 1 ? '' : 's'}${where}${count >= 60 ? '; showing the first 60, so narrow the search' : ''}`
+    : count ? more ? `The first ${count} terms${where}; narrow the search to see the rest` : `${count} term${count === 1 ? '' : 's'}${where}`
     : `No term${where} matches “${typed}”.`;
   $('#term-match-results').innerHTML = rows.map(row => termResultHtml(row, pick ? () => false : term => [...termIris(term)].some(iri => linked.has(iri)))).join('');
 }
@@ -625,7 +631,7 @@ function openCreate(mode, parent = null) {
   $('#create-title').textContent = mode === 'scheme' ? 'New scheme' : parent ? 'New narrower term' : scheme()?.hierarchy === 'graph' ? 'New concept' : 'New top-level term';
   $('#create-error').textContent = '';
   const schemeFields = `<label class="field"><span class="field-label">Scheme ID</span><input name="id" required pattern="[a-z]([a-z0-9]|-){0,59}" maxlength="60" placeholder="e.g. subjects"><span class="help">Lowercase letters, numbers, and hyphens. This ID stays fixed.</span></label><label class="field"><span class="field-label">Hierarchy</span><select name="hierarchy"><option value="tree">Tree · one broader term</option><option value="poly">Polyhierarchy · multiple broader terms</option><option value="graph">Concept graph · associative network</option></select></label><label class="field"><span class="field-label">Maximum depth <span class="help">optional</span></span><input name="maxDepth" type="number" min="0" max="500" placeholder="No limit"><span class="help">Top terms are depth 0. Leave empty for no limit.</span></label><label class="field"><span class="field-label">Description</span><textarea name="description" rows="2" maxlength="10000"></textarea></label>`;
-  const termFields = `<label class="field"><span class="field-label">Broader terms</span><select name="broader" data-find="a broader term" ${scheme()?.hierarchy !== 'tree' ? 'multiple size="5"' : ''}><option value="" ${!parent ? 'selected' : ''}>Top level</option>${termOptions(state.terms.filter(term => term.scheme === schemeId), parent)}</select>${scheme()?.hierarchy !== 'tree' ? '<span class="help">Use Ctrl or Command to select more than one parent.</span>' : ''}</label><label class="field"><span class="field-label">Scope note</span><textarea name="scopeNote" rows="3" maxlength="20000" placeholder="What belongs here?"></textarea></label><label class="field"><span class="field-label">Status</span><select name="status"><option value="provisional">Provisional</option><option value="active">Active</option></select></label>`;
+  const termFields = `<label class="field"><span class="field-label">Broader terms</span><select name="broader" data-find="a broader term" ${scheme()?.hierarchy !== 'tree' ? 'multiple size="5"' : ''}><option value="" ${!parent ? 'selected' : ''}>Top level</option>${termOptions(state.terms.filter(term => term.scheme === schemeId && term.status !== 'retired'), parent)}</select>${scheme()?.hierarchy !== 'tree' ? '<span class="help">Use Ctrl or Command to select more than one parent.</span>' : ''}</label><label class="field"><span class="field-label">Scope note</span><textarea name="scopeNote" rows="3" maxlength="20000" placeholder="What belongs here?"></textarea></label><label class="field"><span class="field-label">Status</span><select name="status"><option value="provisional">Provisional</option><option value="active">Active</option></select></label>`;
   const sourceFields = `<div class="field"><span class="field-label">Copy from another vocabulary <span class="help">optional</span></span><input id="source-search" type="search" placeholder="Search entries by label or code, e.g. computer science or QA76" autocomplete="off" aria-label="Search other vocabularies"><div id="source-results" class="source-results"></div><div id="source-chosen"></div></div>`;
   const slugField = `<label class="field"><span class="field-label">Slug <span class="help">optional</span></span><input name="slug" maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="Minted from the label" autocomplete="off"><span class="help">Lowercase letters and digits separated by hyphens. It stays fixed when the label changes.</span></label>`;
   createSource = null;
