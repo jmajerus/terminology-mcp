@@ -17,6 +17,31 @@ const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint
 const normalize = (value: string) => value.normalize('NFKC').toLowerCase();
 /** A term with its concept key (scheme:slug), the form to reuse in later calls. */
 const keyed = (keys: TermKeys) => <T extends TermView>(term: T) => ({ ...term, key: keys.key(term) });
+/**
+ * What each term maps as narrower: its narrowMatch targets, and the terms whose broadMatch points back at it. A target
+ * that is a term here (by any IRI it answers to) is named; any other stays an IRI. Retired terms are left out.
+ */
+function narrowerMatches(terms: TermView[], keys: TermKeys) {
+  const byIri = new Map<string, TermView>();
+  for (const term of terms) for (const iri of [termIri(term), `urn:terminology-mcp:term:${term.id}`, term.sourceUri ?? '', ...term.aliases])
+    if (iri && !byIri.has(iri)) byIri.set(iri, term);
+  const name = (term: TermView) => ({ iri: termIri(term), key: keys.key(term), id: term.id, label: term.label, scheme: term.scheme });
+  const back = new Map<string, TermView[]>();
+  for (const term of terms) for (const link of term.links) if (link.match === 'broadMatch') {
+    const hub = byIri.get(link.uri);
+    if (hub && hub.id !== term.id) back.set(hub.id, [...back.get(hub.id) ?? [], term]);
+  }
+  return (hub: TermView) => {
+    const out = new Map<string, { iri: string; key?: string; id?: string; label?: string; scheme?: string }>();
+    for (const link of hub.links) if (link.match === 'narrowMatch') {
+      const term = byIri.get(link.uri);
+      if (!term) out.set(link.uri, { iri: link.uri });
+      else if (term.status !== 'retired' && term.id !== hub.id) out.set(term.id, name(term));
+    }
+    for (const term of back.get(hub.id) ?? []) if (term.status !== 'retired') out.set(term.id, name(term));
+    return [...out.values()].sort((a, b) => (a.label ?? a.iri).localeCompare(b.label ?? b.iri));
+  };
+}
 /** Adds notices for references that resolved by an alias over a scheme:slug, or by a former slug. */
 const noted = <T extends object>(value: T, notices: ({ ref: string; message: string } | undefined)[]) => {
   const found = notices.filter(item => item !== undefined);
@@ -59,9 +84,10 @@ export function createMcpServer(store: Store, options: { caller?: string; wordne
     inputSchema: z.object({ at, ...page }).strict(), annotations }, args => run(() => {
     const v = version(args.at); return { version: v, ...slice(store.schemes(v), args.offset, args.limit) };
   }));
-  server.registerTool('search_terms', { description: 'Case-insensitive substring search across labels, alternative labels, notations, aliases and source IRIs. Empty query browses terms. Each hit carries its iri and key (scheme:slug). Defaults to active and provisional terms; status=all includes retired terms. Set filters use expanded membership. Before propose_term, search a reference vocabulary (scheme loc-classification, or excludeScheme set to the target scheme) for a source. linksTo finds the terms with an external reference (exactMatch, closeMatch…) to that IRI or under it: a Concept Clusters puzzle IRI also finds links to its clusters, terms and bridges.',
+  server.registerTool('search_terms', { description: 'Case-insensitive substring search across labels, alternative labels, notations, aliases and source IRIs. Empty query browses terms. Each hit carries its iri and key (scheme:slug). Defaults to active and provisional terms; status=all includes retired terms. Set filters use expanded membership. Before propose_term, search a reference vocabulary (scheme loc-classification, or excludeScheme set to the target scheme) for a source. linksTo finds the terms with an external reference (exactMatch, closeMatch…) to that IRI or under it: a Concept Clusters puzzle IRI also finds links to its clusters, terms and bridges. narrower: true adds to each hit its narrowerMatches, the terms it maps as narrower (its narrowMatch links, and terms whose broadMatch points to it): an index term such as concept-index:depravity leads to specific terms in other schemes whose labels never use the word, so search it without a scheme filter.',
     inputSchema: z.object({ query: z.string().max(2000).default(''), scheme, excludeScheme: z.string().min(1).max(200).optional(), set: z.string().min(1).max(200).optional(),
       linksTo: z.string().min(1).max(2000).optional().describe('An external IRI, e.g. urn:concept-clusters:puzzle:on-killing. Matches links to the IRI itself and to IRIs under it (#fragment or /path).'),
+      narrower: z.boolean().optional().describe('Add narrowerMatches to each hit: what it maps as narrower, resolved to terms here (iri, key, label, scheme) or left as an external iri.'),
       status: z.enum(['active', 'provisional', 'retired', 'all']).optional(), at, ...page }).strict(), annotations }, args => run(() => {
     const v = version(args.at); requireScheme(args.scheme, v); requireScheme(args.excludeScheme, v);
     let terms = store.terms(args.scheme, v).filter(t => t.scheme !== args.excludeScheme);
@@ -74,8 +100,9 @@ export function createMcpServer(store: Store, options: { caller?: string; wordne
     if (linksTo) terms = terms.filter(t => t.links.some(link => link.uri === linksTo || (link.uri.startsWith(linksTo) && /^[#/]/.test(link.uri.slice(linksTo.length)))));
     terms = terms.filter(t => (args.status === 'all' || (args.status ? t.status === args.status : t.status !== 'retired'))
       && [t.label, ...t.altLabels, ...t.notations.map(n => n.value), ...t.aliases, t.sourceUri ?? ''].some(value => normalize(value).includes(query)));
-    const found = slice(terms, args.offset, args.limit), key = keyed(store.termKeys(v));
-    return { version: v, ...found, items: found.items.map(t => ({ ...key(t), iri: termIri(t) })) };
+    const found = slice(terms, args.offset, args.limit), keys = store.termKeys(v), key = keyed(keys);
+    const narrower = args.narrower ? narrowerMatches(store.terms(undefined, v), keys) : undefined;
+    return { version: v, ...found, items: found.items.map(t => ({ ...key(t), iri: termIri(t), ...(narrower ? { narrowerMatches: narrower(t) } : {}) })) };
   }));
   server.registerTool('get_term', { description: 'Resolve a stable ID, exact alias or scheme:slug (e.g. human-work:conflict), including retired terms, replacements and all incoming/outgoing typed connections. The term carries its key (scheme:slug) for reuse. A link to an Open English WordNet synset (https://en-word.net/id/…) carries wordnet: the synset\'s words, part of speech and definition, or found=false when WordNet has no such synset; it is absent when the WordNet server cannot be reached. A link to a Concept Clusters puzzle or one of its clusters, terms or bridges (urn:concept-clusters:puzzle:…) carries conceptClusters: the item\'s kind, label and fact or note, and the puzzle\'s title and public url, which an article can link to; found=false when the puzzle or item is no longer published.',
     inputSchema: z.object({ ref, at }).strict(), annotations }, args => run(async () => {

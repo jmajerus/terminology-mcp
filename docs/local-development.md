@@ -81,14 +81,39 @@ External references support absolute IRIs and all five SKOS mapping types.
 See [SKOS interchange](skos.md) for supported fields and import limits.
 
 **+ Term** links to a term in another scheme here, the way **+ Reference**
-links outside. It searches the other schemes' labels and alternative labels
-(exact matches first, then labels that start with or contain the text), and
+links outside. It searches the other schemes' labels, alternative labels,
+codes and scope notes (the label exactly, then at the start, then anywhere;
+then alternative labels and codes; then scope notes), and
 adds the chosen term's public IRI with the match type picked in the dialog
 (exact by default): its source IRI for an imported term, else its URN. Any
 reference that resolves to a term here shows that term's label and scheme
 under it, and clicking the label opens the term. The term at the other end lists
 the reference under **External references** as "matched from". Nothing is
 added to it automatically, so a two-way match needs a reference on each side.
+
+**Find…** beside every term dropdown (Relations, Broader terms in a new term,
+and the move, merge and retire actions) opens the same search over that
+dropdown's own choices, so the dropdown's rules still apply. Choosing a
+result selects it there; in a multiple selection it is added to what is
+already selected.
+
+### Index terms
+
+Both searches follow mappings. A matching term that maps other terms as
+narrower is followed by them, indented and marked "narrower than …". These are
+its `narrowMatch` references, and the terms whose `broadMatch` points back at
+it. So a broad entry word leads to specific terms whose labels never use it:
+"depravity" finds *Celebration or Mockery of Human Death*. When the entry term
+itself can't be chosen there (Find… in another scheme), it is shown as a
+heading.
+
+The convention is a separate index scheme of such entry words, for example a
+concept graph `concept-index` listed A–Z. Each entry has alternative labels for
+its synonyms and a `narrowMatch` (added with **+ Term**, match type
+**Narrow match**) to each specific term, in any scheme. Keeping the entry words
+apart keeps them from posing as synonyms of the specific terms, lets one
+entry span several schemes, and leaves generated schemes untouched. Agents get
+the same expansion from `search_terms` with `narrower: true`.
 
 An Open English WordNet link (`https://en-word.net/id/oewn-07531593-n`) shows
 its synset's words, part of speech and definition under it, for example
