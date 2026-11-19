@@ -81,9 +81,9 @@
   </dialog>
   <dialog id="term-match-dialog" class="wide-dialog">
     <form id="term-match-form">
-      <div class="dialog-heading"><span class="eyebrow">External reference</span><h2>Match a term in another scheme</h2></div>
+      <div class="dialog-heading"><span class="eyebrow" id="term-match-eyebrow">External reference</span><h2 id="term-match-title">Match a term in another scheme</h2></div>
       <div class="wordnet-search"><select id="term-match-type" aria-label="Match type"><option value="exactMatch">Exact match</option><option value="closeMatch">Close match</option><option value="broadMatch">Broad match</option><option value="narrowMatch">Narrow match</option><option value="relatedMatch">Related match</option></select><input id="term-match-text" aria-label="Term label" maxlength="200" placeholder="A label or alternative label" autocomplete="off"></div>
-      <p class="help">Choose a term to add a reference to its IRI. Same-scheme connections belong under Relations.</p>
+      <p class="help" id="term-match-help">Choose a term to add a reference to its IRI. Same-scheme connections belong under Relations.</p>
     </form>
     <p id="term-match-status" class="help" role="status"></p>
     <div id="term-match-results" class="wordnet-results"></div>
