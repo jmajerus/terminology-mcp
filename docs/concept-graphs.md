@@ -42,6 +42,15 @@ draw the data as a list:
 | ↺ | A term already open above in that branch. It is not opened again, so cycles of related terms end here. |
 | ○ Unplaced | In a graph scheme, the concepts with no broader or narrower concept. The group can be collapsed. |
 
+A concept graph that is mostly a network, such as `human-work`, can opt out:
+in **Scheme settings**, set **Outline** to **List concepts A–Z** (`outline:
+"list"`). The outline then lists every concept once, alphabetically, with no
+nesting, ⑃, shared rows or **○ Unplaced** group, and the scheme kind reads
+**CONCEPT GRAPH · A–Z**. The shape line and the ↔ links still work. The
+setting is logged in the changelog, travels with SKOS export and import as
+`term:outline`, and is refused for trees and polyhierarchies, which are always
+outlined.
+
 Opening a term's links opens them wherever the term appears. Every concept is
 reachable either through the hierarchy or under **○ Unplaced**, and every
 concept joined to one by a related or opposite link can be reached from it.

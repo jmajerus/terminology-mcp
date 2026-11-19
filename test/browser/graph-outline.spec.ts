@@ -73,3 +73,44 @@ test('a tree scheme lists childless top-level terms in the outline, not as unpla
   await expect(page.locator('#tree [data-unplaced-group]')).toHaveCount(0);
   await expect(page.locator('#tree').getByRole('button', { name: 'Alone', exact: true })).toBeVisible();
 });
+
+test('a concept graph can opt out of the outline in its settings and be listed A–Z', async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await request.post('/api/schemes', { data: { id: 'go-list', label: 'Listed graph', hierarchy: 'graph' } });
+  const add = async (data: object) => (await (await request.post('/api/terms', { data: { scheme: 'go-list', status: 'active', ...data } })).json()).term;
+  const work = await add({ label: 'Work' });
+  const art = await add({ label: 'Art' });
+  await add({ label: 'Craft', broader: [work.id, art.id] });
+  await add({ label: 'Trust', relations: [{ type: 'related', target: work.id }] });
+
+  await page.goto('/?scheme=go-list');
+  await expect(page.locator('#tree [data-unplaced-group]')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Scheme settings' }).click();
+  await expect(page.locator('#scheme-outline')).toHaveValue('hierarchy');
+  await page.locator('#scheme-outline').selectOption('list');
+  await page.locator('#save-scheme').click();
+  await expect(page.locator('#notice')).toContainText('Saved the settings of Listed graph');
+
+  // Every concept once, A–Z, with nothing imposed: no nesting, no ⑃, no shared rows, no Unplaced group.
+  await expect(page.locator('#scheme-kind')).toHaveText('CONCEPT GRAPH · A–Z');
+  const rows = page.locator('#tree .tree-item');
+  await expect(rows.locator('.tree-pick')).toHaveText(['Art', 'Craft', 'Trust', 'Work']);
+  await expect(page.locator('#tree [data-unplaced-group], #tree [data-multi-parent], #tree [data-shared-reference]')).toHaveCount(0);
+  for (const row of await rows.all()) await expect(row).toHaveAttribute('style', /padding-left:7px/);
+  // The shape of the data is still reported, and related terms still open beside each concept.
+  await expect(page.locator('#scheme-shape')).toHaveText('⑃ polyhierarchy · 1 multi-parent · ⁂ 1 link · ○ 1 unplaced');
+  await page.locator('#tree').getByRole('button', { name: 'Show 1 related or opposite term of Trust' }).click();
+  await expect(page.locator('#tree .link-item .tree-pick')).toHaveText('Work');
+  expect(errors).toEqual([]);
+});
+
+test('the outline setting is offered only for concept graphs', async ({ page, request }) => {
+  await request.post('/api/schemes', { data: { id: 'go-poly', label: 'Poly', hierarchy: 'poly' } });
+  await request.post('/api/terms', { data: { scheme: 'go-poly', label: 'Only', status: 'active' } });
+  await page.goto('/?scheme=go-poly');
+  await page.getByRole('button', { name: 'Scheme settings' }).click();
+  await expect(page.locator('#scheme-outline-field')).toBeHidden();
+  await page.locator('#save-scheme').click();
+  await expect(page.locator('#scheme-error')).toHaveText('');
+});

@@ -95,6 +95,26 @@ test('slug scope and proposal source round-trip through SKOS', async t => {
   assert.deepEqual([copy.schemes()[0].slugScope, copy.schemes()[0].proposalSource], ['scheme', 'optional']);
 });
 
+test('a concept graph can opt out of the outline, and the choice is logged and round-trips through SKOS', async t => {
+  const store = new Store(':memory:'); t.after(() => store.close());
+  store.addScheme({ id: 'net', label: 'Network', hierarchy: 'graph' });
+  store.addScheme({ id: 'kinds', label: 'Kinds', hierarchy: 'poly' });
+  store.addTerm({ scheme: 'net', label: 'Trust', status: 'active' });
+  const before = store.version;
+  assert.equal(store.updateScheme('net', { outline: 'list', expectedVersion: store.version }).outline, 'list');
+  assert.match(store.changes(before)[0].reason, /The editor lists the concepts A–Z/);
+  assert.equal(store.updateScheme('net', { maxDepth: 2, expectedVersion: store.version }).outline, 'list');
+  assert.throws(() => store.updateScheme('kinds', { outline: 'list', expectedVersion: store.version }), /Only a concept graph can be listed/);
+  assert.throws(() => store.addScheme({ id: 'tree-list', label: 'Tree', hierarchy: 'tree', outline: 'list' }), /Only a concept graph can be listed/);
+  const copy = new Store(':memory:'); t.after(() => copy.close());
+  copy.importScheme(planSkos(copy, await exportSkos(store, 'net'),
+    { format: 'turtle', sourceScheme: 'urn:terminology-mcp:scheme:net', schemeId: 'copy', language: 'en', hierarchy: 'auto' }).plan, 0);
+  assert.equal(copy.schemes()[0].outline, 'list');
+  const back = store.version;
+  store.updateScheme('net', { outline: 'hierarchy', expectedVersion: store.version });
+  assert.match(store.changes(back)[0].reason, /The editor outlines the broader hierarchy/);
+});
+
 test('a graph scheme takes proposals backed by evidence, with or without a broader concept', async t => {
   const { store, concept } = humanWork(t);
   const { send } = await serve(t, store);

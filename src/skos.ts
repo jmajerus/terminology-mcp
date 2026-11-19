@@ -235,7 +235,7 @@ export function planSkos(store: Store, data: string | RdfStore, request: ImportR
   const supported = new Set([RDF + 'type', SKOS + 'inScheme', SKOS + 'prefLabel', SKOS + 'altLabel', SKOS + 'scopeNote',
     SKOS + 'definition', SKOS + 'broader', SKOS + 'narrower', SKOS + 'related', SKOS + 'topConceptOf', SKOS + 'notation',
     ...matches.map(match => SKOS + match), DCT + 'isReplacedBy', EX + 'status', EX + 'alias', EX + 'opposite', EX + 'slug', EX + 'formerSlug']);
-  const schemeSupported = new Set([RDF + 'type', SKOS + 'prefLabel', SKOS + 'hasTopConcept', SKOS + 'notation', DCT + 'description', EX + 'hierarchy', EX + 'admissionTest', EX + 'slugUniqueDepth', EX + 'slugScope', EX + 'proposalSource', EX + 'maxDepth']);
+  const schemeSupported = new Set([RDF + 'type', SKOS + 'prefLabel', SKOS + 'hasTopConcept', SKOS + 'notation', DCT + 'description', EX + 'hierarchy', EX + 'admissionTest', EX + 'slugUniqueDepth', EX + 'slugScope', EX + 'proposalSource', EX + 'outline', EX + 'maxDepth']);
   const plainLiterals = (subject: RdfTerm, predicate: string, field: string) => objects(subject, predicate).map(value => {
     if (value.termType !== 'Literal') throw new DomainError(422, `${field} must be literals.`); return value.value;
   });
@@ -297,7 +297,8 @@ export function planSkos(store: Store, data: string | RdfStore, request: ImportR
       if (!/^\d{1,3}$/.test(value)) throw new DomainError(422, 'Slug depths must be non-negative integers.'); return Number(value);
     }), ...maxDepth(plainLiterals(scheme, EX + 'maxDepth', 'Maximum depth')),
     slugScope: setting(plainLiterals(scheme, EX + 'slugScope', 'Slug scope'), ['siblings', 'scheme'], 'slug scope'),
-    proposalSource: setting(plainLiterals(scheme, EX + 'proposalSource', 'Proposal source'), ['required', 'optional'], 'proposal source') }, terms,
+    proposalSource: setting(plainLiterals(scheme, EX + 'proposalSource', 'Proposal source'), ['required', 'optional'], 'proposal source'),
+    outline: setting(plainLiterals(scheme, EX + 'outline', 'Outline'), ['hierarchy', 'list'], 'outline') }, terms,
     sets: readCollections(rdf, scheme, new Set(members.keys()), request.language, warnings) });
   const declarations = objects(scheme, EX + 'hierarchy');
   const declared = declarations.length === 1 && declarations[0].termType === 'Literal' ? declarations[0].value
@@ -329,6 +330,7 @@ export async function exportSkos(store: Store, schemeId: string, at?: number): P
   scheme.slugUniqueDepths.forEach(depth => add(subject, EX + 'slugUniqueDepth', lit(String(depth), nn('http://www.w3.org/2001/XMLSchema#integer'))));
   if (scheme.slugScope) add(subject, EX + 'slugScope', lit(scheme.slugScope));
   if (scheme.proposalSource) add(subject, EX + 'proposalSource', lit(scheme.proposalSource));
+  if (scheme.outline) add(subject, EX + 'outline', lit(scheme.outline));
   if (scheme.maxDepth !== undefined) add(subject, EX + 'maxDepth', lit(String(scheme.maxDepth), nn('http://www.w3.org/2001/XMLSchema#integer')));
   addNotations(subject, scheme.notations);
   for (const term of terms) {

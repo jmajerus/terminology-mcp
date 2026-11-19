@@ -10,6 +10,8 @@ import { TermKeys, type Resolution } from './keys.js';
 const setReferences = (set: Pick<ConceptSet, 'members' | 'recipe'>) => [...set.members,
   ...set.recipe?.concepts ?? [], ...set.recipe?.narrower ?? [], ...set.recipe?.exclude ?? [], ...set.recipe?.around.map(rule => rule.term) ?? []];
 
+const listOnlyGraphs = 'Only a concept graph can be listed A–Z; trees and polyhierarchies are always outlined.';
+
 export class Store {
   readonly db: Database.Database;
   constructor(filename: string) {
@@ -297,6 +299,7 @@ export class Store {
         throw new DomainError(409, 'That source scheme is already imported.');
       if (data.sourceUri && this.collectionSourceUris().has(data.sourceUri))
         throw new DomainError(409, 'A collection IRI cannot also identify a scheme.');
+      if (data.outline === 'list' && data.hierarchy !== 'graph') throw new DomainError(422, listOnlyGraphs);
       if (data.slugUniqueDepths.length && data.hierarchy !== 'tree')
         throw new DomainError(422, 'Scheme-wide slug depths apply only to tree schemes.');
       if (data.slugUniqueDepths.length && data.slugScope === 'scheme')
@@ -335,7 +338,7 @@ export class Store {
   }
 
   /**
-   * Changes a scheme's name, description, maximum depth, slug scope and proposal source rule. Settings left out keep
+   * Changes a scheme's name, description, maximum depth, slug scope, proposal source rule and outline. Settings left out keep
    * their value. Existing terms must already fit a new depth limit, and their slugs a wider slug scope. Slugs unique
    * across the scheme cover every depth, so the switch drops the scheme's slug depths.
    */
@@ -347,10 +350,12 @@ export class Store {
       const { maxDepth: _old, ...rest } = before;
       const after: Scheme = { ...(data.maxDepth === null ? rest : { ...rest, maxDepth: data.maxDepth ?? before.maxDepth }),
         ...(data.slugScope ? { slugScope: data.slugScope } : {}), ...(data.proposalSource ? { proposalSource: data.proposalSource } : {}),
+        ...(data.outline ? { outline: data.outline } : {}),
         ...(data.label !== undefined ? { label: data.label } : {}),
         ...(data.description !== undefined ? { description: data.description } : {}) };
       if (after.maxDepth === undefined) delete after.maxDepth;
       if (after.slugScope === 'scheme') after.slugUniqueDepths = [];
+      if (after.outline === 'list' && after.hierarchy !== 'graph') throw new DomainError(422, listOnlyGraphs);
       const reasons = [
         after.label !== before.label && `Renamed scheme from “${before.label}” to “${after.label}”`,
         after.description !== before.description && 'Updated the scheme description',
@@ -360,6 +365,8 @@ export class Store {
             ? ` (replacing the slug depths ${before.slugUniqueDepths.join(', ')})` : ''}` : 'Slugs unique among siblings'),
         (after.proposalSource ?? 'required') !== (before.proposalSource ?? 'required')
           && (after.proposalSource === 'optional' ? 'Proposals may cite evidence instead of a source term' : 'Proposals need a source term'),
+        (after.outline ?? 'hierarchy') !== (before.outline ?? 'hierarchy')
+          && (after.outline === 'list' ? 'The editor lists the concepts A–Z' : 'The editor outlines the broader hierarchy'),
       ].filter((reason): reason is string => Boolean(reason));
       if (!reasons.length) return before;
       const schemes = new Map(this.schemes().map(scheme => [scheme.id, scheme.id === id ? after : scheme]));

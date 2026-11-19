@@ -99,7 +99,7 @@ function renderTree() {
     childMap.get(parent).push(term);
   }
   $('#scheme-settings').hidden = !schemeId;
-  $('#scheme-kind').textContent = scheme()?.hierarchy === 'graph' ? 'CONCEPT GRAPH' : scheme()?.hierarchy === 'poly' ? 'POLYHIERARCHY' : schemeId ? 'TREE SCHEME' : 'NO SCHEMES';
+  $('#scheme-kind').textContent = scheme()?.hierarchy === 'graph' ? scheme().outline === 'list' ? 'CONCEPT GRAPH · A–Z' : 'CONCEPT GRAPH' : scheme()?.hierarchy === 'poly' ? 'POLYHIERARCHY' : schemeId ? 'TREE SCHEME' : 'NO SCHEMES';
   $('#scheme-notations').innerHTML = (scheme()?.notations ?? []).map(notation => `<span class="alias" title="${escape(notation.datatype)}">${escape(notation.value)}</span>`).join('');
   $('#term-count').textContent = `${terms.length} ${terms.length === 1 ? 'term' : 'terms'}`;
   const query = $('#search').value.trim().toLocaleLowerCase();
@@ -109,6 +109,8 @@ function renderTree() {
   $('#new-root').textContent = scheme()?.hierarchy === 'graph' ? '+ Concept' : '+ Top-level term';
   $('#graph-view').href = `/graph?scheme=${encodeURIComponent(schemeId)}#${encodeURIComponent(selectedId)}`;
   const graph = scheme()?.hierarchy === 'graph';
+  // A graph scheme can opt out of the outline: its concepts are listed A–Z, with no hierarchy drawn.
+  const list = graph && scheme().outline === 'list';
   // Related and opposite links, read from both ends, within this scheme.
   const links = new Map();
   for (const term of terms) for (const relation of term.relations ?? []) {
@@ -155,9 +157,9 @@ function renderTree() {
     if (full()) return;
     const shared = seen.has(term.id);
     seen.add(term.id);
-    const children = childMap.get(term.id) ?? [];
+    const children = list ? [] : childMap.get(term.id) ?? [];
     const open = !!query || allExpanded || expanded.has(term.id);
-    const parents = term.broader.length > 1 && !shared ? term.broader.map(id => termMap.get(id)?.label).filter(Boolean) : [];
+    const parents = !list && term.broader.length > 1 && !shared ? term.broader.map(id => termMap.get(id)?.label).filter(Boolean) : [];
     rows.push(`<div class="tree-item ${selected(term)}" style="padding-left:${7 + level * 16}px">
       <button type="button" class="tree-toggle" data-toggle="${escape(term.id)}" aria-label="${open ? 'Collapse' : 'Expand'} ${escape(term.label)}" ${children.length && !shared ? `aria-expanded="${open}"` : 'disabled'}>${shared ? '↗' : children.length ? open ? '▾' : '▸' : '·'}</button>
       ${pick(term)}
@@ -173,8 +175,9 @@ function renderTree() {
   // In a concept graph, a concept with no broader or narrower term has no place in the hierarchy:
   // it is listed apart, not as a top-level term.
   const unplaced = term => graph && !term.broader.length && !childMap.has(term.id);
-  terms.filter(term => !term.broader.length && !unplaced(term)).forEach(term => walk(term, 0));
-  const loose = terms.filter(term => unplaced(term) && (!query || visible.has(term.id)));
+  if (list) [...matches].sort((a, b) => a.label.localeCompare(b.label)).forEach(term => walk(term, 0));
+  else terms.filter(term => !term.broader.length && !unplaced(term)).forEach(term => walk(term, 0));
+  const loose = list ? [] : terms.filter(term => unplaced(term) && (!query || visible.has(term.id)));
   if (loose.length && !full()) {
     rows.push(`<div class="tree-group" data-unplaced-group><button type="button" class="tree-toggle" data-unplaced aria-expanded="${unplacedOpen}" aria-label="${unplacedOpen ? 'Collapse' : 'Expand'} unplaced concepts">${unplacedOpen ? '▾' : '▸'}</button>
       <span title="Concepts with no broader or narrower term: their place is in the network of related terms, not in the hierarchy">○ Unplaced · ${loose.length}</span></div>`);
@@ -556,6 +559,8 @@ $('#scheme-settings').onclick = () => {
   $('#scheme-max-depth').value = scheme().maxDepth ?? '';
   $('#scheme-slug-scope').value = scheme().slugScope ?? 'siblings';
   $('#scheme-proposal-source').value = scheme().proposalSource ?? 'required';
+  $('#scheme-outline-field').hidden = scheme().hierarchy !== 'graph';
+  $('#scheme-outline').value = scheme().outline ?? 'hierarchy';
   $('#scheme-error').textContent = '';
   $('#scheme-dialog').showModal();
 };
@@ -567,7 +572,8 @@ $('#scheme-form').addEventListener('submit', async event => {
   try {
     await api(`schemes/${encodeURIComponent(schemeId)}`, { method: 'PATCH', body: JSON.stringify({ label: $('#scheme-label').value, description: $('#scheme-description').value,
       maxDepth: value === '' ? null : Number(value),
-      slugScope: $('#scheme-slug-scope').value, proposalSource: $('#scheme-proposal-source').value, expectedVersion: state.version }) });
+      slugScope: $('#scheme-slug-scope').value, proposalSource: $('#scheme-proposal-source').value,
+      ...(scheme().hierarchy === 'graph' ? { outline: $('#scheme-outline').value } : {}), expectedVersion: state.version }) });
     $('#scheme-dialog').close();
     await refresh(selectedId);
     notice(`Saved the settings of ${scheme().label}.`);
