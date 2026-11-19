@@ -243,7 +243,7 @@ function renderDetail() {
       <label class="field"><span class="field-label">Status</span><select id="term-status" name="status"><option value="provisional" ${term.status === 'provisional' ? 'selected' : ''}>Provisional</option><option value="active" ${term.status === 'active' ? 'selected' : ''}>Active</option></select><span class="help">Provisional terms leave space for ideas still taking shape.</span></label></div>
       ${term.broader.length ? `<div class="field"><span class="field-label">Broader terms</span><div class="alias-list">${term.broader.map(id => `<button type="button" class="button small" data-pick="${escape(id)}">${escape(byId(id)?.label)}</button>`).join('')}</div></div>` : ''}
       <div class="section-line field"><span class="field-label">Relations</span><div id="relations" class="relations-list"></div>
-        <div class="relation-add" data-write><select id="relation-type" aria-label="Relation type"><option value="related">Related</option><option value="opposite">Opposite</option></select><select id="relation-target" class="target" aria-label="Related term"></select><button type="button" class="button small" id="add-relation">+ Link</button></div>
+        <div class="relation-add" data-write><select id="relation-type" aria-label="Relation type"><option value="related">Related</option><option value="opposite">Opposite</option></select><select id="relation-target" class="target" aria-label="Related term" data-find="a related term"></select><button type="button" class="button small" id="add-relation">+ Link</button></div>
         <p class="help">Related connects terms across schemes. Opposite stays within this scheme.</p>
       </div>
       <div class="section-line field"><span class="field-label">External references <span><button type="button" class="text-button" id="add-term-match" data-write>+ Term</button><button type="button" class="text-button" id="add-wordnet" data-write>+ WordNet</button><button type="button" class="text-button" id="add-puzzle" data-write>+ Puzzle</button><button type="button" class="text-button" id="add-link" data-write>+ Reference</button></span></span><div id="links" class="relations-list"></div><div id="incoming-links" class="relations-list"></div><p class="help">Link to an equivalent or closely matching concept in another vocabulary, or in another scheme here with + Term.</p></div>
@@ -254,7 +254,7 @@ function renderDetail() {
     </form>`;
   renderRelations();
   loadCalculatedCollections(term, collectionToken);
-  updateRelationTargets();
+  updateRelationTargets(); addFindButtons($('#detail'));
   term.links.forEach(link => addLink(link, false));
   renderIncomingLinks(term);
   (term.notations ?? []).forEach(notation => addNotation(notation, false));
@@ -327,30 +327,97 @@ function renderIncomingLinks(term) {
     .map(link => `<div class="relation-row"><span class="relation-type">${escape(link.match)}</span><button type="button" class="relation-pick" data-pick="${escape(other.id)}">${escape(other.label)} · ${escape(other.scheme)}</button><span class="help">matched from</span></div>`)).join('');
 }
 
-// The term-match picker: finds terms in the other schemes by label and adds a reference to the chosen one's IRI.
+// Mapping index: every IRI a term answers to, and what each term maps as narrower — its own narrowMatch links, and
+// the terms whose broadMatch points back at it. An index (entry) term such as "depravity" leads, through these, to
+// specific terms in other schemes. Rebuilt when the state changes.
+let mapIndex = { version: -1 };
+function mappings() {
+  if (mapIndex.version === state.version && mapIndex.terms === state.terms) return mapIndex;
+  const byIri = new Map(), under = new Map();
+  for (const term of state.terms) for (const iri of termIris(term)) if (!byIri.has(iri)) byIri.set(iri, term);
+  const add = (hub, term) => { if (hub.id === term.id) return; if (!under.has(hub.id)) under.set(hub.id, new Map()); under.get(hub.id).set(term.id, term); };
+  for (const term of state.terms) for (const link of term.links ?? []) {
+    const other = byIri.get(link.uri);
+    if (!other) continue;
+    if (link.match === 'narrowMatch') add(term, other);
+    if (link.match === 'broadMatch') add(other, term);
+  }
+  mapIndex = { version: state.version, terms: state.terms, byIri, under };
+  return mapIndex;
+}
+const narrowerMatches = term => [...mappings().under.get(term.id)?.values() ?? []]
+  .filter(other => other.status !== 'retired').sort((a, b) => a.label.localeCompare(b.label));
+// How well a term matches the search: its label exactly, at the start, anywhere; then an alternative label or code; then its scope note.
+function matchRank(term, text) {
+  const label = term.label.toLowerCase();
+  if (label === text) return 0;
+  if (label.startsWith(text)) return 1;
+  if (label.includes(text)) return 2;
+  if ([...term.altLabels, ...(term.notations ?? []).map(notation => notation.value)].some(value => value.toLowerCase().includes(text))) return 3;
+  if ((term.scopeNote ?? '').toLowerCase().includes(text)) return 4;
+  return -1;
+}
+/**
+ * Terms matching the text among `allowed`, best first, each followed by the terms it maps as narrower: a matching
+ * index term ("depravity") leads to specific terms whose labels don't contain the word. An index term outside
+ * `allowed` is shown as a heading for the allowed terms under it. Returns rows to render and the count of choices.
+ */
+function searchTerms(text, allowed) {
+  const ranked = state.terms.filter(term => term.status !== 'retired')
+    .map(term => [term, matchRank(term, text)]).filter(([, rank]) => rank >= 0)
+    .sort(([a, x], [b, y]) => x - y || a.label.localeCompare(b.label) || a.scheme.localeCompare(b.scheme));
+  const rows = [], shown = new Set();
+  for (const [term] of ranked) {
+    const under = narrowerMatches(term).filter(other => allowed(other) && !shown.has(other.id));
+    const own = allowed(term) && !shown.has(term.id);
+    if (!own && !under.length) continue;
+    rows.push({ term, own, hub: under.length > 0 });
+    if (own) shown.add(term.id);
+    for (const other of under) { rows.push({ term: other, own: true, under: term }); shown.add(other.id); }
+    if (shown.size >= 60) break;
+  }
+  return { rows, count: shown.size };
+}
+function termResultHtml({ term, own, hub, under }, linked = () => false) {
+  const already = own && linked(term);
+  const body = `<span class="wordnet-words">${under ? '<span class="match-glyph" aria-hidden="true">↘</span> ' : ''}${escape(term.label)} <span class="relation-type">${escape(term.scheme)}</span>${hub ? ` <span class="help">↘ ${narrowerMatches(term).length} narrower</span>` : ''}${already ? ' <span class="help">already linked</span>' : ''}</span>${under ? `<span class="help">narrower than ${escape(under.label)}</span>` : term.path?.includes('/') ? `<span class="help">${escape(term.path)}</span>` : ''}${term.scopeNote ? `<span class="wordnet-definition">${escape(term.scopeNote.length > 200 ? term.scopeNote.slice(0, 200) + '…' : term.scopeNote)}</span>` : ''}`;
+  return own ? `<button type="button" class="wordnet-result ${under ? 'under' : ''}" data-term-match="${escape(term.id)}" ${already ? 'disabled' : ''}>${body}</button>`
+    : `<div class="term-hub" data-hub="${escape(term.id)}">${body}</div>`;
+}
+
+// The term search dialog, in two modes. + Term (link) finds terms in the other schemes and adds a reference to the
+// chosen one's IRI. Find… (pick) searches the choices of the dropdown beside it and selects the chosen one there.
+let termSearch = { mode: 'link' };
 function openTermMatch(text) {
+  termSearch = { mode: 'link' };
+  $('#term-match-title').textContent = 'Match a term in another scheme';
+  $('#term-match-eyebrow').textContent = 'External reference';
+  $('#term-match-type').hidden = false; $('#term-match-help').hidden = false;
   $('#term-match-text').value = text; $('#term-match-type').value = 'exactMatch';
   $('#term-match-dialog').showModal();
   searchTermMatches(); $('#term-match-text').focus();
 }
+function openFind(select) {
+  const choices = new Set([...select.options].map(option => option.value).filter(Boolean));
+  termSearch = { mode: 'pick', select, choices };
+  $('#term-match-title').textContent = `Find ${select.dataset.find || 'a term'}`;
+  $('#term-match-eyebrow').textContent = 'Find a term';
+  $('#term-match-type').hidden = true; $('#term-match-help').hidden = true;
+  $('#term-match-text').value = '';
+  $('#term-match-dialog').showModal();
+  searchTermMatches(); $('#term-match-text').focus();
+}
 function searchTermMatches() {
-  const text = $('#term-match-text').value.trim().toLowerCase();
-  const linked = new Set([...document.querySelectorAll('.link-row input')].map(input => input.value.trim()));
-  const score = term => {
-    const names = [term.label, ...term.altLabels].map(name => name.toLowerCase());
-    return names.includes(text) ? 0 : names.some(name => name.startsWith(text)) ? 1 : names.some(name => name.includes(text)) ? 2 : -1;
-  };
-  const found = !text ? [] : state.terms.filter(term => term.scheme !== schemeId && term.status !== 'retired')
-    .map(term => [term, score(term)]).filter(([, rank]) => rank >= 0)
-    .sort(([a, x], [b, y]) => x - y || a.label.localeCompare(b.label) || a.scheme.localeCompare(b.scheme)).map(([term]) => term);
-  const shown = found.slice(0, 50);
-  $('#term-match-status').textContent = !text ? 'Type a label to search the other schemes.'
-    : found.length ? `${found.length} term${found.length === 1 ? '' : 's'} in other schemes${found.length > shown.length ? `; showing the first ${shown.length}, so narrow the search` : ''}`
-    : `No term in another scheme is called “${$('#term-match-text').value.trim()}”.`;
-  $('#term-match-results').innerHTML = shown.map(term => {
-    const already = [...termIris(term)].some(iri => linked.has(iri));
-    return `<button type="button" class="wordnet-result" data-term-match="${escape(term.id)}" ${already ? 'disabled' : ''}><span class="wordnet-words">${escape(term.label)} <span class="relation-type">${escape(term.scheme)}</span>${already ? ' <span class="help">already linked</span>' : ''}</span>${term.path?.includes('/') ? `<span class="help">${escape(term.path)}</span>` : ''}${term.scopeNote ? `<span class="wordnet-definition">${escape(term.scopeNote.length > 200 ? term.scopeNote.slice(0, 200) + '…' : term.scopeNote)}</span>` : ''}</button>`;
-  }).join('');
+  const typed = $('#term-match-text').value.trim(), text = typed.toLowerCase();
+  const pick = termSearch.mode === 'pick';
+  const linked = new Set([...document.querySelectorAll('#links .link-row input')].map(input => input.value.trim()));
+  const allowed = pick ? term => termSearch.choices.has(term.id) : term => term.scheme !== schemeId;
+  const { rows, count } = text ? searchTerms(text, allowed) : { rows: [], count: 0 };
+  const where = pick ? '' : ' in other schemes';
+  $('#term-match-status').textContent = !text ? `Type a word to search labels, alternative labels and scope notes${where}. Index terms list the terms they map as narrower.`
+    : count ? `${count} term${count === 1 ? '' : 's'}${where}${count >= 60 ? '; showing the first 60, so narrow the search' : ''}`
+    : `No term${where} matches “${typed}”.`;
+  $('#term-match-results').innerHTML = rows.map(row => termResultHtml(row, pick ? () => false : term => [...termIris(term)].some(iri => linked.has(iri)))).join('');
 }
 $('#term-match-text').oninput = searchTermMatches;
 $('#term-match-form').onsubmit = event => event.preventDefault();
@@ -360,8 +427,24 @@ $('#term-match-results').onclick = event => {
   if (!choice || choice.disabled) return;
   const term = byId(choice.dataset.termMatch);
   $('#term-match-dialog').close();
-  addLink({ uri: termIri(term), match: $('#term-match-type').value });
+  if (termSearch.mode === 'link') { addLink({ uri: termIri(term), match: $('#term-match-type').value }); return; }
+  const { select } = termSearch, option = [...select.options].find(item => item.value === term.id);
+  if (select.multiple) { const top = [...select.options].find(item => item.value === ''); if (top) top.selected = false; option.selected = true; }
+  else select.value = term.id;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  select.focus();
 };
+// A Find… button after every term dropdown marked data-find.
+function addFindButtons(root) {
+  for (const select of root.querySelectorAll('select[data-find]')) {
+    if (select.nextElementSibling?.classList.contains('find-term')) continue;
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'button small find-term'; button.textContent = 'Find…';
+    button.setAttribute('aria-label', `Find ${select.dataset.find || 'a term'} by search`);
+    button.onclick = () => openFind(select);
+    select.after(button);
+  }
+}
 
 // The WordNet picker: searches by word (the term's label to start) and adds the chosen synset as a close match.
 let wordnetGeneration = 0;
@@ -542,11 +625,12 @@ function openCreate(mode, parent = null) {
   $('#create-title').textContent = mode === 'scheme' ? 'New scheme' : parent ? 'New narrower term' : scheme()?.hierarchy === 'graph' ? 'New concept' : 'New top-level term';
   $('#create-error').textContent = '';
   const schemeFields = `<label class="field"><span class="field-label">Scheme ID</span><input name="id" required pattern="[a-z]([a-z0-9]|-){0,59}" maxlength="60" placeholder="e.g. subjects"><span class="help">Lowercase letters, numbers, and hyphens. This ID stays fixed.</span></label><label class="field"><span class="field-label">Hierarchy</span><select name="hierarchy"><option value="tree">Tree · one broader term</option><option value="poly">Polyhierarchy · multiple broader terms</option><option value="graph">Concept graph · associative network</option></select></label><label class="field"><span class="field-label">Maximum depth <span class="help">optional</span></span><input name="maxDepth" type="number" min="0" max="500" placeholder="No limit"><span class="help">Top terms are depth 0. Leave empty for no limit.</span></label><label class="field"><span class="field-label">Description</span><textarea name="description" rows="2" maxlength="10000"></textarea></label>`;
-  const termFields = `<label class="field"><span class="field-label">Broader terms</span><select name="broader" ${scheme()?.hierarchy !== 'tree' ? 'multiple size="5"' : ''}><option value="" ${!parent ? 'selected' : ''}>Top level</option>${termOptions(state.terms.filter(term => term.scheme === schemeId), parent)}</select>${scheme()?.hierarchy !== 'tree' ? '<span class="help">Use Ctrl or Command to select more than one parent.</span>' : ''}</label><label class="field"><span class="field-label">Scope note</span><textarea name="scopeNote" rows="3" maxlength="20000" placeholder="What belongs here?"></textarea></label><label class="field"><span class="field-label">Status</span><select name="status"><option value="provisional">Provisional</option><option value="active">Active</option></select></label>`;
+  const termFields = `<label class="field"><span class="field-label">Broader terms</span><select name="broader" data-find="a broader term" ${scheme()?.hierarchy !== 'tree' ? 'multiple size="5"' : ''}><option value="" ${!parent ? 'selected' : ''}>Top level</option>${termOptions(state.terms.filter(term => term.scheme === schemeId), parent)}</select>${scheme()?.hierarchy !== 'tree' ? '<span class="help">Use Ctrl or Command to select more than one parent.</span>' : ''}</label><label class="field"><span class="field-label">Scope note</span><textarea name="scopeNote" rows="3" maxlength="20000" placeholder="What belongs here?"></textarea></label><label class="field"><span class="field-label">Status</span><select name="status"><option value="provisional">Provisional</option><option value="active">Active</option></select></label>`;
   const sourceFields = `<div class="field"><span class="field-label">Copy from another vocabulary <span class="help">optional</span></span><input id="source-search" type="search" placeholder="Search entries by label or code, e.g. computer science or QA76" autocomplete="off" aria-label="Search other vocabularies"><div id="source-results" class="source-results"></div><div id="source-chosen"></div></div>`;
   const slugField = `<label class="field"><span class="field-label">Slug <span class="help">optional</span></span><input name="slug" maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="Minted from the label" autocomplete="off"><span class="help">Lowercase letters and digits separated by hyphens. It stays fixed when the label changes.</span></label>`;
   createSource = null;
   $('#create-fields').innerHTML = `${mode === 'term' ? sourceFields : ''}<label class="field"><span class="field-label">${mode === 'scheme' ? 'Scheme name' : 'Preferred label'}</span><input name="label" required maxlength="200" autocomplete="off"></label>${mode === 'scheme' ? schemeFields : termFields + slugField}`;
+  addFindButtons($('#create-fields'));
   if (mode === 'term') {
     $('#source-search').oninput = renderSourceResults;
     $('#source-results').onclick = event => { const pick = event.target.closest('[data-source]'); if (pick) chooseSource(byId(pick.dataset.source)); };
@@ -729,12 +813,12 @@ function openOperation(kind) {
   $('#operation-title').textContent = `${kind === 'slug' ? 'Change slug of' : kind[0].toUpperCase() + kind.slice(1)} “${operationTerm.label}”`;
   $('#operation-reason').value = ''; $('#operation-error').textContent = ''; invalidateOperation();
   let fields = '';
-  if (kind === 'move') fields = `<label class="field"><span class="field-label">New broader terms</span><select id="operation-broader" ${scheme().hierarchy !== 'tree' ? 'multiple size="6"' : ''}><option value="">Top level</option>${termOptions(available)}</select></label><p class="help">Old aliases are preserved. Descendant paths and aliases update with this move.</p>`;
-  if (kind === 'merge') fields = `<label class="field"><span class="field-label">Merge into</span><select id="operation-target" required><option value="">Choose a term…</option>${termOptions(available)}</select></label><p class="help">The source retires. Its children and incoming relations move to the target. Labels, references, and outgoing relations are carried over.</p>`;
-  if (kind === 'retire') fields = `<label class="field"><span class="field-label">Replacement <span class="help">optional</span></span><select id="operation-target"><option value="">No replacement</option>${termOptions(available)}</select></label><p class="help">Children move to this term’s current broader terms. Relations transfer to the replacement; without one, incoming relations are removed. The retired ID and aliases remain available.</p>`;
+  if (kind === 'move') fields = `<label class="field"><span class="field-label">New broader terms</span><select id="operation-broader" data-find="a new broader term" ${scheme().hierarchy !== 'tree' ? 'multiple size="6"' : ''}><option value="">Top level</option>${termOptions(available)}</select></label><p class="help">Old aliases are preserved. Descendant paths and aliases update with this move.</p>`;
+  if (kind === 'merge') fields = `<label class="field"><span class="field-label">Merge into</span><select id="operation-target" data-find="the term to merge into" required><option value="">Choose a term…</option>${termOptions(available)}</select></label><p class="help">The source retires. Its children and incoming relations move to the target. Labels, references, and outgoing relations are carried over.</p>`;
+  if (kind === 'retire') fields = `<label class="field"><span class="field-label">Replacement <span class="help">optional</span></span><select id="operation-target" data-find="a replacement"><option value="">No replacement</option>${termOptions(available)}</select></label><p class="help">Children move to this term’s current broader terms. Relations transfer to the replacement; without one, incoming relations are removed. The retired ID and aliases remain available.</p>`;
   if (kind === 'slug') fields = `<label class="field"><span class="field-label">New slug</span><input id="operation-slug" required maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" value="${escape(operationTerm.slug)}"></label><p class="help">Slug-keyed consumers use this in URLs and catalogue ids. The old slug stays reserved and still resolves, but consumers must migrate.</p>`;
   if (kind === 'split') fields = `<div id="split-terms"></div><button type="button" id="add-split-term" class="button small">+ Replacement</button><div class="section-line"><span class="field-label">Assign narrower terms</span>${state.terms.filter(term => term.broader.includes(selectedId)).map(term => `<label class="field"><span class="field-label">${escape(term.label)}</span><select class="split-child" data-child="${escape(term.id)}" required ${scheme().hierarchy !== 'tree' ? 'multiple size="3"' : ''}></select></label>`).join('') || '<p class="help">There are no direct narrower terms to assign.</p>'}</div><p class="help">The source retires. Its incoming and outgoing relations are copied to every replacement. Assign each narrower term explicitly.</p>`;
-  $('#operation-fields').innerHTML = fields;
+  $('#operation-fields').innerHTML = fields; addFindButtons($('#operation-fields'));
   if (kind === 'split') { addSplitTerm(); addSplitTerm(); $('#add-split-term').onclick = () => { if (document.querySelectorAll('.split-term').length < 20) { addSplitTerm(); invalidateOperation(); } }; }
   if (kind === 'move') for (const option of $('#operation-broader').options) option.selected = operationTerm.broader.includes(option.value);
   $('#operation-dialog').showModal();
