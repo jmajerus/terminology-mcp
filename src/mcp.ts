@@ -7,6 +7,7 @@ import { conceptGraph, graphEdges, graphTypes } from './graph.js';
 import { exportSkos } from './skos.js';
 import { notice, type TermKeys } from './keys.js';
 import type { WordnetLookup, WordnetSearch } from './wordnet.js';
+import type { CcLookup, CcSearch } from './concept-clusters.js';
 
 const at = z.number().int().nonnegative().optional().describe('Changelog version. Omit for current; reuse a returned version to pin subsequent reads.');
 const ref = z.string().min(1).max(2000).describe('Stable term ID, exact alias (including scheme:path), or scheme:slug such as "human-work:conflict" (former slugs too; scheme:parent-slug/slug where a slug repeats). Labels are searched with search_terms.');
@@ -38,7 +39,8 @@ async function run(work: () => unknown | Promise<unknown>): Promise<CallToolResu
 }
 
 /** Each HTTP request owns a server/transport; every tool captures one changelog version. */
-export function createMcpServer(store: Store, options: { caller?: string; wordnet?: WordnetLookup; wordnetSearch?: WordnetSearch } = {}): McpServer {
+export function createMcpServer(store: Store, options: { caller?: string; wordnet?: WordnetLookup; wordnetSearch?: WordnetSearch;
+  conceptClusters?: CcLookup; conceptClustersSearch?: CcSearch } = {}): McpServer {
   const server = new McpServer({ name: 'terminology-mcp', version: '0.1.0' }, { instructions:
     'Read the master terminology vocabulary. Start with list_schemes or search_terms, then use stable IDs or concept keys (scheme:slug, e.g. human-work:conflict) for lookup, graphs and concept sets. '
     + 'A term reference is tried as a stable ID, then an exact alias, then scheme:slug; each term carries its key. '
@@ -57,8 +59,9 @@ export function createMcpServer(store: Store, options: { caller?: string; wordne
     inputSchema: z.object({ at, ...page }).strict(), annotations }, args => run(() => {
     const v = version(args.at); return { version: v, ...slice(store.schemes(v), args.offset, args.limit) };
   }));
-  server.registerTool('search_terms', { description: 'Case-insensitive substring search across labels, alternative labels, notations, aliases and source IRIs. Empty query browses terms. Each hit carries its iri and key (scheme:slug). Defaults to active and provisional terms; status=all includes retired terms. Set filters use expanded membership. Before propose_term, search a reference vocabulary (scheme loc-classification, or excludeScheme set to the target scheme) for a source.',
+  server.registerTool('search_terms', { description: 'Case-insensitive substring search across labels, alternative labels, notations, aliases and source IRIs. Empty query browses terms. Each hit carries its iri and key (scheme:slug). Defaults to active and provisional terms; status=all includes retired terms. Set filters use expanded membership. Before propose_term, search a reference vocabulary (scheme loc-classification, or excludeScheme set to the target scheme) for a source. linksTo finds the terms with an external reference (exactMatch, closeMatch…) to that IRI or under it: a Concept Clusters puzzle IRI also finds links to its clusters, terms and bridges.',
     inputSchema: z.object({ query: z.string().max(2000).default(''), scheme, excludeScheme: z.string().min(1).max(200).optional(), set: z.string().min(1).max(200).optional(),
+      linksTo: z.string().min(1).max(2000).optional().describe('An external IRI, e.g. urn:concept-clusters:puzzle:on-killing. Matches links to the IRI itself and to IRIs under it (#fragment or /path).'),
       status: z.enum(['active', 'provisional', 'retired', 'all']).optional(), at, ...page }).strict(), annotations }, args => run(() => {
     const v = version(args.at); requireScheme(args.scheme, v); requireScheme(args.excludeScheme, v);
     let terms = store.terms(args.scheme, v).filter(t => t.scheme !== args.excludeScheme);
@@ -67,20 +70,21 @@ export function createMcpServer(store: Store, options: { caller?: string; wordne
       if (args.scheme && expanded.set.scheme !== args.scheme) throw new DomainError(422, 'Set belongs to a different scheme.');
       const ids = new Set(expanded.terms.map(t => t.id)); terms = terms.filter(t => ids.has(t.id));
     }
-    const query = normalize(args.query.trim());
+    const query = normalize(args.query.trim()), linksTo = args.linksTo;
+    if (linksTo) terms = terms.filter(t => t.links.some(link => link.uri === linksTo || (link.uri.startsWith(linksTo) && /^[#/]/.test(link.uri.slice(linksTo.length)))));
     terms = terms.filter(t => (args.status === 'all' || (args.status ? t.status === args.status : t.status !== 'retired'))
       && [t.label, ...t.altLabels, ...t.notations.map(n => n.value), ...t.aliases, t.sourceUri ?? ''].some(value => normalize(value).includes(query)));
     const found = slice(terms, args.offset, args.limit), key = keyed(store.termKeys(v));
     return { version: v, ...found, items: found.items.map(t => ({ ...key(t), iri: termIri(t) })) };
   }));
-  server.registerTool('get_term', { description: 'Resolve a stable ID, exact alias or scheme:slug (e.g. human-work:conflict), including retired terms, replacements and all incoming/outgoing typed connections. The term carries its key (scheme:slug) for reuse. A link to an Open English WordNet synset (https://en-word.net/id/…) carries wordnet: the synset\'s words, part of speech and definition, or found=false when WordNet has no such synset; it is absent when the WordNet server cannot be reached.',
+  server.registerTool('get_term', { description: 'Resolve a stable ID, exact alias or scheme:slug (e.g. human-work:conflict), including retired terms, replacements and all incoming/outgoing typed connections. The term carries its key (scheme:slug) for reuse. A link to an Open English WordNet synset (https://en-word.net/id/…) carries wordnet: the synset\'s words, part of speech and definition, or found=false when WordNet has no such synset; it is absent when the WordNet server cannot be reached. A link to a Concept Clusters puzzle or one of its clusters, terms or bridges (urn:concept-clusters:puzzle:…) carries conceptClusters: the item\'s kind, label and fact or note, and the puzzle\'s title and public url, which an article can link to; found=false when the puzzle or item is no longer published.',
     inputSchema: z.object({ ref, at }).strict(), annotations }, args => run(async () => {
     const v = version(args.at), keys = store.termKeys(v), found = keys.resolve(args.ref), keyedTerm = keyed(keys)(found.term);
     const term = { ...keyedTerm, links: await Promise.all(keyedTerm.links.map(async link => {
-      const synset = await options.wordnet?.(link.uri);
-      if (!synset) return link;
-      const { uri: _uri, ...wordnet } = synset;
-      return { ...link, wordnet };
+      const [synset, item] = await Promise.all([options.wordnet?.(link.uri), options.conceptClusters?.(link.uri)]);
+      if (synset) { const { uri: _uri, ...wordnet } = synset; return { ...link, wordnet }; }
+      if (item) { const { uri: _uri, ...conceptClusters } = item; return { ...link, conceptClusters }; }
+      return link;
     })) };
     return noted({ version: v, term, connections: graphEdges(store.terms(undefined, v)).filter(edge => edge.from === term.id)
       .map(edge => ({ type: edge.type, target: edge.to })) }, [notice(args.ref, found)]);
@@ -92,6 +96,14 @@ export function createMcpServer(store: Store, options: { caller?: string; wordne
     const results = await options.wordnetSearch?.(args.word);
     if (!results) throw new DomainError(503, 'The WordNet server is unavailable or lookups are turned off.');
     return { word: args.word, results };
+  }));
+  server.registerTool('search_concept_clusters', { description: 'Find Concept Clusters puzzle content whose label contains a word or phrase (any case, at least 2 characters; e.g. "dehumanization" or "cruelty"): clusters, the terms on puzzle boards, and bridges between clusters. Each result has its uri (urn:concept-clusters:puzzle:<id>#<item>, the form links use), kind, label, fact or note, a term\'s cluster, and the puzzle\'s title and public url. Use it to find a puzzle that gives a concept further context, then cite or link the puzzle url; prefer a cluster when one fits. Read-only: links are added in the web editor. search_terms with linksTo finds the terms already linked to a puzzle.',
+    inputSchema: z.object({ text: z.string().trim().min(2).max(100) }).strict(),
+    // It asks Concept Clusters' published graphs, outside this vocabulary.
+    annotations: { ...annotations, openWorldHint: true } }, args => run(async () => {
+    const results = await options.conceptClustersSearch?.(args.text);
+    if (!results) throw new DomainError(503, 'The Concept Clusters graph server is unavailable or lookups are turned off.');
+    return { text: args.text, results };
   }));
   server.registerTool('get_graph', { description: 'Read active concept nodes and typed edges, optionally within a scheme/set or around a term (stable ID, alias or scheme:slug). Each concept carries its key. Depth (0–5) applies only with around. All four edge types are included unless types is supplied. Results over 200 nodes or 1000 directed edges require a narrower selection; nothing is silently dropped.',
     inputSchema: z.object({ scheme, set: z.string().min(1).max(200).optional(), around: ref.optional(),

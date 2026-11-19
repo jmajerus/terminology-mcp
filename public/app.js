@@ -246,7 +246,7 @@ function renderDetail() {
         <div class="relation-add" data-write><select id="relation-type" aria-label="Relation type"><option value="related">Related</option><option value="opposite">Opposite</option></select><select id="relation-target" class="target" aria-label="Related term"></select><button type="button" class="button small" id="add-relation">+ Link</button></div>
         <p class="help">Related connects terms across schemes. Opposite stays within this scheme.</p>
       </div>
-      <div class="section-line field"><span class="field-label">External references <span><button type="button" class="text-button" id="add-term-match" data-write>+ Term</button><button type="button" class="text-button" id="add-wordnet" data-write>+ WordNet</button><button type="button" class="text-button" id="add-link" data-write>+ Reference</button></span></span><div id="links" class="relations-list"></div><div id="incoming-links" class="relations-list"></div><p class="help">Link to an equivalent or closely matching concept in another vocabulary, or in another scheme here with + Term.</p></div>
+      <div class="section-line field"><span class="field-label">External references <span><button type="button" class="text-button" id="add-term-match" data-write>+ Term</button><button type="button" class="text-button" id="add-wordnet" data-write>+ WordNet</button><button type="button" class="text-button" id="add-puzzle" data-write>+ Puzzle</button><button type="button" class="text-button" id="add-link" data-write>+ Reference</button></span></span><div id="links" class="relations-list"></div><div id="incoming-links" class="relations-list"></div><p class="help">Link to an equivalent or closely matching concept in another vocabulary, or in another scheme here with + Term.</p></div>
       <div class="section-line field"><span class="field-label">Aliases</span><div class="alias-list">${term.aliases.map(alias => `<span class="alias">${escape(alias)}</span>`).join('') || '<span class="help">No aliases yet.</span>'}</div><p class="help">Historical names continue to resolve to this term.</p></div>
       ${collectionPanel(term)}<label class="field" data-write><span class="field-label">Change note <span class="help">optional</span></span><input id="reason" name="reason" maxlength="2000" placeholder="Why are you making this change?"></label>
       <p id="save-error" class="form-error" role="alert"></p>
@@ -281,6 +281,7 @@ function renderDetail() {
   $('#add-link').onclick = () => addLink({ uri: '', match: 'exactMatch' });
   $('#add-wordnet').onclick = () => openWordnet($('#label').value.trim());
   $('#add-term-match').onclick = () => openTermMatch($('#label').value.trim());
+  $('#add-puzzle').onclick = () => openPuzzle($('#label').value.trim());
   if (term.status === 'retired') {
     $('#new-child').disabled = true;
     $('#term-form').querySelectorAll('input,textarea,select,button').forEach(control => { control.disabled = true; });
@@ -389,6 +390,40 @@ $('#wordnet-results').onclick = event => {
   $('#wordnet-dialog').close();
   addLink({ uri: choice.dataset.uri, match: 'closeMatch' });
 };
+// The Concept Clusters picker: finds clusters, board terms and bridges by the words of their labels and facts
+// (the term's label to start) and adds the chosen one as a reference.
+let puzzleGeneration = 0;
+const ccKinds = { puzzle: 'Puzzle', cluster: 'Cluster', term: 'Term', bridge: 'Bridge', lens: 'Lens' };
+const clip = (text, n) => text.length > n ? text.slice(0, n) + '…' : text;
+function openPuzzle(text) {
+  $('#puzzle-text').value = text;
+  $('#puzzle-results').innerHTML = ''; $('#puzzle-status').textContent = '';
+  $('#puzzle-dialog').showModal();
+  if (text) searchPuzzles(text); else $('#puzzle-text').focus();
+}
+async function searchPuzzles(text) {
+  const generation = ++puzzleGeneration;
+  $('#puzzle-status').textContent = 'Searching…'; $('#puzzle-results').innerHTML = '';
+  let results = null;
+  try { ({ results } = await api(`concept-clusters/search?q=${encodeURIComponent(text)}`)); } catch { results = null; }
+  if (generation !== puzzleGeneration) return;
+  const linked = new Set([...document.querySelectorAll('.link-row input')].map(input => input.value.trim()));
+  $('#puzzle-status').textContent = results === null ? 'Concept Clusters\' graph server is unavailable. Try again later, or paste an IRI with + Reference.'
+    : results.length ? `${results.length === 40 ? 'The best 40' : results.length} match${results.length === 1 ? '' : 'es'} for “${text}”, closest first`
+    : `No cluster, term or bridge in Concept Clusters matches “${text}”. Try fewer or other words.`;
+  $('#puzzle-results').innerHTML = (results ?? []).map(item => `<button type="button" class="wordnet-result" data-uri="${escape(item.uri)}" ${linked.has(item.uri) ? 'disabled' : ''}>
+    <span class="wordnet-words">${escape(item.label)} <span class="relation-type">${escape(ccKinds[item.kind] ?? item.kind)}</span>${linked.has(item.uri) ? ' <span class="help">already linked</span>' : ''}</span>
+    <span class="help">${escape(item.puzzle.title)}${item.cluster ? ` · in ${escape(item.cluster.label)}` : ''}${item.relationKind ? ` · ${escape(item.relationKind)}` : ''}</span>
+    ${item.text ? `<span class="wordnet-definition">${escape(clip(item.text, 220))}</span>` : ''}</button>`).join('');
+}
+$('#puzzle-form').onsubmit = event => { event.preventDefault(); const text = $('#puzzle-text').value.trim(); if (text) searchPuzzles(text); };
+$('#close-puzzle').onclick = () => $('#puzzle-dialog').close();
+$('#puzzle-results').onclick = event => {
+  const choice = event.target.closest('.wordnet-result');
+  if (!choice || choice.disabled) return;
+  $('#puzzle-dialog').close();
+  addLink({ uri: choice.dataset.uri, match: $('#puzzle-match-type').value });
+};
 // Shows an Open English WordNet link's words, part of speech and definition under it. Display only: the term
 // has already loaded, and if the WordNet server can't answer the bare link stays as it is.
 async function describeLink(row) {
@@ -401,6 +436,19 @@ async function describeLink(row) {
     const self = local.id === selectedId;
     gloss.innerHTML = `<button type="button" class="text-button" data-pick="${escape(local.id)}">${escape(local.label)}</button> · ${escape(local.scheme)}${local.status === 'retired' ? ' · retired' : ''}${self ? ' · this term' : ''}`;
     gloss.classList.toggle('form-error', self);
+    gloss.hidden = false; return;
+  }
+  // A Concept Clusters link names its item and puzzle, and links to the puzzle on the player site.
+  if (uri.startsWith('urn:concept-clusters:puzzle:')) {
+    let item = null;
+    try { ({ item } = await api(`concept-clusters?uri=${encodeURIComponent(uri)}`)); } catch { return; }
+    if (!item || input.value.trim() !== uri) return;
+    if (!item.found) gloss.textContent = 'Concept Clusters doesn\'t publish this puzzle or item, or no longer does.';
+    else {
+      const what = item.kind === 'puzzle' ? '' : `${ccKinds[item.kind] ?? item.kind} “${escape(item.label ?? '')}” in `;
+      gloss.innerHTML = `${what}<a href="${escape(item.puzzle.url)}" target="_blank" rel="noopener noreferrer">${escape(item.puzzle.title)} ↗</a>${item.text ? `: ${escape(clip(item.text, 220))}` : ''}`;
+    }
+    gloss.classList.toggle('form-error', !item.found);
     gloss.hidden = false; return;
   }
   if (!uri.startsWith('https://en-word.net/id/')) return;

@@ -43,12 +43,13 @@ type Page<T> = { version: number; total: number; items: T[]; nextOffset: number 
 test('MCP discovery and search work over stateless HTTP with validated paging and snapshot versions', async t => {
   const { store, client, call, error } = await fixture(t), before = store.version;
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 15);
-  for (const tool of tools.filter(tool => !['propose_term', 'search_wordnet'].includes(tool.name)))
+  assert.equal(tools.length, 16);
+  for (const tool of tools.filter(tool => !['propose_term', 'search_wordnet', 'search_concept_clusters'].includes(tool.name)))
     assert.deepEqual(tool.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
   assert.equal(tools.find(tool => tool.name === 'propose_term')?.annotations?.readOnlyHint, false);
-  assert.deepEqual(tools.find(tool => tool.name === 'search_wordnet')?.annotations,
-    { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+  for (const name of ['search_wordnet', 'search_concept_clusters'])
+    assert.deepEqual(tools.find(tool => tool.name === name)?.annotations,
+      { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
   assert.ok(!tools.some(tool => /apply|edit|delete|create|import/.test(tool.name)));
   const first = await call<Page<Scheme>>('list_schemes', { limit: 1 });
   store.addScheme({ id: 'later', label: 'Later', hierarchy: 'poly' });

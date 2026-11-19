@@ -78,8 +78,10 @@ arguments. Unknown versions, schemes and sets produce explicit errors.
 | Tool | Purpose |
 |---|---|
 | `list_schemes` | List scheme definitions with their declared structure. |
-| `search_terms` | Browse/search labels, alternative labels, notation values, aliases and source IRIs. Filter by scheme (or `excludeScheme`), expanded set and/or status. Each hit carries its `iri` and `key`. |
-| `get_term` | Resolve a [term reference](#term-references); return fields (with `key`), replacements and connections in all four directions. |
+| `search_terms` | Browse/search labels, alternative labels, notation values, aliases and source IRIs. Filter by scheme (or `excludeScheme`), expanded set and/or status, or with `linksTo` to the terms with an external reference to an IRI or one under it (a Concept Clusters puzzle IRI also finds links to its clusters, terms and bridges). Each hit carries its `iri` and `key`. |
+| `get_term` | Resolve a [term reference](#term-references); return fields (with `key`), replacements and connections in all four directions. A WordNet link carries `wordnet` (words, part of speech, definition); a Concept Clusters link carries `conceptClusters` (kind, label, fact or note, and the puzzle's `title` and public `url`, for citing). Either is `found: false` when the source no longer has the item, and absent when its server can't be reached. |
+| `search_wordnet` | Open English WordNet synsets for a word or phrase (whole words), nouns first, to judge or suggest a WordNet close match. Read-only; links are added in the editor. |
+| `search_concept_clusters` | Concept Clusters clusters, board terms and bridges whose labels or facts share words with the text, best first, each with its puzzle's title and public `url`. Use it to find a puzzle that gives a concept further context, then cite or link the puzzle. Read-only; links are added in the editor. |
 | `get_graph` | Active nodes and typed edges within a scheme, set or neighbourhood. Supports `around` (any term reference), `depth` (0–5) and `types`. Each concept carries its `key`. |
 | `list_sets` | List collection definitions, optionally within a scheme. |
 | `get_set` | Get a collection definition by stable set ID. |
