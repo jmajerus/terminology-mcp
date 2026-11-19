@@ -114,3 +114,29 @@ test('the outline setting is offered only for concept graphs', async ({ page, re
   await page.locator('#save-scheme').click();
   await expect(page.locator('#scheme-error')).toHaveText('');
 });
+
+test('a pair both related and opposite shows both links, and a shared occurrence opens its links too', async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await request.post('/api/schemes', { data: { id: 'go-both', label: 'Both', hierarchy: 'poly' } });
+  const add = async (data: object) => (await (await request.post('/api/terms', { data: { scheme: 'go-both', status: 'active', ...data } })).json()).term;
+  const work = await add({ label: 'Work' });
+  const art = await add({ label: 'Art' });
+  const rival = await add({ label: 'Rival' });
+  await add({ label: 'Craft', broader: [work.id, art.id], relations: [{ type: 'related', target: rival.id }, { type: 'opposite', target: rival.id }] });
+
+  await page.goto('/?scheme=go-both');
+  await expect(page.locator('#scheme-shape')).toHaveText('⑃ polyhierarchy · 1 multi-parent · ⁂ 2 links');
+  await expect(page.locator('#scheme-shape')).toHaveAttribute('title', /1 related pair, 1 opposite pair/);
+  // Craft under Art (its first place) and under Work (shared): both offer its two links.
+  const craft = page.locator('#tree .tree-item:not(.link-item)').filter({ has: page.getByRole('button', { name: 'Craft', exact: true }) });
+  await expect(craft).toHaveCount(2);
+  await expect(craft.nth(1).locator('[data-shared-reference]')).toHaveCount(1);
+  await craft.nth(1).getByRole('button', { name: 'Show 2 related or opposite terms of Craft' }).click();
+  const links = page.locator('#tree .link-item');
+  await expect(links).toHaveCount(4);
+  await expect(links.locator('.tree-glyph')).toHaveText(['↔', '≠', '↔', '≠']);
+  await expect(links.locator('.tree-pick')).toHaveText(['Rival', 'Rival', 'Rival', 'Rival']);
+  await expect(links.nth(2)).toHaveAttribute('style', /padding-left:39px/); // under the shared occurrence, inside Work
+  expect(errors).toEqual([]);
+});

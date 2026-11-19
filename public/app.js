@@ -111,13 +111,14 @@ function renderTree() {
   const graph = scheme()?.hierarchy === 'graph';
   // A graph scheme can opt out of the outline: its concepts are listed A–Z, with no hierarchy drawn.
   const list = graph && scheme().outline === 'list';
-  // Related and opposite links, read from both ends, within this scheme.
+  // Related and opposite links, read from both ends, within this scheme. A pair can be both related and
+  // opposite, so each term keeps one entry per target and type.
   const links = new Map();
   for (const term of terms) for (const relation of term.relations ?? []) {
     if (!termMap.has(relation.target) || relation.target === term.id) continue;
     for (const [from, to] of [[term.id, relation.target], [relation.target, term.id]]) {
       if (!links.has(from)) links.set(from, new Map());
-      links.get(from).set(to, relation.type);
+      links.get(from).set(`${relation.type} ${to}`, { to, type: relation.type });
     }
   }
   renderShape(terms, termMap, childMap, links);
@@ -142,7 +143,7 @@ function renderTree() {
   // Related and opposite terms, opened by hand. Each is a link, not a narrower term; one already open
   // above it in this branch is shown once more as ↺ and goes no further, so a cycle ends there.
   const walkLinks = (term, level, path) => {
-    for (const [id, type] of links.get(term.id) ?? []) {
+    for (const { to: id, type } of links.get(term.id)?.values() ?? []) {
       if (full()) return;
       const other = termMap.get(id), cycle = path.has(id);
       const kind = type === 'opposite' ? 'Opposite' : 'Related';
@@ -165,11 +166,12 @@ function renderTree() {
       ${pick(term)}
       ${pendingFor(term.id).length ? `<span class="pending-mark" title="Not yet applied by ${escape(pendingFor(term.id).join(', '))}">pending</span>` : ''}
       ${parents.length ? `<span class="tree-badge" data-multi-parent title="${parents.length} broader terms (${escape(parents.join(', '))}). Its narrower terms are shown here, at its first place in the outline; elsewhere it appears as shared.">⑃<span class="sr-only"> ${parents.length} broader terms</span></span>` : ''}
-      ${shared ? '<span class="help" data-shared-reference title="Shared concept; its children appear at its first occurrence">shared</span>' : linksButton(term)}
+      ${shared ? '<span class="help" data-shared-reference title="Shared concept; its children appear at its first occurrence">shared</span>' : ''}
+      ${linksButton(term)}
       ${status(term)}</div>`);
-    if (shared) return;
+    // A shared occurrence leaves its narrower terms to the first one, but its links open here as everywhere.
     const inner = new Set([...path, term.id]);
-    if (open) children.forEach(child => walk(child, level + 1, inner));
+    if (open && !shared) children.forEach(child => walk(child, level + 1, inner));
     if (linksOpen.has(term.id)) walkLinks(term, level + 1, inner);
   };
   // In a concept graph, a concept with no broader or narrower term has no place in the hierarchy:
@@ -194,7 +196,7 @@ function renderShape(terms, termMap, childMap, links) {
   const broader = live.flatMap(term => term.broader.filter(id => ids.has(id)));
   const multi = live.filter(term => term.broader.filter(id => ids.has(id)).length > 1).length;
   const pairs = { related: 0, opposite: 0 };
-  for (const [from, targets] of links) if (ids.has(from)) for (const [to, type] of targets) if (ids.has(to) && from < to) pairs[type]++;
+  for (const [from, targets] of links) if (ids.has(from)) for (const { to, type } of targets.values()) if (ids.has(to) && from < to) pairs[type]++;
   const pairCount = pairs.related + pairs.opposite;
   const hasChildren = new Set(broader);
   const unplaced = scheme()?.hierarchy === 'graph' ? live.filter(term => !term.broader.some(id => ids.has(id)) && !hasChildren.has(term.id)).length : 0;
