@@ -68,7 +68,9 @@ longest path for hierarchy and replacement validation, regardless of input order
 paths with 500 edges are accepted, and longer ones are rejected.
 
 The outline expands each concept's descendants once. Repeated occurrences in
-a polyhierarchy are selectable shared references. Rendering stops at 5,000
+a polyhierarchy are selectable shared references. Concept graphs use the same
+outline, with related and opposite terms opened beside it and the marks
+described in [concept graphs](concept-graphs.md#the-outline). Rendering stops at 5,000
 rows with a prompt to filter, preventing a large graph from freezing the editor.
 
 Relations are explicit typed edges. `related` can cross schemes; `opposite`

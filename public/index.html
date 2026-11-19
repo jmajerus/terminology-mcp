@@ -25,12 +25,22 @@
       <label class="sr-only" for="scheme">Scheme</label>
       <select id="scheme"></select>
       <div class="outline-meta"><span id="scheme-kind"></span><span id="term-count"></span></div>
+      <p id="scheme-shape" class="scheme-shape"></p>
       <div id="scheme-notations" class="alias-list"></div>
       <div class="scheme-tools"><button id="import-scheme" class="text-button" data-write>Import SKOS…</button><a id="export-scheme" class="text-button" href="#">Export SKOS ↓</a></div>
       <div class="scheme-tools" data-write><button id="scheme-settings" class="text-button" hidden>Scheme settings</button></div>
       <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Filter terms…" autocomplete="off"><kbd>/</kbd></label>
       <p><a id="graph-view" class="text-button" href="/graph">Explore concept graph ↗</a></p><div class="tree-caption"><span>TERM</span><span>STATUS</span></div>
       <div id="tree" class="tree" aria-label="Terms"></div>
+      <details class="tree-legend"><summary>Key to the outline</summary><dl>
+        <dt>⑂ ⑃ ⁂ ○</dt><dd>The shape of the data, under the scheme name: a tree, a polyhierarchy, links between related or opposite terms, and concepts outside any hierarchy.</dd>
+        <dt>⑃</dt><dd>A term with several broader terms. The outline shows its narrower terms in one place it chose.</dd>
+        <dt>↗ shared</dt><dd>That term again, under another of its broader terms.</dd>
+        <dt>↔ n</dt><dd>Shows or hides a term's related and opposite terms.</dd>
+        <dt>↔ ≠</dt><dd>A related or an opposite term: an association, not a narrower term.</dd>
+        <dt>↺</dt><dd>A term already open above in this branch. The cycle stops here.</dd>
+        <dt>○ Unplaced</dt><dd>Concepts in a graph with no broader or narrower term.</dd>
+      </dl></details>
       <div class="outline-footer"><button id="new-root" class="button full" data-write>+ Top-level term</button><p>Stable IDs. Room to grow.</p></div>
     </aside>
     <section id="detail" class="detail" aria-label="Term editor"><div class="empty"><span class="empty-symbol">t.</span><h1>Your vocabulary starts here</h1><p>Create a scheme to give your terms a home.</p></div></section>

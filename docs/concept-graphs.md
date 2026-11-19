@@ -1,8 +1,10 @@
 # Concept graphs
 
 A concept scheme can be a **Tree**, **Polyhierarchy**, or **Concept graph**.
-Graph schemes use an alphabetical concept list rather than forcing the network
-into an outline. Concepts may be disconnected, share labels, have several
+In the editor's outline, a graph scheme is shown by its broader links, as a
+polyhierarchy is; concepts with no broader or narrower concept are listed
+apart under **○ Unplaced** rather than as top-level terms. Associative links are
+never turned into hierarchy (see [the outline](#the-outline)). Concepts may be disconnected, share labels, have several
 broader concepts, and participate in cycles of associative relationships.
 Broader/narrower links remain acyclic so narrower traversal and structural
 operations have a defined meaning. Stable IDs distinguish homonymous concepts.
@@ -24,6 +26,26 @@ Create a scheme and choose **Concept graph**, then add concepts without needing
 a root. The vocabulary editor shows each concept's broader, narrower, related,
 and opposite connections, including links stored on another concept. Following
 a connection opens that concept; **Explore graph** opens its neighbourhood.
+
+### The outline
+
+The outline shows only what the data says, and marks what it has to impose to
+draw the data as a list:
+
+| Mark | Meaning |
+| --- | --- |
+| ⑂ ⑃ ⁂ ○ (under the scheme name) | The shape of the scheme's active terms, whatever hierarchy it was declared with: ⑂ a tree, ⑃ a polyhierarchy with its count of terms that have several broader terms, ⁂ its count of related and opposite pairs, and ○ its count of unplaced concepts (graph schemes only). The tooltip gives the totals. |
+| ⑃ on a row | A term with several broader terms, at the one place the outline chose to show its narrower terms (its first occurrence). The tooltip names its broader terms. |
+| ↗ shared | The same term under another of its broader terms. |
+| ↔ *n* | Shows or hides the term's *n* related and opposite terms in this scheme. Related terms in other schemes are on the term page. |
+| ↔ / ≠ (italic rows) | A related or opposite term, shown beside the hierarchy: an association, not a narrower term. It can open its own links. |
+| ↺ | A term already open above in that branch. It is not opened again, so cycles of related terms end here. |
+| ○ Unplaced | In a graph scheme, the concepts with no broader or narrower concept. The group can be collapsed. |
+
+Opening a term's links opens them wherever the term appears. Every concept is
+reachable either through the hierarchy or under **○ Unplaced**, and every
+concept joined to one by a related or opposite link can be reached from it.
+**Key to the outline**, below the outline, repeats these marks.
 
 The **Concept graph** page (`/graph`) works with all scheme types. Search for a
 concept, select a node or connection, choose the traversal depth and relationship

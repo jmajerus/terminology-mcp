@@ -1,0 +1,75 @@
+import { test, expect } from '@playwright/test';
+
+test('a concept graph is outlined by its broader links, with what the outline imposes marked', async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await request.post('/api/schemes', { data: { id: 'go-graph', label: 'Outlined graph', hierarchy: 'graph' } });
+  const add = async (data: object) => (await (await request.post('/api/terms', { data: { scheme: 'go-graph', status: 'active', ...data } })).json()).term;
+  const work = await add({ label: 'Work' });
+  const art = await add({ label: 'Art' });
+  const labour = await add({ label: 'Labour', broader: [work.id] });
+  await add({ label: 'Craft', broader: [work.id, art.id] });
+  const control = await add({ label: 'Control', broader: [work.id] });
+  const fear = await add({ label: 'Fear', relations: [{ type: 'related', target: labour.id }] });
+  await add({ label: 'Trust', relations: [{ type: 'related', target: fear.id }, { type: 'opposite', target: control.id }] });
+
+  await page.goto('/?scheme=go-graph');
+  const tree = page.locator('#tree');
+  await expect(page.locator('#scheme-shape')).toHaveText('⑃ polyhierarchy · 1 multi-parent · ⁂ 3 links · ○ 2 unplaced');
+  await expect(page.locator('#scheme-shape')).toHaveAttribute('title', /7 active terms; 4 broader links, 1 term with several broader terms; 2 related pairs, 1 opposite pair; 2 concepts/);
+  const rows = tree.locator('.tree-item, .tree-group');
+  const text = async () => (await rows.allInnerTexts()).map(row => row.replace(/\s+/g, ' ').trim());
+  // The broader hierarchy as an outline (alphabetical, with screen-reader text). Craft has two broader terms:
+  // its first place is marked ⑃ and its second is a shared reference. Concepts outside the hierarchy come last.
+  expect(await text()).toEqual(['▾ Art active', '· Craft ⑃ 2 broader terms active', '▾ Work active', '· Control ↔ 1 active',
+    '↗ Craft shared active', '· Labour ↔ 1 active', '▾ ○ Unplaced · 2', '· Fear ↔ 2 active', '· Trust ↔ 2 active']);
+  await expect(tree.locator('[data-multi-parent]')).toHaveAttribute('title', /2 broader terms \(Work, Art\)/);
+
+  // Related and opposite terms open beside the hierarchy, marked as associations; a way back up the branch is a cycle.
+  await tree.getByRole('button', { name: 'Show 2 related or opposite terms of Trust' }).click();
+  await expect(tree.getByRole('button', { name: 'Hide 2 related or opposite terms of Trust' })).toBeFocused();
+  const links = tree.locator('.link-item');
+  await expect(links).toHaveCount(2);
+  await expect(links.nth(0)).toHaveAttribute('data-link-kind', 'related');
+  await expect(links.nth(0).locator('.tree-glyph')).toHaveText('↔'); await expect(links.nth(0).locator('.tree-pick')).toHaveText('Fear');
+  await expect(links.nth(1)).toHaveAttribute('data-link-kind', 'opposite');
+  await expect(links.nth(1).locator('.tree-glyph')).toHaveText('≠'); await expect(links.nth(1).locator('.tree-pick')).toHaveText('Control');
+  await links.nth(0).getByRole('button', { name: /Show 2 related or opposite terms of Fear/ }).click();
+  // Fear's links open wherever Fear appears, and each branch stops (↺) where it would lead back to a term
+  // already open above it. Rows read as level, glyph, label.
+  const linkRows = async () => links.evaluateAll(rows => rows.map(row =>
+    `${(parseInt((row as HTMLElement).style.paddingLeft) - 7) / 16} ${row.querySelector('.tree-glyph')!.textContent} ${row.querySelector('.tree-pick')!.textContent}`));
+  await expect.poll(linkRows).toEqual([
+    '1 ↔ Labour', '1 ↔ Trust', '2 ↺ Fear', '2 ≠ Control', // under Fear, in the Unplaced list; Trust's links are open too
+    '1 ↔ Fear', '2 ↔ Labour', '2 ↺ Trust', '1 ≠ Control']); // under Trust
+  const cycle = links.filter({ has: page.locator('.tree-glyph', { hasText: '↺' }) });
+  await expect(cycle.locator('[data-links]')).toHaveCount(0);
+
+  // A link row picks its term like any other row.
+  await links.nth(0).getByRole('button', { name: 'Labour', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Labour', exact: true })).toBeVisible();
+
+  await tree.getByRole('button', { name: 'Collapse unplaced concepts' }).click();
+  await expect(tree.getByRole('button', { name: 'Expand unplaced concepts' })).toBeFocused();
+  await expect(tree.getByRole('button', { name: 'Trust', exact: true })).toHaveCount(0);
+
+  // Filtering still finds an unplaced concept.
+  await page.locator('#search').fill('trus');
+  await expect(tree.getByRole('button', { name: 'Trust', exact: true })).toHaveCount(0);
+  await tree.getByRole('button', { name: 'Expand unplaced concepts' }).click();
+  await expect(tree.locator('.tree-item:not(.link-item)').getByRole('button', { name: 'Trust', exact: true })).toBeVisible();
+  await expect(tree.getByRole('button', { name: 'Work', exact: true })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('a tree scheme lists childless top-level terms in the outline, not as unplaced, and shows its shape', async ({ page, request }) => {
+  await request.post('/api/schemes', { data: { id: 'go-tree', label: 'Outlined tree', hierarchy: 'tree' } });
+  const add = async (data: object) => (await (await request.post('/api/terms', { data: { scheme: 'go-tree', status: 'active', ...data } })).json()).term;
+  const root = await add({ label: 'Root' });
+  await add({ label: 'Leaf', broader: [root.id] });
+  await add({ label: 'Alone' });
+  await page.goto('/?scheme=go-tree');
+  await expect(page.locator('#scheme-shape')).toHaveText('⑂ tree');
+  await expect(page.locator('#tree [data-unplaced-group]')).toHaveCount(0);
+  await expect(page.locator('#tree').getByRole('button', { name: 'Alone', exact: true })).toBeVisible();
+});
